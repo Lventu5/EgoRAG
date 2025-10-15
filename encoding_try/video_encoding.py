@@ -199,10 +199,10 @@ class MultiModalEncoder:
 
     def _encode_video(self):
         all_embeddings = []
-        for video_path in tqdm(self.video_files[0:1]):
+        for video_path in tqdm(self.video_files[0:1], desc="Encoding videos"):
             scenes = self._get_scenes(video_path)
             corpus_data = []
-            for i, (start, end) in enumerate(scenes):
+            for i, (start, end) in tqdm(enumerate(scenes), desc="Processing scenes"):
                 features = self.process_scene(video_path, start.get_seconds(), end.get_seconds())
                 if features:
                     features["scene_id"] = f"scene_{i}"
@@ -223,13 +223,16 @@ class MultiModalEncoder:
             video_inputs = self.video_processor(images=sampled_frames, return_tensors="pt")
 
             with torch.no_grad():
-                # ## <<< NECESSARY WORKAROUND: Bypass the broken .get_video_features()
-                # 1. Get the raw outputs from the vision model (it returns a tuple)
-                vision_outputs = self.video_model.vision_model(**video_inputs)
-                # 2. The pooled output is the second element of the tuple
-                pooled_output = vision_outputs[1]
-                # 3. Apply the final projection layer to get the true embedding
-                pooled_video_embedding = self.video_model.visual_projection(pooled_output)
+                dummy_text = ""
+                text_inputs = self.video_processor(text=dummy_text, return_tensors="pt")
+
+                outputs = self.video_model(
+                    pixel_values=video_inputs['pixel_values'],
+                    input_ids=text_inputs['input_ids'],
+                    attention_mask=text_inputs['attention_mask']
+                )
+
+                pooled_video_embedding = outputs.video_embeds
 
             with VideoFileClip(video_path) as video:
                 scene_clip = video.subclip(start_time, end_time)
@@ -238,7 +241,7 @@ class MultiModalEncoder:
                 token_inputs = self.token_processor(images=list(keyframes), return_tensors="pt")
                 token_embeddings = self.token_model.get_image_features(**token_inputs)
 
-                if scene_clip.audio is not None:
+                if scene_clip.duration > 0 and scene_clip.audio is not None:
                     audio_array = scene_clip.audio.to_soundarray(fps=48000)
                     audio_inputs = self.audio_processor(audios=audio_array, sampling_rate=48000, return_tensors="pt")
                     audio_embedding = self.audio_model.get_audio_features(**audio_inputs)
@@ -271,7 +274,11 @@ class MultiModalEncoder:
 if __name__ == "__main__":
     encoder = MultiModalEncoder()
     encoder._load_videos()
+    # SKIP for now longest video
+    encoder.video_files = [f for f in encoder.video_files if "animals" not in f]
+    print(f"Found {len(encoder.video_files)} video(s) in '{encoder.video_path}': {encoder.video_files}")
     encoder._load_model()
+    print("Models loaded successfully.")
     video_embeddings = encoder._encode_video()
     
     if video_embeddings and video_embeddings[0]:
