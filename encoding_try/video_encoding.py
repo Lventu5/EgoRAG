@@ -1,151 +1,3 @@
-# import scenedetect
-# import torch
-# import os.path as osp
-# import os
-# from pathlib import Path
-# import numpy as np
-# import torch
-# from torch.utils.data import Dataset
-# import torch.nn as nn
-# import torch.nn.functional as F
-# import glob
-# from tqdm import tqdm
-# from transformers import AutoModel, AutoProcessor, XCLIPModel, XCLIPProcessor
-# import whisper
-# from sentence_transformers import SentenceTransformer
-# import librosa
-# from moviepy.editor import VideoFileClip
-# from scenedetect import VideoManager, SceneManager
-# from scenedetect import ContentDetector, detect
-# from decord import VideoReader, cpu
-
-
-# class MultiModalEncoder:
-#     def __init__(
-#         self, 
-#         video_path: str = "../../data/", 
-#         video_encoder: str = "microsoft/xclip-large-patch14",
-#         audio_encoder: str = "laion/clap-htsat-unfused",
-#         image_encoder: str = "openai/clip-vit-large-patch14",
-#         text_encoder: str = "all-MiniLM-L6-v2",
-#         device='cpu'
-#     ):
-#         self.device = device
-#         self.video_encoder = video_encoder
-#         self.audio_encoder = audio_encoder
-#         self.image_encoder = image_encoder
-#         self.text_encoder = text_encoder
-#         self.video_path = video_path
-
-#     def _load_videos(self):
-#         video_files = []
-#         for file in Path(self.video_path).glob("*.mp4"):
-#             video_files.append(str(file))
-#         self.video_files = video_files
-    
-#     def _load_model(self):
-#         # Video
-#         self.video_processor = XCLIPProcessor.from_pretrained(self.video_encoder)
-#         self.video_model = XCLIPModel.from_pretrained(self.video_encoder)
-#         self.video_model.vision_model.config.return_dict = True
-#         # Visual (Image/Tokens)
-#         self.token_processor = AutoProcessor.from_pretrained(self.image_encoder)
-#         self.token_model = AutoModel.from_pretrained(self.image_encoder)
-#         # Audio
-#         self.audio_model = AutoModel.from_pretrained(self.audio_encoder)
-#         self.audio_processor = AutoProcessor.from_pretrained(self.audio_encoder)
-#         # Text
-#         self.asr_model = whisper.load_model("base")
-#         self.text_embedder = SentenceTransformer(self.text_encoder)
-
-#     def _encode_video(self):
-#         all_embeddings = []
-#         for video_path in self.video_files[0:1]:
-#             scenes = self._get_scenes(video_path)
-#             corpus_data = []
-#             for i, (start, end) in tqdm(enumerate(scenes)):
-#                 features = self.process_scene(video_path, start.get_seconds(), end.get_seconds())
-#                 features["scene_id"] = f"scene_{i}"
-#                 features["timestamp"] = (start.get_seconds(), end.get_seconds())
-#                 corpus_data.append(features)
-#             all_embeddings.append(corpus_data)
-#         return all_embeddings
-
-#     def process_scene(self, video_path, start_time, end_time):
-#         # Use moviepy to cut the scene clip
-#         with VideoFileClip(video_path) as video:
-#             scene_clip = video.subclip(start_time, end_time)
-        
-#             # This part is crucial: we need a list of frames (NumPy arrays)
-#             # We also need to ensure the number of frames is consistent for the model
-#             # XCLIP often expects a fixed number of frames (e.g., 8 or 16)
-#             # Here we'll just subsample to get 8 frames for this example
-#             frames = [frame for frame in scene_clip.iter_frames()]
-
-#             frame_indices = np.linspace(0, len(frames) - 1, num=8, dtype=int)
-#             sampled_frames = [frames[i] for i in frame_indices]
-#             sampled_frames = [
-#                 np.ascontiguousarray((f * 255).astype(np.uint8)) if f.dtype != np.uint8 else np.ascontiguousarray(f)
-#                 for f in sampled_frames
-#             ]
-
-#             # The processor takes the list of frames and prepares them
-#             video_inputs = self.video_processor(images=sampled_frames, return_tensors="pt")
-            
-#             # The output of the processor is a dictionary. It contains the key 'pixel_values'.
-#             # We call the model directly with these inputs.
-#             with torch.no_grad():
-#                 pooled_video_embedding = self.video_model.get_video_features(**video_inputs)
-            
-#             # The model's output is an object. The features are in 'last_hidden_state'.
-#             # To get a single vector, we perform mean pooling.
-#             last_hidden_state = pooled_video_embedding.last_hidden_state
-#             pooled_video_embedding = last_hidden_state.mean(dim=[1, 2]) # Pool across frames and patches
-#             # 2. Visual Token Embeddings (for reranking)
-#             keyframes = [scene_clip.get_frame(t) for t in [0.25, 0.5, 0.75]] # 3 keyframes
-#             token_inputs = self.token_processor(images=keyframes, return_tensors="pt")
-#             # Don't pool! Keep the patch embeddings.
-#             token_embeddings = self.token_model.get_image_features(**token_inputs, output_hidden_states=True).hidden_states[-1][:, 1:, :] # (batch, num_patches, dim)
-
-#             # 3. Audio Embedding
-#             audio_array = scene_clip.audio.to_soundarray(fps=48000)
-#             audio_inputs = self.audio_processor(audios=audio_array, sampling_rate=48000, return_tensors="pt")
-#             audio_embedding = self.audio_model.get_audio_features(**audio_inputs)
-
-#             # 4. Text Representations
-#             temp_audio_path = "temp_audio.wav"
-#             scene_clip.audio.write_audiofile(temp_audio_path)
-#             transcript = self.asr_model.transcribe(temp_audio_path)["text"]
-#             dense_text_embedding = self.text_embedder.encode(transcript)
-
-#             return {
-#                 "pooled_video": pooled_video_embedding.detach().numpy(),
-#                 "visual_tokens": token_embeddings.squeeze().detach().numpy(),
-#                 "audio": audio_embedding.detach().numpy(),
-#                 "transcript": transcript,
-#                 "dense_text": dense_text_embedding
-#             }
-        
-#     def _get_scenes(self, video_path):
-#         scene_list = detect(video_path, ContentDetector())
-#         return scene_list
-        
-
-# if __name__ == "__main__":
-#     encoder = MultiModalEncoder()
-#     encoder._load_videos()
-#     encoder._load_model()
-#     video_embeddings = encoder._encode_video()
-#     print(video_embeddings[0][0]["pooled_video"].shape)
-#     print(video_embeddings[0][0]["visual_tokens"].shape)
-#     print(video_embeddings[0][0]["audio"].shape)
-#     print(video_embeddings[0][0]["transcript"])
-#     print(video_embeddings[0][0]["dense_text"].shape)
-
-#     sentence = "The tennis player won the tournament"
-#     text_embeddings = encoder.text_embedder.encode(sentence, convert_to_tensor=True)
-#     print(text_embeddings.shape)
-
 import scenedetect
 import torch
 import os.path as osp
@@ -159,6 +11,10 @@ from sentence_transformers import SentenceTransformer
 from moviepy.editor import VideoFileClip
 from scenedetect import detect, ContentDetector
 from decord import VideoReader, cpu
+import logging
+import librosa
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 
 class MultiModalEncoder:
     def __init__(
@@ -168,9 +24,12 @@ class MultiModalEncoder:
         audio_encoder: str = "laion/clap-htsat-unfused",
         image_encoder: str = "openai/clip-vit-large-patch14",
         text_encoder: str = "all-MiniLM-L6-v2",
-        device='cpu'
+        device='cuda'
     ):
         self.device = device
+        if self.device == "cuda" and not torch.cuda.is_available():
+            self.device = "cpu"
+            logging.warning("CUDA not available, switching to CPU.")
         self.video_encoder = video_encoder
         self.audio_encoder = audio_encoder
         self.image_encoder = image_encoder
@@ -184,30 +43,65 @@ class MultiModalEncoder:
         self.video_files = video_files
 
     def _load_model(self):
-        # Video
-        self.video_processor = XCLIPProcessor.from_pretrained(self.video_encoder)
-        self.video_model = XCLIPModel.from_pretrained(self.video_encoder)
-        # Visual (Image/Tokens)
-        self.token_processor = AutoProcessor.from_pretrained(self.image_encoder)
-        self.token_model = AutoModel.from_pretrained(self.image_encoder)
-        # Audio
-        self.audio_model = AutoModel.from_pretrained(self.audio_encoder)
-        self.audio_processor = AutoProcessor.from_pretrained(self.audio_encoder)
-        # Text
-        self.asr_model = whisper.load_model("base")
-        self.text_embedder = SentenceTransformer(self.text_encoder)
+        from datetime import datetime
+        stages = [
+            ("Video", "microsoft/xclip-large-patch14", XCLIPProcessor, XCLIPModel),
+            ("Image", "openai/clip-vit-large-patch14", AutoProcessor, AutoModel),
+            ("Audio", "laion/clap-htsat-unfused", AutoProcessor, AutoModel),
+            ("Text (Whisper)", "whisper", None, whisper),
+            ("Text (SentenceTransformer)", "all-MiniLM-L6-v2", None, SentenceTransformer),
+        ]
+
+        print("🔹 Loading models:")
+        pbar = tqdm(stages, desc="Initializing encoders", ncols=100)
+
+        for name, model_id, proc_class, model_class in pbar:
+            start = time.time()
+            pbar.set_description(f"Loading {name} model")
+            if name == "Video":
+                self.video_processor = proc_class.from_pretrained(model_id)
+                self.video_model = model_class.from_pretrained(model_id).to(self.device)
+            elif name == "Image":
+                self.token_processor = proc_class.from_pretrained(model_id)
+                self.token_model = model_class.from_pretrained(model_id).to(self.device)
+            elif name == "Audio":
+                self.audio_processor = proc_class.from_pretrained(model_id)
+                self.audio_model = model_class.from_pretrained(model_id).to(self.device)
+            elif name == "Text (Whisper)":
+                self.asr_model = model_class.load_model("base").to(self.device)
+            elif name == "Text (SentenceTransformer)":
+                self.text_embedder = model_class(model_id)
+
+            end = time.time()
+            print(f"{name} loaded in {end - start:.2f}s at {datetime.now().strftime('%H:%M:%S')}")
+
+        print("All models loaded successfully!")
+
 
     def _encode_video(self):
         all_embeddings = []
         for video_path in tqdm(self.video_files[0:1], desc="Encoding videos"):
             scenes = self._get_scenes(video_path)
             corpus_data = []
-            for i, (start, end) in tqdm(enumerate(scenes), desc="Processing scenes"):
-                features = self.process_scene(video_path, start.get_seconds(), end.get_seconds())
-                if features:
-                    features["scene_id"] = f"scene_{i}"
-                    features["timestamp"] = (start.get_seconds(), end.get_seconds())
-                    corpus_data.append(features)
+            logging.info(f"Processing {len(scenes)} scenes in video: {video_path} on device: {self.device}")
+
+            with ThreadPoolExecutor(max_workers = min(8, os.cpu_count())) as executor:
+                futures = {
+                    executor.submit(self.process_scene, video_path, start.get_seconds(), end.get_seconds()): i
+                    for i, (start, end) in enumerate(scenes)
+                }
+                for f in tqdm(as_completed(futures), total = len(futures), desc = "Scenes processed"):
+                    i = futures[f]
+                    try:
+                        res = f.result()
+                        if res:
+                            res["scene_id"] = f"scene_{i}"
+                            corpus_data.append(res)
+                            logging.info(f"[COMPLETED] Scene {i}")
+                        else:
+                            logging.warning(f"[SKIP] Scene {i}")
+                    except Exception as e:
+                        logging.error(f"[ERROR] Scene {i} processing failed: {e}")
             all_embeddings.append(corpus_data)
         return all_embeddings
 
@@ -220,11 +114,11 @@ class MultiModalEncoder:
             
             frames_batch = vr.get_batch(frame_indices).asnumpy()
             sampled_frames = [frame for frame in frames_batch]
-            video_inputs = self.video_processor(images=sampled_frames, return_tensors="pt")
+            video_inputs = self.video_processor(images=sampled_frames, return_tensors="pt").to(self.device)
 
-            with torch.no_grad():
+            with torch.inference_mode():
                 dummy_text = ""
-                text_inputs = self.video_processor(text=dummy_text, return_tensors="pt")
+                text_inputs = self.video_processor(text=dummy_text, return_tensors="pt").to(self.device)
 
                 outputs = self.video_model(
                     pixel_values=video_inputs['pixel_values'],
@@ -238,16 +132,19 @@ class MultiModalEncoder:
                 scene_clip = video.subclip(start_time, end_time)
                 keyframe_indices = np.linspace(start_frame, end_frame - 1, num=3, dtype=int)
                 keyframes = vr.get_batch(keyframe_indices).asnumpy()
-                token_inputs = self.token_processor(images=list(keyframes), return_tensors="pt")
+                token_inputs = self.token_processor(images=list(keyframes), return_tensors="pt").to(self.device)
                 token_embeddings = self.token_model.get_image_features(**token_inputs)
 
                 if scene_clip.duration > 0 and scene_clip.audio is not None:
-                    audio_array = scene_clip.audio.to_soundarray(fps=48000)
-                    audio_inputs = self.audio_processor(audios=audio_array, sampling_rate=48000, return_tensors="pt")
+                    temp_audio_path = "temp_audio.wav"
+                    scene_clip.audio.write_audiofile(temp_audio_path, fps=48000, logger=None)
+                    audio_array, _ = librosa.load(temp_audio_path, sr=48000, mono=True)
+                    os.remove(temp_audio_path)
+                    audio_inputs = self.audio_processor(audio=audio_array, sampling_rate=48000, return_tensors="pt").to(self.device)
                     audio_embedding = self.audio_model.get_audio_features(**audio_inputs)
                     temp_audio_path = "temp_audio.wav"
                     scene_clip.audio.write_audiofile(temp_audio_path, logger=None)
-                    transcript = self.asr_model.transcribe(temp_audio_path)["text"]
+                    transcript = self.asr_model.transcribe(temp_audio_path, fp16 = True, language = "en", device = self.device)["text"]
                     dense_text_embedding = self.text_embedder.encode(transcript)
                     os.remove(temp_audio_path)
                 else:
@@ -263,7 +160,7 @@ class MultiModalEncoder:
                 "dense_text": dense_text_embedding
             }
         except Exception as e:
-            print(f"\n--- ERROR processing scene from {start_time:.2f}s to {end_time:.2f}s ---")
+            logging.error(f"\n--- ERROR processing scene from {start_time:.2f}s to {end_time:.2f}s ---")
             import traceback
             traceback.print_exc()
             return None
@@ -276,19 +173,18 @@ if __name__ == "__main__":
     encoder._load_videos()
     # SKIP for now longest video
     encoder.video_files = [f for f in encoder.video_files if "animals" not in f]
-    print(f"Found {len(encoder.video_files)} video(s) in '{encoder.video_path}': {encoder.video_files}")
+    logging.info(f"Found {len(encoder.video_files)} video(s) in '{encoder.video_path}': {encoder.video_files}")
     encoder._load_model()
-    print("Models loaded successfully.")
+    logging.info("Models loaded successfully.")
     video_embeddings = encoder._encode_video()
     
     if video_embeddings and video_embeddings[0]:
-        print("\n" + "="*50)
-        print("--- ✅ SUCCESS! ---")
-        print("Pooled video embedding shape:", video_embeddings[0][0]["pooled_video"].shape)
-        print("Visual tokens embedding shape:", video_embeddings[0][0]["visual_tokens"].shape)
-        print("Audio embedding shape:", video_embeddings[0][0]["audio"].shape)
-        print("Transcript:", f"'{video_embeddings[0][0]['transcript']}'")
-        print("Dense text embedding shape:", video_embeddings[0][0]["dense_text"].shape)
-        print("="*50 + "\n")
+        logging.info("--- SUCCESS ---")
+        logging.info("Pooled video embedding shape: %s", video_embeddings[0][0]["pooled_video"].shape)
+        logging.info("Visual tokens embedding shape: %s", video_embeddings[0][0]["visual_tokens"].shape)
+        logging.info("Audio embedding shape: %s", video_embeddings[0][0]["audio"].shape)
+        logging.info("Transcript: '%s'", video_embeddings[0][0]["transcript"])
+        logging.info("Dense text embedding shape: %s", video_embeddings[0][0]["dense_text"].shape)
+        logging.info("="*50 + "\n")
     else:
-        print("\n--- ❌ ERROR: No embeddings were generated. Check the error messages above. ---")
+        logging.error("--- ERROR: No embeddings were generated. Check the error messages above. ---")
