@@ -1,61 +1,55 @@
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 import os
-from pathlib import Path
+from typing import Dict, List
+import numpy as np
 import cv2
 
-class VideoDataPoint():
+
+class Scene:
+    def __init__(self, start_time: float, end_time: float, frames: List[int] | None = None):
+        self.start_time = start_time
+        self.end_time = end_time
+        self.frames = frames or []
+
+
+class VideoDataPoint:
     def __init__(
-        self, 
-        video_path: str, 
-        scenes_list: list | None = None,
-        video_embeddings: dict[str, torch.Tensor] | None = None,
-        audio_embeddings: dict[str, torch.Tensor] | None = None,
-        image_embeddings: dict[str, torch.Tensor] | None = None,
-        text_embeddings: dict[str, torch.Tensor] | None = None,
-    ):
+            self, 
+            video_path: str, 
+            scenes: List[Scene] | None = None
+        ):
         self.video_path = video_path
         self.video_name = os.path.basename(video_path)
-        self.scenes_list = scenes_list
-        self.video_embeddings = video_embeddings or dict()
-        self.audio_embeddings = audio_embeddings or dict()
-        self.image_embeddings = image_embeddings or dict()
-        self.text_embeddings = text_embeddings or dict()
-    
-    def get_frames(
-        self,
-        every_n_frames: int = 1, 
-        max_frames: int | None = None,
-    )-> list[np.ndarray]:
-    
-        cap = cv2.VideoCapture(str(self.video_path))
-        if not cap.isOpened():
-            raise IOError(f"Impossibile aprire il video: {self.video_path}")
+        self.scenes = scenes or []
 
-        frames = []
-        frame_idx = 0
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            if frame_idx % every_n_frames == 0:
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frames.append(frame_rgb)
-            if max_frames and len(frames) >= max_frames:
-                break
-            frame_idx += 1
-        cap.release()
-        return frames
+        self.global_embeddings: Dict[str, torch.Tensor | None] = {
+            "video": None,
+            "audio": None,
+            "text": None
+        }
 
-    
+        # scene-level embeddings
+        self.scene_embeddings: Dict[str, Dict] = {} 
+
+        for i, _ in enumerate(self.scenes):
+            self.scene_embeddings[f"scene_{i}"] = {
+                "video": None,
+                "audio": None,
+                "text": None,
+                "image": {}
+            }
+            
 
 class VideoDataset(Dataset):
-    def __init__(self, video_files):
+    def __init__(self, video_files: List[str], scenes_per_video: Dict[str, List[Scene]] | None = None):
         self.video_files = video_files
+        self.scenes_per_video = scenes_per_video or {}
 
     def __len__(self):
         return len(self.video_files)
 
     def __getitem__(self, idx):
         video_file = self.video_files[idx]
-        return video_file
+        scenes = self.scenes_per_video.get(video_file, [])
+        return VideoDataPoint(video_file, scenes)
