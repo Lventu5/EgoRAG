@@ -1,307 +1,373 @@
-import scenedetect
-import torch
-import os.path as osp
 import os
-from pathlib import Path
+import cv2
+import torch
+import torch.nn as nn
 import numpy as np
-from tqdm import tqdm
-from transformers import AutoModel, AutoProcessor, XCLIPModel, XCLIPProcessor
-import whisper
-from sentence_transformers import SentenceTransformer
-from moviepy.editor import VideoFileClip, concatenate_videoclips, ColorClip, AudioClip, AudioFileClip
-from scenedetect import detect, ContentDetector
-from decord import VideoReader, cpu
-import logging
 import librosa
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import time
+import logging
 import tempfile
-import threading
-from utils.logging_formatter import LevelAwareFormatter
-import subprocess
-import torch.nn.functional as F
-from transformers import logging as hf_logging
-from data.dataclass import SceneClip
+from tqdm import tqdm
+from decord import VideoReader, cpu
+from sklearn.cluster import KMeans
+from moviepy.editor import VideoFileClip
+from transformers import AutoModel, AutoProcessor, XCLIPModel, XCLIPProcessor
+from sentence_transformers import SentenceTransformer
+from scenedetect import detect, ContentDetector
+import whisper
 
-# Configure logging
+from video_dataset import VideoDataset, VideoDataPoint, Scene
+from utils.logging_formatter import LevelAwareFormatter
+from transformers import logging as hf_logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 handler = logging.StreamHandler()
 handler.setFormatter(LevelAwareFormatter())
 logging.basicConfig(
     level=logging.INFO,
     handlers=[handler],
 )
-hf_logging.set_verbosity_error()  
-hf_logging.disable_progress_bar() 
+hf_logging.set_verbosity_error()
+hf_logging.disable_progress_bar()
+
 
 class MultiModalEncoder:
+
     def __init__(
         self,
-        video_path: str = "../../data/",
-        video_encoder: str = "microsoft/xclip-large-patch14",
-        audio_encoder: str = "laion/clap-htsat-unfused",
-        image_encoder: str = "openai/clip-vit-large-patch14",
-        text_encoder: str = "all-MiniLM-L6-v2",
-        device: str ='cuda'
+        video_dataset: VideoDataset,
+        device: str = "cuda",
+        max_frames_per_scene: int = 96,
+        max_temporal_segments: int = 8
     ):
-        self.device = device
-        if self.device == "cuda" and not torch.cuda.is_available():
-            self.device = "cpu"
-            logging.warning("CUDA not available, switching to CPU.")
-        else:
-            logging.info(f"Using device: {self.device}")
-        self.video_encoder = video_encoder
-        self.audio_encoder = audio_encoder
-        self.image_encoder = image_encoder
-        self.text_encoder = text_encoder
-        self.video_path = video_path
-        self._load_videos()
-
-    def _load_videos(self):
-        video_files = []
-        for file in Path(self.video_path).glob("*.mp4"):
-            video_files.append(str(file))
-        self.video_files = video_files
-
-    def load_model(self):
-        stages = [
-            ("Video", "microsoft/xclip-large-patch14", XCLIPProcessor, XCLIPModel),
-            ("Image", "openai/clip-vit-large-patch14", AutoProcessor, AutoModel),
-            ("Audio", "laion/clap-htsat-unfused", AutoProcessor, AutoModel),
-            ("Text (Whisper)", "whisper", None, whisper),
-            ("Text (SentenceTransformer)", "all-MiniLM-L6-v2", None, SentenceTransformer),
-        ]
-        logging.info("Loading models:")
-        for name, model_id, proc_class, model_class in stages:
-            if name == "Video":
-                self.video_processor = proc_class.from_pretrained(model_id)
-                self.video_model = model_class.from_pretrained(model_id).to(self.device)
-            elif name == "Image":
-                self.token_processor = proc_class.from_pretrained(model_id)
-                self.token_model = model_class.from_pretrained(model_id).to(self.device)
-                self.token_model = self.token_model.to(dtype=torch.float16)
-            elif name == "Audio":
-                self.audio_processor = proc_class.from_pretrained(model_id)
-                self.audio_model = model_class.from_pretrained(model_id).to(self.device)
-            elif name == "Text (Whisper)":
-                self.asr_model = model_class.load_model("base").to(self.device)
-            elif name == "Text (SentenceTransformer)":
-                self.text_embedder = model_class(model_id)
-
-        logging.info("All models loaded successfully!")
+        if video_dataset is None or len(video_dataset) == 0:
+            raise ValueError("Video dataset is empty or not provided.")
+        self.dataset = video_dataset
+        self.device = device if torch.cuda.is_available() else "cpu"
+        self.max_frames_per_scene = max_frames_per_scene
+        self.max_temporal_segments = max_temporal_segments
+        logging.info(f"[DEVICE] Using: {self.device}")
 
 
-    def _encode_videos(self):
-        all_embeddings = []
-        for video_path in tqdm(self.video_files, desc="Encoding videos"):
-            scenes = self._get_scenes(video_path)
-            corpus_data = []
-            logging.info(f"Processing {len(scenes)} scenes in video: {video_path} on device: {self.device}")
+    def load_models(self):
+        logging.info("[MODELS] Loading...")
 
-            with ThreadPoolExecutor(max_workers = min(4, os.cpu_count())) as executor:
-                futures = {
-                    executor.submit(self.process_scene, video_path, start.get_seconds(), end.get_seconds()): i
-                    for i, (start, end) in enumerate(scenes)
-                }
-                for f in tqdm(as_completed(futures), total = len(futures), desc = "Scenes processed"):
-                    i = futures[f]
+        self.video_processor = XCLIPProcessor.from_pretrained("microsoft/xclip-large-patch14", local_files_only=True)
+        self.video_model = XCLIPModel.from_pretrained("microsoft/xclip-large-patch14", local_files_only=True).to(self.device)
+
+        self.image_processor = AutoProcessor.from_pretrained("openai/clip-vit-large-patch14-336", local_files_only=True)
+        self.image_model = AutoModel.from_pretrained("openai/clip-vit-large-patch14-336", local_files_only=True).to(self.device)
+
+        self.audio_processor = AutoProcessor.from_pretrained("laion/clap-htsat-unfused", local_files_only=True)
+        self.audio_model = AutoModel.from_pretrained("laion/clap-htsat-unfused", local_files_only=True).to(self.device)
+
+        self.asr_model = whisper.load_model("base").to(self.device)
+        self.text_embedder = SentenceTransformer("all-MiniLM-L6-v2", local_files_only=True).to(self.device)
+
+        logging.info("[MODELS] Loaded successfully.")
+
+
+    def encode_videos(self):
+        for dp in tqdm(self.dataset.video_datapoints, desc="Encoding videos"):
+            logging.info(f"\n=== VIDEO: {dp.video_name} ===")
+
+            self._extract_scenes(dp)
+            if not dp.scenes:
+                logging.warning(f"[WARN] Nessuna scena trovata in {dp.video_name}, skip.")
+                continue
+            else:
+                logging.info(f"[INFO] {len(dp.scenes)} scene trovate in {dp.video_name}.")
+
+            scene_embeds_video, scene_embeds_audio, scene_embeds_text = [], [], []
+
+            max_workers = min(4, os.cpu_count() or 2)
+            futures = {}
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                for i, scene in enumerate(dp.scenes):
+                    logging.info(f"[SCENE] Encoding scena {i}: frames {scene.start_frame}-{scene.end_frame}, time {scene.start_time:.2f}-{scene.end_time:.2f}s")
+                    sid = f"scene_{i}"
+                    futures[executor.submit(self._encode_scene, dp.video_path, scene)] = sid
+
+                for f in tqdm(as_completed(futures), total=len(futures), desc=f"Scenes ({dp.video_name})"):
+                    sid = futures[f]
                     try:
-                        res = f.result()
-                        if res:
-                            res["scene_id"] = f"scene_{i}"
-                            corpus_data.append(res)
+                        scene_out = f.result()
+                        if scene_out:
+                            dp.scene_embeddings[sid] = scene_out
+                            scene_embeds_video.append(scene_out["video"])
+                            scene_embeds_audio.append(scene_out["audio"])
+                            scene_embeds_text.append(scene_out["text"])
                         else:
-                            logging.warning(f"[SKIP] Scene {i} didn't return anything")
+                            logging.warning(f"[SKIP] scena {sid} vuota.")
                     except Exception as e:
-                        logging.error(f"[ERROR] Scene {i} processing failed: {e}")
-            all_embeddings.append(corpus_data)
-        return all_embeddings
+                        logging.error(f"[ERROR] scena {sid} fallita: {e}")
 
-    def process_scene(self, video_path, start_time, end_time):
-        try:
-            vr = VideoReader(video_path, ctx=cpu(0))
-            fps = vr.get_avg_fps()
-            start_frame, end_frame = int(start_time * fps), int(end_time * fps)
-            frame_indices = np.linspace(start_frame, end_frame - 1, num=8, dtype=int)
-            
-            frames_batch = vr.get_batch(frame_indices).asnumpy()
-            sampled_frames = [frame for frame in frames_batch]
-            video_inputs = self.video_processor(images=sampled_frames, return_tensors="pt").to(self.device)
+            if scene_embeds_video:
+                dp.global_embeddings["video"] = torch.stack(scene_embeds_video).mean(dim=0)
+            if scene_embeds_audio:
+                dp.global_embeddings["audio"] = torch.stack(scene_embeds_audio).mean(dim=0)
+            if scene_embeds_text:
+                dp.global_embeddings["text"] = torch.stack(scene_embeds_text).mean(dim=0)
 
-            with torch.inference_mode():
-                dummy_text = ""
-                text_inputs = self.video_processor(text=dummy_text, return_tensors="pt").to(self.device)
+        return self.dataset
 
-                outputs = self.video_model(
-                    pixel_values=video_inputs['pixel_values'],
-                    input_ids=text_inputs['input_ids'],
-                    attention_mask=text_inputs['attention_mask']
+
+    def _extract_scenes(self, dp: VideoDataPoint):
+        scene_list = detect(dp.video_path, ContentDetector())
+        dp.scenes = []
+        for start, end in scene_list:
+            dp.scenes.append(
+                Scene(
+                    start_time=start.get_seconds(),
+                    end_time=end.get_seconds(),
+                    start_frame=start.get_frames(),
+                    end_frame=end.get_frames()
                 )
-
-                pooled_video_embedding = outputs.video_embeds
-
-            with VideoFileClip(video_path) as video:
-                scene_clip = video.subclip(start_time, end_time)
-                keyframe_indices = np.linspace(start_frame, end_frame - 1, num=3, dtype=int)
-                keyframes = vr.get_batch(keyframe_indices).asnumpy()
-                token_inputs = self.token_processor(images=list(keyframes), return_tensors="pt").to(self.device)
-                token_inputs = {k: v.half().to(self.device) for k, v in token_inputs.items()}
-                token_embeddings = self.token_model.get_image_features(**token_inputs)
-
-                if scene_clip.duration > 0 and scene_clip.audio is not None:
-                    if not hasattr(self, "_asr_lock"):
-                        self._asr_lock = threading.Lock()
-                    try:
-                        os.makedirs("temp_audio", exist_ok=True)
-                        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir="temp_audio") as tmp:
-                            temp_audio_path = tmp.name
-                        scene_clip.audio.write_audiofile(temp_audio_path, fps=48000, logger=None)
-
-                        audio_array, _ = librosa.load(temp_audio_path, sr=48000, mono=True)
-                        audio_inputs = self.audio_processor(
-                            audio=audio_array,
-                            sampling_rate=48000,
-                            return_tensors="pt"
-                        ).to(self.device)
-                        audio_embedding = self.audio_model.get_audio_features(**audio_inputs)
-
-                        with self._asr_lock:
-                            transcript = self.asr_model.transcribe(
-                                temp_audio_path, fp16=True, language="en"
-                            )["text"]
-
-                        dense_text_embedding = self.text_embedder.encode(transcript)
-
-                    except Exception as e:
-                        logging.error(f"[AUDIO ERROR] scene {start_time:.2f}-{end_time:.2f}s: {e}")
-                        audio_embedding = torch.zeros((1, 512))
-                        transcript = ""
-                        dense_text_embedding = self.text_embedder.encode("")
-                    finally:
-                        if "temp_audio_path" in locals() and os.path.exists(temp_audio_path):
-                            try:
-                                os.remove(temp_audio_path)
-                            except Exception as e:
-                                logging.warning(f"Could not delete {temp_audio_path}: {e}")
-
-                else:
-                    audio_embedding = torch.zeros((1, 512))
-                    transcript = ""
-                    dense_text_embedding = self.text_embedder.encode("")
-
-            clip = SceneClip(
-                video_path=video_path,
-                start_time=start_time,
-                end_time=end_time,
-                embeds = {
-                    "pooled_video": pooled_video_embedding.cpu().detach().numpy(),
-                    "visual_tokens": token_embeddings.cpu().squeeze().detach().numpy(),
-                    "audio": audio_embedding.cpu().detach().numpy(),
-                    "transcript": transcript,
-                    "dense_text": dense_text_embedding
-                }
             )
+        logging.info(f"[SCENE DETECTION] Found {len(dp.scenes)} scenes.")
 
-            clip.save_to_pickle()
 
-            return clip.embeds()
+    def _encode_scene(self, video_path: str, scene: Scene):
+        frames, frame_idxs = self._extract_frames(video_path, scene.start_frame, scene.end_frame, self.max_frames_per_scene)
+        
+        if len(frames) == 0:
+            logging.warning(f"No frames extracted for scene starting at {scene.start_time:.2f}s. Skipping.")
+            return None
+
+        frame_embs = self._embed_frames_clip(frames)
+        clusters = self._cluster_frames(frame_embs)
+        
+        scene_video_emb = self._embed_scene_video_with_representatives(frames, clusters)
+
+        image_clusters = self._embed_image_clusters(frames, frame_embs, clusters)
+        audio_emb, transcript, text_emb = self._encode_audio_and_text(video_path, scene.start_time, scene.end_time)
+
+        return {
+            "video": torch.tensor(scene_video_emb, dtype=torch.float32),
+            "audio": torch.tensor(audio_emb, dtype=torch.float32),
+            "text": torch.tensor(text_emb, dtype=torch.float32),
+            "transcript": transcript,
+            "image": image_clusters,
+            "meta": {
+                "num_segments": len(clusters)
+            }
+        }
+
+
+    def _extract_frames(self, video_path, start_frame=None, end_frame=None, max_frames=48):
+        vr = VideoReader(video_path, ctx=cpu(0))
+        total_frames = len(vr)
+
+        if start_frame is None:
+            start_frame = 0
+        if end_frame is None or end_frame > total_frames:
+            end_frame = total_frames - 1
+
+        num_frames_in_scene = end_frame - start_frame
+        if num_frames_in_scene <= 0:
+            return np.array([]), np.array([])
+
+        num = min(max_frames, num_frames_in_scene)
+        idxs = np.linspace(start_frame, end_frame - 1, num=num, dtype=int)
+
+        frames = vr.get_batch(idxs).asnumpy()
+        return frames, idxs
+
+
+    def _embed_frames_clip(self, frames: np.ndarray) -> np.ndarray:
+        inputs = self.image_processor(images=list(frames), return_tensors="pt").to(self.device)
+        with torch.no_grad():
+            img_embs = self.image_model.get_image_features(**inputs)
+        return img_embs.cpu().numpy()
+
+
+    def _choose_k(self, n_frames: int) -> int:
+        k = (n_frames // 8) + 1
+        return min(k, self.max_temporal_segments)
+    
+
+    def _cluster_frames(self, frame_embs: np.ndarray):
+        n = len(frame_embs)
+        if n < 2:
+            return {0: list(range(n))}
+
+        k = self._choose_k(n)
+        if k <= 1:
+            return {0: list(range(n))}
+
+        km = KMeans(n_clusters=k, random_state=0, n_init="auto").fit(frame_embs)
+        clusters = {}
+        for i, lab in enumerate(km.labels_):
+            clusters.setdefault(int(lab), []).append(i)
+        return clusters
+
+
+    def _embed_scene_video_with_representatives(self, frames: np.ndarray, clusters: dict[int, list[int]]) -> np.ndarray:
+        segment_embeddings = []
+        
+        sorted_cids = sorted(clusters.keys())
+
+        for cid in sorted_cids:
+            local_indices = sorted(clusters[cid])
+            if not local_indices:
+                continue
+
+            segment_frames = frames[local_indices]
+            
+            n_frames_expected = 8
+            current_n_frames = len(segment_frames)
+            
+            if current_n_frames == 0:
+                continue
+
+            if current_n_frames < n_frames_expected:
+                last_frame = segment_frames[-1]
+                padding = [last_frame] * (n_frames_expected - current_n_frames)
+                final_frames = np.concatenate([segment_frames, padding], axis=0)
+            elif current_n_frames > n_frames_expected:
+                indices = np.linspace(0, current_n_frames - 1, num=n_frames_expected, dtype=int)
+                final_frames = segment_frames[indices]
+            else:
+                final_frames = segment_frames
+            
+            resized_frames = [cv2.resize(f, (224, 224)) for f in final_frames]
+
+            inputs = self.video_processor(images=resized_frames, return_tensors="pt").to(self.device)
+            with torch.no_grad():
+                out = self.video_model(pixel_values=inputs["pixel_values"])
+                segment_emb = out.video_embeds.squeeze(0)
+                segment_embeddings.append(segment_emb)
+        
+        if not segment_embeddings:
+            logging.warning("[VIDEO] No segments could be processed, returning zeros.")
+            return np.zeros(512, dtype=np.float32)
+
+        final_embedding = torch.stack(segment_embeddings).mean(dim=0)
+        return final_embedding.cpu().numpy()
+
+
+    def _embed_image_clusters(self, frames: np.ndarray, frame_embs: np.ndarray, clusters: dict[int, list[int]]):
+        result = {}
+        for cid, idxs in clusters.items():
+            if not idxs:
+                continue
+            
+            embs = frame_embs[idxs]
+            centroid = embs.mean(axis=0, keepdims=True)
+            sims = (embs @ centroid.T) / (
+                np.linalg.norm(embs, axis=1, keepdims=True) * np.linalg.norm(centroid, axis=1, keepdims=True) + 1e-8
+            )
+            best_local_index_within_cluster = int(np.argmax(sims))
+            best_local = idxs[best_local_index_within_cluster]
+            img = frames[best_local]
+
+            inputs = self.image_processor(images=[img], return_tensors="pt").to(self.device)
+            with torch.no_grad():
+                img_emb = self.image_model.get_image_features(**inputs).cpu().numpy().squeeze()
+
+            result[f"cluster_{cid}"] = {
+                "frame_idx_local": int(best_local),
+                "frame_embedding": torch.tensor(img_emb, dtype=torch.float32),
+            }
+        return result
+
+
+    def _encode_audio_and_text(self, video_path, start_t, end_t):
+        try:
+            with VideoFileClip(video_path) as vid:
+                if start_t >= vid.duration or start_t >= end_t:
+                    raise ValueError("Invalid time range for audio extraction.")
+                
+                clip = vid.subclip(start_t, end_t)
+                
+                if clip.audio is None:
+                    raise ValueError("No audio found in the subclip.")
+
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                    temp_path = tmp.name
+                
+                clip.audio.write_audiofile(temp_path, fps=48000, logger=None)
+
+                audio_array, _ = librosa.load(temp_path, sr=48000, mono=True)
+                if audio_array.size == 0:
+                    raise ValueError("Empty audio array after loading.")
+                
+                inputs_audio = self.audio_processor(audio=audio_array, sampling_rate=48000, return_tensors="pt").to(self.device)
+                with torch.no_grad():
+                    audio_emb = self.audio_model.get_audio_features(**inputs_audio).cpu().numpy().squeeze()
+
+                transcript_result = self.asr_model.transcribe(temp_path)
+                transcript = transcript_result["text"]
+                text_emb = self.text_embedder.encode(transcript)
+
+                os.remove(temp_path)
+                return audio_emb, transcript, text_emb
 
         except Exception as e:
-            logging.error(f"\n--- ERROR processing scene from {start_time:.2f}s to {end_time:.2f}s ---")
-            import traceback
-            traceback.print_exc()
-            return None
-        finally:
-            import gc
-            gc.collect()
-            torch.cuda.empty_cache()
+            logging.error(f"[AUDIO/TEXT] Failed for clip {os.path.basename(video_path)} ({start_t:.2f}s-{end_t:.2f}s) with error: {e}")
+            audio_dim = self.audio_model.config.hidden_size
+            text_dim = self.text_embedder.get_sentence_embedding_dimension()
+            return np.zeros(audio_dim, dtype=np.float32), "", np.zeros(text_dim, dtype=np.float32)
 
-    def _get_scenes(self, video_path):
-        return detect(video_path, ContentDetector())
-    
 
 if __name__ == "__main__":
-    encoder = MultiModalEncoder()
-    encoder.video_files = [f for f in encoder.video_files if "animals" not in f and "AI" not in f]
-    logging.info(f"Found {len(encoder.video_files)} video(s) in '{encoder.video_path}': {encoder.video_files}")
+    import sys
 
-    encoder.load_model()
-    video_embeddings = encoder._encode_videos()
+    logging.info("🚀 Starting MultiModalEncoder test run...")
+    
+    # Assicurati che le directory di supporto esistano
+    if not os.path.exists("video_dataset.py") or not os.path.exists("utils/logging_formatter.py"):
+         print("❌ Assicurati che i file 'video_dataset.py' e 'utils/logging_formatter.py' siano presenti.")
+         sys.exit(1)
 
-    pooled_video_embs = []
-    video_names = []
+    data_dir = "../../data"
+    if not os.path.exists(data_dir):
+        logging.error(f"❌ Directory {os.path.abspath(data_dir)} non trovata.")
+        sys.exit(1)
 
-    for vid_path, vid_data in zip(encoder.video_files, video_embeddings):
-        if not vid_data:
-            continue
-        video_embs = [torch.tensor(scene["pooled_video"], dtype=torch.float32) for scene in vid_data]
-        video_emb = torch.stack(video_embs).mean(dim=0)
-        pooled_video_embs.append(video_emb)
-        video_names.append(Path(vid_path).stem)
-
-    pooled_video_embs = torch.stack(pooled_video_embs)
-    pooled_video_embs = F.normalize(pooled_video_embs, dim=-1)
-
-    queries = [
-        "Who won the tennis match?",
-        "What minute was the goal scored?",
-        "Can Sinner hold the lead?",
-        "Who was the best player of the football match?"
+    video_files = [
+        os.path.join(data_dir, f)
+        for f in os.listdir(data_dir)
+        if f.lower().endswith((".mp4", ".mov", ".mkv", ".avi"))
     ]
 
-    for query in queries:
-        text_inputs = encoder.video_processor(text=query, return_tensors="pt").to(encoder.device)
+    if not video_files:
+        logging.error(f"❌ Nessun video trovato in {data_dir}.")
+        sys.exit(1)
 
-        with torch.no_grad():
-            text_emb = encoder.video_model.get_text_features(**text_inputs).to(encoder.device)
-            text_emb = F.normalize(text_emb, dim=-1).squeeze(0)
+    logging.info(f"📁 Trovati {len(video_files)} video:\n" + "\n".join(f" - {f}" for f in video_files))
 
-        sims = torch.matmul(pooled_video_embs.to("cpu"), text_emb.to("cpu"))
-        best_idx = torch.argmax(sims).item()
-        best_score = sims[best_idx].item()
+    dataset = VideoDataset(video_files)
+    logging.info(f"✅ Creato VideoDataset con {len(dataset)} elementi.")
 
-        print(f"\n Query: {query}")
-        print(f"Most similar video: {video_names[best_idx]}  (similarity = {best_score:.4f})")
+    encoder = MultiModalEncoder(video_dataset=dataset, device="cuda")
+    encoder.load_models()
 
+    encoded_dataset = encoder.encode_videos()
 
+    if not encoded_dataset.video_datapoints:
+        logging.warning("Nessun video è stato processato.")
+        sys.exit(0)
+        
+    first_dp = encoded_dataset.video_datapoints[0]
+    if first_dp:
+        logging.info("\n=== ✅ RISULTATI PRIMO VIDEO ===")
+        logging.info(f"Video path: {first_dp.video_path}")
+        logging.info(f"Numero scene: {len(first_dp.scenes)}")
 
-if __name__ == "__main2__":
-    encoder = MultiModalEncoder()
-    # SKIP for now longest video
-    encoder.video_files = [f for f in encoder.video_files if "animals" not in f]
-    logging.info(f"Found {len(encoder.video_files)} video(s) in '{encoder.video_path}': {encoder.video_files}")
-    encoder.load_model()
-    logging.info("Models loaded successfully.")
-    video_embeddings = encoder._encode_videos()
-    
-    if video_embeddings and video_embeddings[0]:
-        logging.info("--- SUCCESS ---")
-        logging.info("Pooled video embedding shape: %s", video_embeddings[0][0]["pooled_video"].shape)
-        logging.info("Visual tokens embedding shape: %s", video_embeddings[0][0]["visual_tokens"].shape)
-        logging.info("Audio embedding shape: %s", video_embeddings[0][0]["audio"].shape)
-        logging.info("Transcript: '%s'", video_embeddings[0][0]["transcript"])
-        logging.info("Dense text embedding shape: %s", video_embeddings[0][0]["dense_text"].shape)
-        logging.info("="*50 + "\n")
-    else:
-        logging.error("--- ERROR: No embeddings were generated. Check the error messages above. ---")
+        if first_dp.global_embeddings:
+            logging.info(f"Chiavi global embeddings: {list(first_dp.global_embeddings.keys())}")
+        
+        if first_dp.scene_embeddings:
+            scene_keys = list(first_dp.scene_embeddings.keys())
+            logging.info(f"Chiavi scene embeddings: {scene_keys[:3]} ...")
+            
+            if scene_keys:
+                first_scene_key = scene_keys[0]
+                first_scene = first_dp.scene_embeddings[first_scene_key]
+                logging.info(f"--- Esempio scena: {first_scene_key} ---")
+                logging.info(f"Video emb shape: {first_scene['video'].shape}")
+                logging.info(f"Audio emb shape: {first_scene['audio'].shape}")
+                logging.info(f"Text emb shape:  {first_scene['text'].shape}")
+                logging.info(f"Transcript: '{first_scene['transcript'][:80]}...'")
 
-
-# Code to test scene  detection
-if __name__ == "__main3__":
-    encoder = MultiModalEncoder()
-    encoder.video_files = [f for f in encoder.video_files if "animals" not in f and "prova" not in f]
-    if not encoder.video_files:
-        logging.error("❌ Nessun video trovato nella cartella specificata.")
-        exit(1)
-
-    # 🔹 Prendi il primo video
-    video_path = encoder.video_files[0]
-    logging.info(f"🎬 Analizzo: {video_path}")
-
-    # 🔹 Rileva le scene con la funzione della classe
-    scenes = encoder._get_scenes(video_path)
-
-    # 🔹 Stampa i risultati
-    logging.info(f"📸 Scene trovate: {len(scenes)}")
-    for i, (start, end) in enumerate(scenes):
-        start_s, end_s = start.get_seconds(), end.get_seconds()
-        logging.info(f"[{i:03d}] {start_s:.2f}s → {end_s:.2f}s  (durata: {end_s - start_s:.2f}s)")
+    logging.info("✅ Encoding completato con successo!")
