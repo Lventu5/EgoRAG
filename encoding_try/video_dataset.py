@@ -49,6 +49,7 @@ class VideoDataPoint:
             "video": None,
             "audio": None,
             "text": None,
+            "caption": None,
         }
 
         # Embeddings per ogni scena
@@ -60,6 +61,7 @@ class VideoDataPoint:
                 "transcript": "",
                 "image": {},
                 "meta": {},
+                "caption": None,
             }
             for i, _ in enumerate(self.scenes)
         }

@@ -1,6 +1,7 @@
 import os
 import cv2
 import torch
+import sys
 import numpy as np
 import logging
 import tempfile
@@ -198,7 +199,6 @@ class CaptionEncoder:
         for dp in tqdm(self.dataset.video_datapoints, desc="Encoding videos"): # looping on videos
             logging.info(f"\n=== VIDEO: {dp.video_name} ===")
             dp.scene_embeddings = {}
-            dp.global_captions = {}
             self._extract_scenes(dp)
             if not dp.scenes:
                 logging.warning(f"[WARN] Nessuna scena trovata in {dp.video_name}, skip.")
@@ -224,10 +224,8 @@ class CaptionEncoder:
             
             try:
                 vid_cap, vid_cap_emb = self._caption_video_global(dp)
-                dp.global_captions = {
-                    "video_caption": vid_cap,
-                    "video_caption_embedding": torch.tensor(vid_cap_emb, dtype=torch.float32),
-                }
+                dp.global_embeddings["caption"] = torch.tensor(vid_cap_emb, dtype=torch.float32)
+                logging.info(f"[VIDEO CAPTION] {dp.video_name}: {vid_cap[:160]}{'...' if len(vid_cap) > 160 else ''}")
             except Exception as e:
                 logging.warning(f"[VIDEO CAPTION] failed for {dp.video_name}: {e}")
 
@@ -241,13 +239,12 @@ class CaptionEncoder:
         Returns:
             tuple[str, np.ndarray]: Global video caption and its embedding.
         """
-        caps = [s.get("scene_caption","") for s in dp.scene_embeddings.values() if s.get("scene_caption")]
+        caps = [s.get("caption", "") for s in dp.scene_embeddings.values() if s.get("caption")]
         caps.sort(key=len, reverse=True)
         text = " ".join(caps[:5]).strip() # concatenate top 5 longest captions
         emb = self._embed_text([text]).squeeze() if text else \
             np.zeros(self.text_embedder.get_sentence_embedding_dimension(), dtype=np.float32)
         return text, emb
-
 
     def _extract_scenes(self, dp: VideoDataPoint):
         """
@@ -313,8 +310,18 @@ class CaptionEncoder:
         scene_caption, scene_caption_emb = self._caption_scene_from_reps(rep_frames, transcript=None)
 
         return {
-            "scene_caption": scene_caption,
-            "scene_caption_embedding": torch.tensor(scene_caption_emb, dtype=torch.float32),
+            # ← il dataset ha già il campo "caption" a livello scena
+            "caption": scene_caption,  # stringa
+
+            # ← usa "text" per l'embedding testuale della caption di scena
+            "text": torch.tensor(scene_caption_emb, dtype=torch.float32),
+
+            # gli altri campi previsti dal dataset li lasci vuoti/opzionali
+            "video": None,
+            "audio": None,
+            "transcript": "",   # o lo lasci vuoto; lo userai quando aggiungi ASR
+            "image": {},
+
             "meta": {
                 "selected_frame_global_idxs": [int(frame_idxs[i]) for i in rep_indices_sorted],
                 "selected_frame_local_idxs": [int(i) for i in rep_indices_sorted],
@@ -408,3 +415,70 @@ class CaptionEncoder:
             best_local = idxs[int(np.argmax(sims))]
             reps.append(best_local)
         return reps
+    
+
+if __name__ == "__main__":
+
+    logging.info("Starting CaptionEncoder test run...")
+    data_dir = "../../../ego4d_data/v2/full_scale"
+    if not os.path.exists(data_dir):
+        logging.error(f"Directory {os.path.abspath(data_dir)} not found.")
+        sys.exit(1)
+
+    video_files = [
+        os.path.join(data_dir, f)
+        for f in os.listdir(data_dir)
+        if f.lower().endswith((".mp4", ".mov", ".mkv", ".avi"))
+    ]
+
+    if not video_files:
+        logging.error(f"No videos found in {data_dir}.")
+        sys.exit(1)
+
+    logging.info(f"Found {len(video_files)} videos:\n" + "\n".join(f" - {f}" for f in video_files))
+
+    dataset = VideoDataset(video_files)
+    logging.info(f"VideoDataset was created with {len(dataset)} elements.")
+
+    encoder = CaptionEncoder(video_dataset=dataset, device="cuda")
+    encoder.load_models()
+    encoded_dataset = encoder.encode_video_scenes()
+
+    if not encoded_dataset.video_datapoints:
+        logging.warning("No video has been processed.")
+        sys.exit(0)
+        
+    first_dp = encoded_dataset.video_datapoints[0]
+    if first_dp:
+        logging.info("\n=== FIRST VIDEO RESULTS ===")
+        logging.info(f"Video path: {first_dp.video_path}")
+        logging.info(f"Number of scenes: {len(first_dp.scenes)}")
+
+        if first_dp.global_embeddings:
+            logging.info(f"Chiavi global embeddings: {list(first_dp.global_embeddings.keys())}")
+            # Embedding della caption globale (se presente)
+            cap_emb = first_dp.global_embeddings.get("caption")
+            if isinstance(cap_emb, torch.Tensor):
+                logging.info(f"Global caption emb shape: {tuple(cap_emb.shape)}")
+
+        if first_dp.scene_embeddings:
+            scene_keys = list(first_dp.scene_embeddings.keys())
+            logging.info(f"Chiavi scene embeddings: {scene_keys[:3]} ...")
+
+            if scene_keys:
+                first_scene_key = scene_keys[0]
+                first_scene = first_dp.scene_embeddings[first_scene_key]
+                logging.info(f"--- Esempio scena: {first_scene_key} ---")
+
+                # Caption testuale della scena
+                logging.info(f"Caption: {first_scene.get('caption', '')!r}")
+
+                # Embedding testuale della caption (torch.Tensor) se presente
+                text_emb = first_scene.get('text')
+                if isinstance(text_emb, torch.Tensor):
+                    logging.info(f"Caption emb shape: {tuple(text_emb.shape)}")
+
+                # Transcript (se in futuro userai ASR)
+                logging.info(f"Transcript: {first_scene.get('transcript', '')[:80]!r}")
+
+    logging.info("Encoding completato con successo!")
