@@ -1,7 +1,16 @@
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]  # cartella "EgoRAG"
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+
 import os
 import cv2
 import torch
-import sys
+torch.set_grad_enabled(False)
+if torch.cuda.is_available():
+    torch.backends.cudnn.benchmark = True
 import numpy as np
 import logging
 import tempfile
@@ -16,6 +25,7 @@ from encoding_try.video_dataset import VideoDataset, VideoDataPoint, Scene
 from encoding_try.utils.logging_formatter import LevelAwareFormatter
 from transformers import logging as hf_logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 # --- Setup logging ---
 handler = logging.StreamHandler()
@@ -64,16 +74,27 @@ class CaptionEncoder:
         
         # CLIP (image encoder for frame embedding)
         try:
-            self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14-336", local_files_only=True)
-            self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14-336", local_files_only=True).to(self.device)
+            # Uso modello piu leggero per velocità con impatto minimo su clustering
+            self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32", local_files_only=True)
+            self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32", local_files_only=True).to(self.device)
+
+            # self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14-336", local_files_only=True)
+            # self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14-336", local_files_only=True).to(self.device)
         except Exception as e:
             logging.warning(f"[CLIP] local not found. {e}")
-            self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14-336")
-            self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14-336").to(self.device)
+            self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+            self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(self.device)
+
+            # self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14-336")
+            # self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14-336").to(self.device)
 
         # TEXT
         self.text_embedder = SentenceTransformer("all-MiniLM-L6-v2", local_files_only=True).to(self.device)
         logging.info("[MODELS] Loaded successfully.")
+
+        if self.device == "cuda":
+            self.caption_model.half()
+            self.clip_model.half()
     
     def _caption_image(self, img_np: np.ndarray, max_new_tokens: int = 25) -> str:
         """
@@ -87,9 +108,29 @@ class CaptionEncoder:
         self.caption_model.eval()
         with torch.no_grad():
             inputs = self.caption_processor(images=img_np, return_tensors="pt").to(self.device)
-            out = self.caption_model.generate(**inputs, max_new_tokens=max_new_tokens, num_beams=3, do_sample=False)
+            out = self.caption_model.generate(**inputs, max_new_tokens=max_new_tokens, num_beams=1, do_sample=False)
             cap = self.caption_processor.decode(out[0], skip_special_tokens=True).strip()
         return cap
+
+    def _caption_images_batch(self, imgs: list[np.ndarray], max_new_tokens:int=16) -> list[str]:
+        """
+        Caption a batch of images using BLIP model.
+        Args:
+            imgs (list[np.ndarray]): List of input images as numpy arrays (H, W, 3) in RGB format.
+            max_new_tokens (int): Maximum number of tokens to generate for each caption.
+        Returns:
+            list[str]: List of generated captions for the images.
+        """
+        if not imgs:
+            return []
+        self.caption_model.eval()
+        with torch.no_grad(), torch.amp.autocast("cuda", enabled=(self.device == "cuda")):
+            inputs = self.caption_processor(images=imgs, return_tensors="pt").to(self.device)
+            out = self.caption_model.generate(
+                **inputs, max_new_tokens=max_new_tokens, num_beams=1, do_sample=False, early_stopping=True
+            )
+        caps = [self.caption_processor.decode(o, skip_special_tokens=True).strip() for o in out]
+        return caps
 
     def _embed_text(self, texts: list[str]) -> np.ndarray:
         """
@@ -179,12 +220,16 @@ class CaptionEncoder:
         Returns:
             tuple[str, np.ndarray]: Scene caption and its embedding.
         """
-        caps = []
-        for img in rep_frames:
-            try:
-                caps.append(self._caption_image(img))
-            except Exception as e:
-                logging.warning(f"[CAPTION] Frame caption failed: {e}")
+        try:
+            caps = self._caption_images_batch(rep_frames, max_new_tokens=16)
+        except Exception as e:
+            logging.warning(f"[CAPTION] batch failed: {e}")
+            caps = []
+            for img in rep_frames:
+                try:
+                    caps.append(self._caption_image(img, max_new_tokens=16))
+                except Exception as e2:
+                    logging.warning(f"[CAPTION] single frame failed: {e2}")
         scene_caption = self._summarize_scene_captions(caps, transcript)
         scene_caption_emb = self._embed_text([scene_caption]).squeeze() if scene_caption else \
             np.zeros(self.text_embedder.get_sentence_embedding_dimension(), dtype=np.float32)
@@ -206,17 +251,23 @@ class CaptionEncoder:
             else:
                 logging.info(f"[INFO] {len(dp.scenes)} scene trovate in {dp.video_name}.")
 
+            '''
             os.environ.setdefault("DECORD_NUM_THREADS", "1")
             try:
                 vr = VideoReader(dp.video_path, ctx=cpu(0), num_threads=1)  # ← UN SOLO READER, thread interno disattivato
             except Exception as e:
                 logging.error(f"[DECORD] cannot open {dp.video_path}: {e}")
                 continue
+            '''
             max_workers = 1 if "cuda" in self.device else min(4, os.cpu_count() or 2)
             futures = {}
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(self._encode_scene, vr, dp.video_path, scene): f"scene_{i}"
-                        for i, scene in enumerate(dp.scenes)}
+                # futures = {executor.submit(self._encode_scene, vr, dp.video_path, scene): f"scene_{i}"
+                        # for i, scene in enumerate(dp.scenes)}
+                futures = {
+                    executor.submit(self._encode_scene, dp.video_path, scene): f"scene_{i}"
+                    for i, scene in enumerate(dp.scenes)
+                }
                 for f in tqdm(as_completed(futures), total=len(futures), desc=f"Scenes ({dp.video_name})"):
                     sid = futures[f]
                     try:
@@ -231,7 +282,7 @@ class CaptionEncoder:
             try:
                 vid_cap, vid_cap_emb = self._caption_video_global(dp)
                 dp.global_embeddings["caption"] = torch.tensor(vid_cap_emb, dtype=torch.float32)
-                logging.info(f"[VIDEO CAPTION] {dp.video_name}: {vid_cap[:160]}{'...' if len(vid_cap) > 160 else ''}")
+                logging.info(f"[VIDEO CAPTION] {dp.video_name}: {vid_cap[:300]}{'...' if len(vid_cap) > 300 else ''}")
             except Exception as e:
                 logging.warning(f"[VIDEO CAPTION] failed for {dp.video_name}: {e}")
 
@@ -245,9 +296,19 @@ class CaptionEncoder:
         Returns:
             tuple[str, np.ndarray]: Global video caption and its embedding.
         """
-        caps = [s.get("caption", "") for s in dp.scene_embeddings.values() if s.get("caption")]
-        caps.sort(key=len, reverse=True)
-        text = " ".join(caps[:5]).strip() # concatenate top 5 longest captions
+        caps = [s.get("caption", "").strip() for s in dp.scene_embeddings.values() if s.get("caption")]
+
+        # Deduplicate (case insensitive)
+        uniq = []
+        seen = set()
+        for c in caps:
+            k = c.lower()
+            if k and k not in seen:
+                uniq.append(c)
+                seen.add(k)
+
+        uniq.sort(key=len, reverse=True)
+        text = ". ".join(uniq[:5]).strip()
         emb = self._embed_text([text]).squeeze() if text else \
             np.zeros(self.text_embedder.get_sentence_embedding_dimension(), dtype=np.float32)
         return text, emb
@@ -272,7 +333,7 @@ class CaptionEncoder:
             )
         logging.info(f"[SCENE DETECTION] Found {len(dp.scenes)} scenes.")
     
-    def _embed_frames_clip(self, frames: np.ndarray, batch_size: int = 64) -> np.ndarray:
+    def _embed_frames_clip(self, frames: np.ndarray, batch_size: int = 128) -> np.ndarray:
         """
         Embed frames using CLIP image encoder.
         Args:
@@ -286,7 +347,7 @@ class CaptionEncoder:
 
         self.clip_model.eval()
         all_embs = []
-        with torch.no_grad():
+        with torch.no_grad(), torch.amp.autocast("cuda", enabled=(self.device == "cuda")):
             for i in range(0, len(frames), batch_size):
                 batch = frames[i:i+batch_size]
                 inputs = self.clip_processor(images=list(batch), return_tensors="pt").to(self.device)
@@ -296,7 +357,8 @@ class CaptionEncoder:
         embs = torch.cat(all_embs, dim=0).numpy()
         return embs
 
-    def _encode_scene(self, vr: VideoReader, video_path: str, scene: Scene):
+    # def _encode_scene(self, vr: VideoReader | None, video_path: str, scene: Scene):
+    def _encode_scene(self, video_path: str, scene: Scene):
         """
         Encode a single scene: extract frames, embed, cluster, caption representatives.
         Args:
@@ -305,6 +367,7 @@ class CaptionEncoder:
         Returns:
             dict: Scene caption, embedding, and metadata.
         """
+        vr = VideoReader(video_path, ctx=cpu(0), num_threads=2)
         frames, frame_idxs = self._extract_frames(vr, video_path, scene.start_frame, scene.end_frame, self.max_frames_per_scene)
         frame_embs = self._embed_frames_clip(frames)
 
@@ -348,19 +411,15 @@ class CaptionEncoder:
         """
         # vr = VideoReader(video_path, ctx=cpu(0))
         total_frames = len(vr)
-
-        if start_frame is None:
-            start_frame = 0
-        if end_frame is None or end_frame >= total_frames:
-            end_frame = total_frames - 1
-        if end_frame < start_frame:
-            end_frame = start_frame
-
-        span = end_frame - start_frame + 1
+        start = 0 if start_frame is None else max(0, min(int(start_frame), total_frames-1))
+        end   = (total_frames-1) if end_frame is None else max(0, min(int(end_frame), total_frames-1))
+        if end < start:
+            end = start
+        span = end - start + 1
         num = min(max_frames, span)
-
-        idxs = np.linspace(start_frame, end_frame, num=num, dtype=int)
-        frames = vr.get_batch(idxs).asnumpy()  # (N, H, W, 3) RGB uint8
+        idxs = np.linspace(start, end, num=num, dtype=int)
+        idxs = np.unique(idxs)
+        frames = vr.get_batch(idxs).asnumpy()
         return frames, idxs
 
 
