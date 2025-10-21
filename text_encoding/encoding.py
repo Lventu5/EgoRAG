@@ -114,37 +114,32 @@ class CaptionEncoder:
     def _embed_image_clusters(self, frames: np.ndarray, frame_embs: np.ndarray, clusters: dict[int, list[int]]):
         """
         Per ogni cluster:
-        - medoid
-        - embedding immagine (CLIP)  [già esistente]
-        - NEW: caption del frame rappresentativo (BLIP)
-        - NEW: embedding della caption (SentenceTransformer)
+        - seleziona il frame medoid (più vicino al centroide)
+        - genera la caption del frame rappresentativo (BLIP)
+        - calcola l'embedding della caption (SentenceTransformer)
         """
         result = {}
         for cid, idxs in clusters.items():
             embs = frame_embs[idxs]
-            centroid = embs.mean(axis=0, keepdims=True)
-            sims = (embs @ centroid.T) / (
-                np.linalg.norm(embs, axis=1, keepdims=True) * np.linalg.norm(centroid, axis=1, keepdims=True) + 1e-8
-            )
+            centroid = embs.mean(axis=0, keepdims=True) # centroide
+            sims = (embs @ centroid.T) / (np.linalg.norm(embs, axis=1, keepdims=True) * np.linalg.norm(centroid, axis=1, keepdims=True) + 1e-8) # cosine similarity
             best_local = idxs[int(np.argmax(sims))]
             img = frames[best_local]
 
-            # Img embedding (CLIP)
-            inputs = self.image_processor(images=[img], return_tensors="pt").to(self.device)
-            with torch.no_grad():
-                img_emb = self.image_model.get_image_features(**inputs).cpu().numpy().squeeze()
-
-            # NEW: Caption e embedding
+            # Caption del frame rappresentativo
             cap = self._caption_image(img)
-            cap_emb = self._embed_text([cap]).squeeze() if cap else np.zeros(self.text_embedder.get_sentence_embedding_dimension(), dtype=np.float32)
+            if cap:
+                cap_emb = self._embed_text([cap]).squeeze()
+            else:
+                cap_emb = np.zeros(self.text_embedder.get_sentence_embedding_dimension(), dtype=np.float32)
 
             result[f"cluster_{cid}"] = {
                 "frame_idx_local": int(best_local),
-                "frame_embedding": torch.tensor(img_emb, dtype=torch.float32),
                 "caption": cap,
                 "caption_embedding": torch.tensor(cap_emb, dtype=torch.float32),
             }
-    return result
+
+        return result
 
     def encode_videos(self):
         """
