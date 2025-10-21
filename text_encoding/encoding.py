@@ -206,10 +206,16 @@ class CaptionEncoder:
             else:
                 logging.info(f"[INFO] {len(dp.scenes)} scene trovate in {dp.video_name}.")
 
+            os.environ.setdefault("DECORD_NUM_THREADS", "1")
+            try:
+                vr = VideoReader(dp.video_path, ctx=cpu(0), num_threads=1)  # ← UN SOLO READER, thread interno disattivato
+            except Exception as e:
+                logging.error(f"[DECORD] cannot open {dp.video_path}: {e}")
+                continue
             max_workers = 1 if "cuda" in self.device else min(4, os.cpu_count() or 2)
             futures = {}
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(self._encode_scene, dp.video_path, scene): f"scene_{i}"
+                futures = {executor.submit(self._encode_scene, vr, dp.video_path, scene): f"scene_{i}"
                         for i, scene in enumerate(dp.scenes)}
                 for f in tqdm(as_completed(futures), total=len(futures), desc=f"Scenes ({dp.video_name})"):
                     sid = futures[f]
@@ -290,7 +296,7 @@ class CaptionEncoder:
         embs = torch.cat(all_embs, dim=0).numpy()
         return embs
 
-    def _encode_scene(self, video_path: str, scene: Scene):
+    def _encode_scene(self, vr: VideoReader, video_path: str, scene: Scene):
         """
         Encode a single scene: extract frames, embed, cluster, caption representatives.
         Args:
@@ -299,7 +305,7 @@ class CaptionEncoder:
         Returns:
             dict: Scene caption, embedding, and metadata.
         """
-        frames, frame_idxs = self._extract_frames(video_path, scene.start_frame, scene.end_frame, self.max_frames_per_scene)
+        frames, frame_idxs = self._extract_frames(vr, video_path, scene.start_frame, scene.end_frame, self.max_frames_per_scene)
         frame_embs = self._embed_frames_clip(frames)
 
         # Clustering of frames, selection of representatives, and captioning
@@ -329,7 +335,7 @@ class CaptionEncoder:
             },
         }
 
-    def _extract_frames(self, video_path, start_frame=None, end_frame=None, max_frames=48):
+    def _extract_frames(self, vr: VideoReader, video_path, start_frame=None, end_frame=None, max_frames=48):
         """
         Extract frames from a video between start_frame and end_frame.
         Args:
@@ -340,7 +346,7 @@ class CaptionEncoder:
         Returns:
             tuple[np.ndarray, np.ndarray]: Extracted frames (N, H, W, 3) and their indices.
         """
-        vr = VideoReader(video_path, ctx=cpu(0))
+        # vr = VideoReader(video_path, ctx=cpu(0))
         total_frames = len(vr)
 
         if start_frame is None:
