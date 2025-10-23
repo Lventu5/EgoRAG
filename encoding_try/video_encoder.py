@@ -95,8 +95,10 @@ class MultiModalEncoder:
                         if scene_out:
                             dp.scene_embeddings[sid] = scene_out
                             scene_embeds_video.append(scene_out["video"])
-                            scene_embeds_audio.append(scene_out["audio"])
-                            scene_embeds_text.append(scene_out["text"])
+                            if scene_out["audio"] is not None:
+                                scene_embeds_audio.append(scene_out["audio"])
+                            if scene_out["text"] is not None:
+                                scene_embeds_text.append(scene_out["text"])
                         else:
                             logging.warning(f"[SKIP] scena {sid} vuota.")
                     except Exception as e:
@@ -111,11 +113,23 @@ class MultiModalEncoder:
                 if len(unique_dims) > 1:
                     logging.warning(f"[WARN] Dimension mismatch detected in audio embeddings: {unique_dims}")
 
+            if scene_embeds_audio:
+                dims = [e.shape[0] for e in scene_embeds_audio]
+                unique_dims = sorted(set(dims))
+                if len(unique_dims) > 1:
+                    logging.warning(f"[WARN] Dimension mismatch detected in audio embeddings: {unique_dims}")
+                elif unique_dims and unique_dims[0] != 512:
+                     logging.warning(f"[WARN] Audio embedding dimension is {unique_dims[0]}, expected 512.")
                 dp.global_embeddings["audio"] = torch.stack(scene_embeds_audio).mean(dim=0)
-                dp.global_embeddings["audio"] = torch.stack(scene_embeds_audio).mean(dim=0)
+            else:
+                logging.warning(f"[WARN] No valid audio embeddings found for {dp.video_name}. Global audio embedding will be None.")
+                dp.global_embeddings["audio"] = None
+
             if scene_embeds_text:
                 dp.global_embeddings["text"] = torch.stack(scene_embeds_text).mean(dim=0)
-
+            else:
+                logging.warning(f"[WARN] No valid text embeddings found for {dp.video_name}. Global text embedding will be None.")
+                dp.global_embeddings["text"] = None 
         return self.dataset
 
 
@@ -148,10 +162,13 @@ class MultiModalEncoder:
             image_clusters = self._embed_image_clusters(frames, frame_embs, clusters)
             audio_emb, transcript, text_emb = self._encode_audio_and_text(video_path, scene.start_time, scene.end_time)
 
+            audio_tensor = torch.tensor(audio_emb, dtype=torch.float32) if audio_emb is not None else None
+            text_tensor = torch.tensor(text_emb, dtype=torch.float32) if text_emb is not None else None
+
             return {
                 "video": torch.tensor(scene_video_emb, dtype=torch.float32),
-                "audio": torch.tensor(audio_emb, dtype=torch.float32),
-                "text": torch.tensor(text_emb, dtype=torch.float32),
+                "audio": audio_tensor,
+                "text": text_tensor,
                 "transcript": transcript,
                 "image": image_clusters,
                 "meta": {
@@ -278,7 +295,16 @@ class MultiModalEncoder:
 
 
     def _encode_audio_and_text(self, video_path, start_t, end_t):
+        temp_path = None  # Inizializza il percorso per il blocco 'finally'
         try:
+            # 1. Crea un file temporaneo
+            # Usiamo delete=False perché il file deve persistere
+            # al di fuori di questo blocco 'with' per essere letto.
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                temp_path = tmp.name
+
+            # 2. Apri il video e SCRIVI il file audio
+            #    Tutto all'interno di questo blocco 'with'
             with VideoFileClip(video_path) as vid:
                 if start_t >= vid.duration or start_t >= end_t:
                     raise ValueError("Invalid time range for audio extraction.")
@@ -288,31 +314,37 @@ class MultiModalEncoder:
                 if clip.audio is None:
                     raise ValueError("No audio found in the subclip.")
 
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                    temp_path = tmp.name
-                
+                # QUESTA È LA RIGA SPOSTATA NEL POSTO GIUSTO
                 clip.audio.write_audiofile(temp_path, fps=48000, logger=None)
+            
+            # 3. 'vid' ora è chiuso, ma non ci serve più.
+            #    Il file 'temp_path' ora esiste e può essere processato.
+            audio_array, _ = librosa.load(temp_path, sr=48000, mono=True)
+            if audio_array.size == 0:
+                raise ValueError("Empty audio array after loading.")
+            
+            # 4. Codifica l'audio (restituirà 512)
+            inputs_audio = self.audio_processor(audio=audio_array, sampling_rate=48000, return_tensors="pt").to(self.device)
+            with torch.no_grad():
+                audio_emb = self.audio_model.get_audio_features(**inputs_audio).cpu().numpy().squeeze()
 
-                audio_array, _ = librosa.load(temp_path, sr=48000, mono=True)
-                if audio_array.size == 0:
-                    raise ValueError("Empty audio array after loading.")
-                
-                inputs_audio = self.audio_processor(audio=audio_array, sampling_rate=48000, return_tensors="pt").to(self.device)
-                with torch.no_grad():
-                    audio_emb = self.audio_model.get_audio_features(**inputs_audio).cpu().numpy().squeeze()
+            # 5. Trascrivi e codifica il testo
+            transcript_result = self.asr_model.transcribe(temp_path)
+            transcript = transcript_result["text"]
+            text_emb = self.text_embedder.encode(transcript)
 
-                transcript_result = self.asr_model.transcribe(temp_path)
-                transcript = transcript_result["text"]
-                text_emb = self.text_embedder.encode(transcript)
-
-                os.remove(temp_path)
-                return audio_emb, transcript, text_emb
+            # 6. Restituisci i risultati corretti
+            return audio_emb, transcript, text_emb
 
         except Exception as e:
+            # 7. Se qualcosa fallisce, logga e restituisci None
             logging.error(f"[AUDIO/TEXT] Failed for clip {os.path.basename(video_path)} ({start_t:.2f}s-{end_t:.2f}s) with error: {e}")
-            audio_dim = self.audio_model.config.hidden_size
-            text_dim = self.text_embedder.get_sentence_embedding_dimension()
-            return np.zeros(audio_dim, dtype=np.float32), "", np.zeros(text_dim, dtype=np.float32)
+            return None, "", None
+        
+        finally:
+            # 8. Assicurati SEMPRE di pulire il file temporaneo
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
 
 
 if __name__ == "__main1__":
