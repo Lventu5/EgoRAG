@@ -37,8 +37,8 @@ class MultiModalEncoder:
         device: str = "cuda",
         max_frames_per_scene: int = 96,
         max_temporal_segments: int = 8,
-        audio_sr: int = 48000, # <-- NEW: Pass config down
-        asr_sr: int = 16000,     # <-- NEW: Pass config down
+        audio_sr: int = 48000, 
+        asr_sr: int = 16000,
         max_workers: int = 2,
     ):
         if video_dataset is None or len(video_dataset) == 0:

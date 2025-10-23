@@ -1,0 +1,281 @@
+from data.video_dataset import VideoDataset
+from sentence_transformers import SentenceTransformer
+import torch
+from transformers import (
+    BlipProcessor, 
+    BlipForConditionalGeneration, 
+    XCLIPProcessor,
+    XCLIPModel,
+    ClapProcessor,
+    ClapModel
+)
+import logging
+from torch.nn.functional import normalize
+from typing import Union
+
+class HierarchicalRetriever:
+    def __init__(
+        self, 
+        video_dataset: VideoDataset,
+        device: str = "cuda",
+        text_model_name: str = "all-MiniLM-L6-v2",
+        video_model_name: str = "microsoft/xclip-base-patch16",
+        audio_model_name: str = "laion/clap-htsat-unfused",
+        caption_model_name: str = "Salesforce/blip-image-captioning-base",
+    ):
+        self.video_dataset = video_dataset
+        self.device = device
+        self.sizes = {
+            "video": {
+                "size": 512,
+                "model": video_model_name
+            },
+            "audio": {
+                "size": 512,
+                "model": audio_model_name
+            },
+            "text": {
+                "size": 384,
+                "model": text_model_name
+            },
+            "caption": {
+                "size": 768,
+                "model": caption_model_name
+            }
+        }
+        self.current_modality = None
+        self.processor = None
+        self.embedder = None
+
+    def _load_models_for_modality(self, modality: str):
+
+        if self.current_modality == modality:
+            return
+        
+        self.processor = None
+        self.embedder = None
+        target_modality = modality
+
+        
+        if target_modality == "text":
+            self.embedder = SentenceTransformer(
+                self.sizes["text"]["model"], device=self.device
+            )
+        
+        elif target_modality == "video":
+            model_name = self.sizes["video"]["model"]
+            self.processor = XCLIPProcessor.from_pretrained(model_name)
+            self.embedder = XCLIPModel.from_pretrained(model_name).to(self.device) # type: ignore
+
+        elif target_modality == "audio":
+            model_name = self.sizes["audio"]["model"]
+            self.processor = ClapProcessor.from_pretrained(model_name)
+            self.embedder = ClapModel.from_pretrained(model_name).to(self.device) # type: ignore
+
+        elif target_modality == "caption":
+            model_name = self.sizes["caption"]["model"]
+            self.processor = BlipProcessor.from_pretrained(model_name)
+            self.embedder = BlipForConditionalGeneration.from_pretrained(model_name).to(self.device) # type: ignore
+        
+        else:
+            raise ValueError(f"Unknown modality: {modality}")
+
+        self.current_modality = target_modality
+
+
+    def _embed_queries(self, queries: list[str]) -> torch.Tensor:
+
+        if self.embedder is None:
+            raise RuntimeError("No model loaded for embedding. Call _load_models_for_modality first.")
+
+        if self.current_modality == "text":
+            embeddings = self.embedder.encode(
+                queries, convert_to_tensor=True, device=self.device
+            ) # type: ignore
+        elif self.current_modality == "video":
+            inputs = self.processor(
+                text=queries, return_tensors="pt", padding=True # type: ignore
+            ).to(self.device)
+            with torch.no_grad():
+                embeddings = self.embedder.get_text_features(**inputs) # type: ignore
+        elif self.current_modality == "audio":
+            inputs = self.processor(
+                text=queries, return_tensors="pt", padding=True # type: ignore
+            ).to(self.device)
+            with torch.no_grad():
+                embeddings = self.embedder.get_text_features(**inputs) # type: ignore
+        elif self.current_modality == "caption":
+            inputs = self.processor(
+                text=queries, return_tensors="pt", padding=True # type: ignore
+            ).to(self.device)
+            with torch.no_grad():
+                embeddings = self.embedder.get_text_features(**inputs) # type: ignore
+        else:
+            raise ValueError(f"Unknown modality: {self.current_modality}")
+
+        return embeddings
+
+    def retrieve_queries_list(
+        self, 
+        queries: list[str],
+        modalities: list[str] | str,
+        top_k: int = 5
+    ):
+        if isinstance(modalities, str):
+            modalities = [modalities]
+
+        final_results = {query: {} for query in queries}
+
+        for modality in modalities:
+            self._load_models_for_modality(modality)
+            query_embeddings = self._embed_queries(queries)
+            modality_results_batch = self._retrieve_for_modality(
+                query_embeddings, modality, top_k
+            )
+            for i, query in enumerate(queries):
+                final_results[query][modality] = modality_results_batch[i]
+                
+        return final_results
+
+    def _retrieve_for_modality(
+        self, 
+        query_embeddings: torch.Tensor, 
+        modality: str,
+        top_k: int = 1
+    ) -> list[list[tuple[str, float]]]:
+        
+        video_names = []
+        db_embeddings_list = []
+        
+        for dp in self.video_dataset.video_datapoints:
+            emb = dp.global_embeddings.get(modality)
+            if emb is not None:
+                video_names.append(dp.video_name)
+                db_embeddings_list.append(emb)
+        
+        if not db_embeddings_list:
+            logging.warning(f"No embeddings available for modality '{modality}'")
+            return [[] for _ in range(query_embeddings.shape[0])]
+
+        db_embeddings = torch.stack(db_embeddings_list).to(self.device)
+        
+        query_embeddings_norm = normalize(query_embeddings, p=2, dim=-1)
+        db_embeddings_norm = normalize(db_embeddings, p=2, dim=-1)
+        
+        sim_matrix = torch.matmul(query_embeddings_norm, db_embeddings_norm.T)
+        
+        all_results = []
+        for query_idx in range(sim_matrix.shape[0]):
+            scores = sim_matrix[query_idx]
+            
+            top_scores, top_indices = torch.topk(
+                scores, k=min(top_k, len(video_names))
+            )
+            
+            query_results = []
+            for score, db_idx in zip(top_scores, top_indices):
+                query_results.append((video_names[db_idx.item()], score.item())) # type: ignore
+            
+            all_results.append(query_results)
+            
+        return all_results
+    
+    def retrieve_best_scene(
+        self, 
+        query: str, 
+        video_name: str, 
+        modality: str, 
+        top_k: int = 1
+    ) -> list[tuple[str, float]]:
+
+        target_dp = None
+        for dp in self.video_dataset.video_datapoints:
+            if dp.video_name == video_name:
+                target_dp = dp
+                break
+        
+        if target_dp is None:
+            raise RuntimeError(f"Video '{video_name}' not found")
+
+        self._load_models_for_modality(modality)
+        query_embedding = self._embed_queries([query])
+
+        scene_ids = []
+        scene_embeddings_list = []
+        
+        for scene_id, scene_data in target_dp.scene_embeddings.items():
+            emb = scene_data.get(modality) 
+            if emb is not None:
+                if not isinstance(emb, torch.Tensor):
+                   try:
+                       emb = torch.tensor(emb)
+                   except Exception as e:
+                       logging.warning(f"Unable to convert embedding of scene {scene_id} to tensor: {e}. Skipping.")
+                       continue
+                scene_ids.append(scene_id)
+                scene_embeddings_list.append(emb.to(self.device))
+        
+        if not scene_embeddings_list:
+            logging.error(f"No scene embeddings found for video '{video_name}' and modality '{modality}'")
+            return []
+
+        scene_embeddings = torch.stack(scene_embeddings_list)
+
+        query_embedding_norm = normalize(query_embedding, p=2, dim=-1)
+        scene_embeddings_norm = normalize(scene_embeddings, p=2, dim=-1)
+
+        sim_vector = torch.matmul(query_embedding_norm, scene_embeddings_norm.T).squeeze(0)
+
+        top_scores, top_indices = torch.topk(
+            sim_vector, k=min(top_k, len(scene_ids))
+        )
+        results = []
+        for score, scene_idx in zip(top_scores, top_indices):
+            results.append((scene_ids[scene_idx.item()], score.item()))
+        return results
+
+
+    def retrieve_hierarchically(
+        self,
+        queries: list[str],
+        modalities: list[str] | str,
+        top_k_videos: int = 3, 
+        top_k_scenes: int = 1  
+    ):
+
+        if isinstance(modalities, str):
+            modalities = [modalities]
+
+        logging.info(f"Step 1: Retrieving top {top_k_videos} videos globally...")
+        global_results = self.retrieve_queries_list(
+            queries=queries, 
+            modalities=modalities, 
+            top_k=top_k_videos
+        )
+        
+        detailed_results = {query: {mod: [] for mod in modalities} for query in queries}
+
+        logging.info(f"Step 2: Retrieving top {top_k_scenes} scenes within top videos...")
+        for modality in modalities:
+            self._load_models_for_modality(modality) 
+
+            for i, query in enumerate(queries):
+                top_videos_for_query = global_results[query][modality]
+
+                if not top_videos_for_query:
+                    logging.warning(f"No global results for query '{query}' in modality '{modality}'.")
+                    continue
+
+                for video_name, global_score in top_videos_for_query:
+                    best_scenes_in_video = self.retrieve_best_scene(
+                        query=query,
+                        video_name=video_name,
+                        modality=modality,
+                        top_k=top_k_scenes
+                    )
+                    
+                    detailed_results[query][modality].append(
+                        (video_name, global_score, best_scenes_in_video)
+                    )
+
+        return detailed_results
