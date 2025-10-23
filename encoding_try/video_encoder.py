@@ -10,10 +10,17 @@ from tqdm import tqdm
 from decord import VideoReader, cpu
 from sklearn.cluster import KMeans
 from moviepy.editor import VideoFileClip
-from transformers import AutoModel, AutoProcessor, XCLIPModel, XCLIPProcessor, CLIPVisionModel
+from transformers import (
+    AutoModel, 
+    AutoProcessor, 
+    XCLIPModel,
+    XCLIPProcessor, 
+    CLIPVisionModel,
+    WhisperProcessor,
+    WhisperForConditionalGeneration
+)
 from sentence_transformers import SentenceTransformer
 from scenedetect import detect, ContentDetector
-import whisper
 
 from video_dataset import VideoDataset, VideoDataPoint, Scene
 from utils.logging_formatter import LevelAwareFormatter
@@ -62,8 +69,20 @@ class MultiModalEncoder:
 
         self.audio_processor = AutoProcessor.from_pretrained("laion/clap-htsat-unfused", local_files_only=True)
         self.audio_model = AutoModel.from_pretrained("laion/clap-htsat-unfused", local_files_only=True).to(self.device)
+        self.audio_sr = 48000
 
-        self.asr_model = whisper.load_model("base").to(self.device)
+        self.asr_processor = WhisperProcessor.from_pretrained(
+            "openai/whisper-base", 
+            local_files_only=True
+        )
+        self.asr_model = WhisperForConditionalGeneration.from_pretrained(
+            "openai/whisper-base", 
+            local_files_only=True
+        ).to(self.device)
+        
+        # Come da tuo esempio, per assicurarci che faccia la trascrizione
+        self.asr_model.config.forced_decoder_ids = None
+        self.asr_sr = 16000
         self.text_embedder = SentenceTransformer("all-MiniLM-L6-v2", local_files_only=True).to(self.device)
 
         logging.info("[MODELS] Loaded successfully.")
@@ -311,18 +330,12 @@ class MultiModalEncoder:
             }
         return result
 
-
     def _encode_audio_and_text(self, video_path, start_t, end_t):
-        temp_path = None  # Inizializza il percorso per il blocco 'finally'
         try:
-            # 1. Crea un file temporaneo
-            # Usiamo delete=False perché il file deve persistere
-            # al di fuori di questo blocco 'with' per essere letto.
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                temp_path = tmp.name
-
-            # 2. Apri il video e SCRIVI il file audio
-            #    Tutto all'interno di questo blocco 'with'
+            audio_array_48k = None
+            
+            # --- INIZIO MODIFICA ---
+            # 1. Estrai l'audio IN-MEMORY (usando il WORKAROUND per il bug di moviepy)
             with VideoFileClip(video_path) as vid:
                 if start_t >= vid.duration or start_t >= end_t:
                     raise ValueError("Invalid time range for audio extraction.")
@@ -332,37 +345,73 @@ class MultiModalEncoder:
                 if clip.audio is None:
                     raise ValueError("No audio found in the subclip.")
 
-                # QUESTA È LA RIGA SPOSTATA NEL POSTO GIUSTO
-                clip.audio.write_audiofile(temp_path, fps=48000, logger=None)
-            
-            # 3. 'vid' ora è chiuso, ma non ci serve più.
-            #    Il file 'temp_path' ora esiste e può essere processato.
-            audio_array, _ = librosa.load(temp_path, sr=48000, mono=True)
-            if audio_array.size == 0:
-                raise ValueError("Empty audio array after loading.")
-            
-            # 4. Codifica l'audio (restituirà 512)
-            inputs_audio = self.audio_processor(audio=audio_array, sampling_rate=48000, return_tensors="pt").to(self.device)
+                # NON USIAMO .to_soundarray() perché è bacato
+                # audio_array_48k = clip.audio.to_soundarray(fps=self.audio_sr)
+                
+                # USIAMO .iter_frames() e lo convertiamo in array numpy
+                # Questo bypassa il bug di moviepy/numpy
+                audio_frames = list(clip.audio.iter_frames(fps=self.audio_sr))
+                audio_array_48k = np.array(audio_frames)
+
+            # --- FINE MODIFICA ---
+
+            if audio_array_48k.ndim == 2:
+                # audio_array_48k ora è [num_campioni, 2] (stereo)
+                # Convertiamo in mono
+                audio_array_48k = audio_array_48k.mean(axis=1)
+
+            # 2. Controlla il silenzio (per CLAP)
+            audio_trimmed_48k, _ = librosa.effects.trim(audio_array_48k, top_db=20)
+            if audio_trimmed_48k.size == 0:
+                raise ValueError("Audio clip is silent or too short after trimming (for CLAP).")
+
+            # 3. Codifica l'audio per CLAP (a 48kHz)
+            inputs_audio = self.audio_processor(audio=audio_trimmed_48k, sampling_rate=self.audio_sr, return_tensors="pt").to(self.device)
             with torch.no_grad():
                 audio_emb = self.audio_model.get_audio_features(**inputs_audio).cpu().numpy().squeeze()
 
-            # 5. Trascrivi e codifica il testo
-            transcript_result = self.asr_model.transcribe(temp_path)
-            transcript = transcript_result["text"]
-            text_emb = self.text_embedder.encode(transcript)
+            # 4. Prepara l'audio per Whisper (a 16kHz)
+            if self.audio_sr != self.asr_sr:
+                audio_array_16k = librosa.resample(audio_array_48k, orig_sr=self.audio_sr, target_sr=self.asr_sr)
+            else:
+                audio_array_16k = audio_array_48k
 
-            # 6. Restituisci i risultati corretti
+            # 5. CONTROLLO FINALE per Whisper
+            if audio_array_16k.size == 0:
+                logging.warning(f"[ASR SKIP] Audio too short for ASR after resampling for clip {os.path.basename(video_path)} ({start_t:.2f}s-{end_t:.2f}s).")
+                transcript = ""
+                text_dim = self.text_embedder.get_sentence_embedding_dimension()
+                text_emb = np.zeros(text_dim, dtype=np.float32)
+                
+                return audio_emb, transcript, text_emb 
+
+            # 6. Trascrivi IN-MEMORY (con il metodo Processor+Model)
+            inputs = self.asr_processor(
+                audio_array_16k, 
+                sampling_rate=self.asr_sr, 
+                return_tensors="pt"
+            )
+            input_features = inputs.input_features.to(self.device) 
+
+            with torch.no_grad():
+                predicted_ids = self.asr_model.generate(input_features)
+
+            transcript_list = self.asr_processor.batch_decode(predicted_ids, skip_special_tokens=True)
+            transcript = transcript_list[0].strip() if transcript_list else ""
+            
+            # 7. Codifica il testo
+            if transcript:
+                text_emb = self.text_embedder.encode(transcript)
+            else:
+                text_dim = self.text_embedder.get_sentence_embedding_dimension()
+                text_emb = np.zeros(text_dim, dtype=np.float32)
+                transcript = ""
+
             return audio_emb, transcript, text_emb
 
         except Exception as e:
-            # 7. Se qualcosa fallisce, logga e restituisci None
             logging.error(f"[AUDIO/TEXT] Failed for clip {os.path.basename(video_path)} ({start_t:.2f}s-{end_t:.2f}s) with error: {e}")
             return None, "", None
-        
-        finally:
-            # 8. Assicurati SEMPRE di pulire il file temporaneo
-            if temp_path and os.path.exists(temp_path):
-                os.remove(temp_path)
 
 
 if __name__ == "__main1__":

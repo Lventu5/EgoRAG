@@ -291,4 +291,4 @@ def experiment_2():
         logging.info("=" * 90)
 
 if __name__ == "__main__":
-    launch_experiment(num=1)
+    launch_experiment(num=2)
