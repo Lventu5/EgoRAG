@@ -3,7 +3,7 @@ from sentence_transformers import SentenceTransformer
 import torch
 from transformers import (
     BlipProcessor, 
-    BlipForConditionalGeneration, 
+    BlipModel, 
     XCLIPProcessor,
     XCLIPModel,
     ClapProcessor,
@@ -75,8 +75,7 @@ class HierarchicalRetriever:
         elif target_modality == "caption":
             model_name = self.sizes["caption"]["model"]
             self.processor = BlipProcessor.from_pretrained(model_name)
-            self.embedder = BlipForConditionalGeneration.from_pretrained(model_name).to(self.device) # type: ignore
-        
+            self.embedder = BlipModel.from_pretrained(model_name).to(self.device)    
         else:
             raise ValueError(f"Unknown modality: {modality}")
 
