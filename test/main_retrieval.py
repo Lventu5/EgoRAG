@@ -37,7 +37,7 @@ def main(
     encoder = MultiModalEncoder(
         video_dataset=video_dataset,
         device="cuda" if torch.cuda.is_available() else "cpu",
-        max_workers=4
+        max_workers=2
     )
     encoder.load_models()
     encoder.encode_videos()

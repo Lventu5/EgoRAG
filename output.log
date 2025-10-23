@@ -1,0 +1,107 @@
+Loading video files from directory: ../../data
+Initializing MultiModalEncoder...
+Initialized VideoEncoder on cuda
+Initialized AudioEncoder on cuda
+Initialized TextEncoder on cuda
+Initialized VisualCaptioner on cuda
+MultiModalEncoder initialized with 2 workers.
+Loading all models...
+[VideoEncoder] Loading models...
+[VideoEncoder] Models loaded.
+[AudioEncoder] Loading models...
+[AudioEncoder] Models loaded.
+[TextEncoder] Loading all-MiniLM-L6-v2...
+Load pretrained SentenceTransformer: all-MiniLM-L6-v2
+[TextEncoder] Model loaded.
+[VisualCaptioner] Loading BLIP models...
+[VisualCaptioner] Models loaded.
+All models loaded successfully.
+Encoding Videos:   0%|          | 0/2 [00:00<?, ?it/s]Processing video: ../../data/Wimbledon2025.mp4
+Detecting scenes...
+
+Scenes (Wimbledon2025.mp4):   0%|          | 0/63 [00:00<?, ?it/s][A
+
+Batches:   0%|          | 0/1 [00:00<?, ?it/s][A[ABatches: 100%|██████████| 1/1 [00:00<00:00, 105.49it/s]
+
+Scenes (Wimbledon2025.mp4):   2%|▏         | 1/63 [00:10<10:43, 10.38s/it][A
+
+Batches:   0%|          | 0/1 [00:00<?, ?it/s][A[ABatches: 100%|██████████| 1/1 [00:00<00:00, 140.73it/s]
+
+Scenes (Wimbledon2025.mp4):   3%|▎         | 2/63 [00:10<04:26,  4.37s/it][A
+
+Batches:   0%|          | 0/1 [00:00<?, ?it/s][A[ABatches: 100%|██████████| 1/1 [00:00<00:00, 43.03it/s]
+
+Scenes (Wimbledon2025.mp4):   5%|▍         | 3/63 [00:18<05:53,  5.89s/it][A
+
+Batches:   0%|          | 0/1 [00:00<?, ?it/s][A[ABatches: 100%|██████████| 1/1 [00:00<00:00, 126.85it/s]
+
+Scenes (Wimbledon2025.mp4):   6%|▋         | 4/63 [00:19<04:05,  4.16s/it][A
+
+Batches:   0%|          | 0/1 [00:00<?, ?it/s][A[ABatches: 100%|██████████| 1/1 [00:00<00:00, 124.48it/s]
+
+Scenes (Wimbledon2025.mp4):   8%|▊         | 5/63 [00:22<03:29,  3.61s/it][A
+
+Batches:   0%|          | 0/1 [00:00<?, ?it/s][A[ABatches: 100%|██████████| 1/1 [00:00<00:00, 120.25it/s]
+
+Scenes (Wimbledon2025.mp4):  10%|▉         | 6/63 [00:28<04:09,  4.38s/it][A
+
+Batches:   0%|          | 0/1 [00:00<?, ?it/s][A[ABatches: 100%|██████████| 1/1 [00:00<00:00, 140.60it/s]
+
+Scenes (Wimbledon2025.mp4):  11%|█         | 7/63 [00:29<03:05,  3.31s/it][A
+
+Batches:   0%|          | 0/1 [00:00<?, ?it/s][A[ABatches: 100%|██████████| 1/1 [00:00<00:00, 78.15it/s]
+
+Scenes (Wimbledon2025.mp4):  13%|█▎        | 8/63 [00:36<04:01,  4.39s/it][AScenes (Wimbledon2025.mp4):  13%|█▎        | 8/63 [00:36<04:12,  4.59s/it]
+Encoding Videos:   0%|          | 0/2 [00:46<?, ?it/s]
+Traceback (most recent call last):
+  File "/work/courses/dslab/team21/tommy/EgoRAG/indexing/multimodal_encoder.py", line 188, in encode_videos
+    for f in tqdm(as_completed(futures), total=len(futures), desc=f"Scenes ({dp.video_name})"):
+             ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/work/courses/dslab/team21/conda_envs/video_encoding/lib/python3.13/site-packages/tqdm/std.py", line 1181, in __iter__
+    for obj in iterable:
+               ^^^^^^^^
+  File "/work/courses/dslab/team21/conda_envs/video_encoding/lib/python3.13/concurrent/futures/_base.py", line 243, in as_completed
+    waiter.event.wait(wait_timeout)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/work/courses/dslab/team21/conda_envs/video_encoding/lib/python3.13/threading.py", line 659, in wait
+    signaled = self._cond.wait(timeout)
+  File "/work/courses/dslab/team21/conda_envs/video_encoding/lib/python3.13/threading.py", line 359, in wait
+    waiter.acquire()
+    ~~~~~~~~~~~~~~^^
+KeyboardInterrupt
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/work/courses/dslab/team21/tommy/EgoRAG/test/main_retrieval.py", line 93, in <module>
+    main()
+    ~~~~^^
+  File "/work/courses/dslab/team21/tommy/EgoRAG/test/main_retrieval.py", line 43, in main
+    encoder.encode_videos()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/work/courses/dslab/team21/tommy/EgoRAG/indexing/multimodal_encoder.py", line 183, in encode_videos
+    with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+         ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/work/courses/dslab/team21/conda_envs/video_encoding/lib/python3.13/concurrent/futures/_base.py", line 647, in __exit__
+    self.shutdown(wait=True)
+    ~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/work/courses/dslab/team21/conda_envs/video_encoding/lib/python3.13/concurrent/futures/thread.py", line 239, in shutdown
+    t.join()
+    ~~~~~~^^
+  File "/work/courses/dslab/team21/conda_envs/video_encoding/lib/python3.13/threading.py", line 1094, in join
+    self._handle.join(timeout)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^
+KeyboardInterrupt
+Exception ignored on threading shutdown:
+Traceback (most recent call last):
+  File "/work/courses/dslab/team21/conda_envs/video_encoding/lib/python3.13/threading.py", line 1536, in _shutdown
+    atexit_call()
+  File "/work/courses/dslab/team21/conda_envs/video_encoding/lib/python3.13/threading.py", line 1507, in <lambda>
+    _threading_atexits.append(lambda: func(*arg, **kwargs))
+  File "/work/courses/dslab/team21/conda_envs/video_encoding/lib/python3.13/concurrent/futures/thread.py", line 31, in _python_exit
+    t.join()
+  File "/work/courses/dslab/team21/conda_envs/video_encoding/lib/python3.13/threading.py", line 1094, in join
+    self._handle.join(timeout)
+KeyboardInterrupt: 
