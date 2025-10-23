@@ -8,6 +8,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import os
 import cv2
 import torch
+import torch.nn.functional as F
 torch.set_grad_enabled(False)
 if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = True
@@ -36,6 +37,7 @@ logging.basicConfig(
 )
 hf_logging.set_verbosity_error()
 hf_logging.disable_progress_bar()
+
 
 class CaptionEncoder:
     """ Class for encoding video scenes into textual captions and embeddings."""
@@ -395,6 +397,10 @@ class CaptionEncoder:
                 "selected_frame_global_idxs": [int(frame_idxs[i]) for i in rep_indices_sorted],
                 "selected_frame_local_idxs": [int(i) for i in rep_indices_sorted],
                 "num_clusters": len(clusters),
+
+                # 👇 aggiunta minimal
+                "time": {"start": float(scene.start_time), "end": float(scene.end_time)},
+                "frames": {"start": int(scene.start_frame), "end": int(scene.end_frame)},
             },
         }
 
@@ -481,6 +487,76 @@ class CaptionEncoder:
             reps.append(best_local)
         return reps
     
+    # --- Queries and Retrieval methods can be added here ---
+
+    def queries_embedder(self, queries: list[str]) -> torch.Tensor:
+        text_embeds = self._embed_text(queries)
+        return torch.tensor(text_embeds, dtype=torch.float32)
+    
+    def _gather_video_index(self, dataset: VideoDataset): 
+        embs, idxs, names = [], [], []
+        for i, dp in enumerate(dataset.video_datapoints):
+            caption_embedding = dp.global_embeddings.get("caption", None)
+            if isinstance(caption_embedding, torch.Tensor) and caption_embedding.numel() > 0:
+                e = caption_embedding.detach().float().view(1, -1)
+                embs.append(e)
+                idxs.append(i)
+                names.append(dp.video_name)
+        if not embs:
+            return None, [], []
+        embs = torch.cat(embs, dim=0)                 # (N, D)
+        embs = F.normalize(embs, p=2, dim=1)          # L2 normalize to have cosine similarity equal to dot product
+        return embs, idxs, names
+    
+    def search_videos(self, dataset: VideoDataset, query: str, top_k: int = 5):
+        vid_embs, vid_idxs, vid_names = self._gather_video_index(dataset)
+        if vid_embs is None:
+            return []
+
+        q = self.queries_embedder([query])               # (1, D)
+        q = F.normalize(q, p=2, dim=1)                # L2 normalize to have cosine similarity equal to dot product
+        scores = (q @ vid_embs.T).squeeze(0)          # (N,)
+        topk = torch.topk(scores, k=min(top_k, scores.numel()))
+        out = [(float(scores[i]), vid_idxs[i], vid_names[i]) for i in topk.indices.tolist()]
+        return out
+
+    def search_scenes(self, dp: VideoDataPoint, query: str, top_k: int = 5):
+        keys, embs, caps = [], [], []
+        for k, s in dp.scene_embeddings.items():
+            e = s.get("text", None)
+            if isinstance(e, torch.Tensor) and e.numel() > 0:
+                keys.append(k) # append scene key -> scene_{i}
+                caps.append(s.get("caption", ""))
+                embs.append(e.detach().float().view(1, -1))
+        if not embs:
+            return []
+
+        E = torch.cat(embs, dim=0)            # (S, D), S = num scenes - D = dim embedding
+        E = F.normalize(E, p=2, dim=1) # L2 normalize to have cosine similarity equal to dot product
+
+        q = self.queries_embedder([query])       # (1, D)
+        q = F.normalize(q, p=2, dim=1)
+
+        scores = (q @ E.T).squeeze(0)         # (S,)
+        topk = torch.topk(scores, k=min(top_k, scores.numel())).indices.tolist()
+        results = []
+        for i in topk:
+            key = keys[i]
+            cap = caps[i]
+            sdict = dp.scene_embeddings[key]
+
+            t = sdict.get("meta", {}).get("time")
+            if t is not None:
+                start_t, end_t = float(t.get("start", 0.0)), float(t.get("end", 0.0))
+            else:
+                try:
+                    idx_num = int(key.split("_")[1])
+                    start_t, end_t = dp.scenes[idx_num].start_time, dp.scenes[idx_num].end_time
+                except Exception:
+                    start_t, end_t = 0.0, 0.0
+
+            results.append((float(scores[i]), key, cap, start_t, end_t))
+        return results
 
 if __name__ == "__main__":
 
@@ -496,13 +572,15 @@ if __name__ == "__main__":
         if f.lower().endswith((".mp4", ".mov", ".mkv", ".avi"))
     ]
 
+    print(video_files)
+
     if not video_files:
         logging.error(f"No videos found in {data_dir}.")
         sys.exit(1)
 
     logging.info(f"Found {len(video_files)} videos:\n" + "\n".join(f" - {f}" for f in video_files))
 
-    dataset = VideoDataset(video_files)
+    dataset = VideoDataset(video_files[9:10]) # test with first 3 videos
     logging.info(f"VideoDataset was created with {len(dataset)} elements.")
 
     encoder = CaptionEncoder(video_dataset=dataset, device="cuda")
@@ -547,3 +625,17 @@ if __name__ == "__main__":
                 logging.info(f"Transcript: {first_scene.get('transcript', '')[:80]!r}")
 
     logging.info("Encoding completato con successo!")
+
+    # --- Retrieval Test ---
+    test_query = "Where was the onion before I picked it?"
+    logging.info(f"\n=== RETRIEVAL TEST for query: {test_query!r} ===")
+    video_results = encoder.search_videos(encoded_dataset, test_query, top_k=3)
+    for score, vid_idx, vid_name in video_results:
+        logging.info(f"[VIDEO] Score: {score:.4f}, Index: {vid_idx}, Name: {vid_name}")
+
+        dp = encoded_dataset.video_datapoints[vid_idx]
+        scene_results = encoder.search_scenes(dp, test_query, top_k=2)
+        for s_score, s_key, s_cap, t0, t1 in scene_results:
+            logging.info(
+                f"    [SCENE] {s_key} | {t0:.2f}s–{t1:.2f}s | Score: {s_score:.4f} | Caption: {s_cap[:100]!r}"
+            )
