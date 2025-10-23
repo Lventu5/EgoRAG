@@ -26,23 +26,23 @@ class VisualCaptioner(BaseEncoder):
         self.model = BlipForConditionalGeneration.from_pretrained(model_id).to(self.device)
         logging.info(f"[{self.__class__.__name__}] Models loaded.")
 
-    def _cluster_frames_for_captioning(self, frames: np.ndarray) -> np.ndarray:
-        """
-        Selects representative frames for captioning.
-        This uses a simplified clustering (or just subsampling)
-        to pick keyframes.
-        """
-        num_frames = len(frames)
-        if num_frames == 0:
-            return np.array([])
+    # def _cluster_frames_for_captioning(self, frames: np.ndarray) -> np.ndarray:
+    #     """
+    #     Selects representative frames for captioning.
+    #     This uses a simplified clustering (or just subsampling)
+    #     to pick keyframes.
+    #     """
+    #     num_frames = len(frames)
+    #     if num_frames == 0:
+    #         return np.array([])
         
-        # Select k indices evenly spaced
-        k = min(self.max_k_clusters, num_frames)
-        indices = np.linspace(0, num_frames - 1, k, dtype=int)
+    #     # Select k indices evenly spaced
+    #     k = min(self.max_k_clusters, num_frames)
+    #     indices = np.linspace(0, num_frames - 1, k, dtype=int)
         
-        return frames[indices]
+    #     return frames[indices]
 
-    def encode(self, frames: np.ndarray, prompt: str = "a video of") -> str:
+    def encode(self, keyframes: np.ndarray, prompt: str = "a video of") -> str:
         """
         Public method to generate a caption for a set of frames.
         
@@ -53,11 +53,10 @@ class VisualCaptioner(BaseEncoder):
         Returns:
             A string containing the concatenated captions.
         """
-        if len(frames) == 0:
+        if len(keyframes) == 0:
             logging.warning("No frames provided to VisualCaptioner.")
             return ""
             
-        keyframes = self._cluster_frames_for_captioning(frames)
         captions = []
 
         with torch.inference_mode():

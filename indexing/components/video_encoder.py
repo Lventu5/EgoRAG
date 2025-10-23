@@ -8,6 +8,7 @@ from transformers import (
 )
 import logging
 from transformers import logging as hf_logging
+from sklearn.cluster import KMeans
 
 from .base_encoder import BaseEncoder
 from indexing.utils.logging_formatter import LevelAwareFormatter
@@ -55,6 +56,24 @@ class VideoEncoder(BaseEncoder):
             img_embs = outputs.pooler_output
             
         return img_embs.cpu().numpy()
+
+    def _get_representative_frames(self, frames: np.ndarray, frame_embs: np.ndarray, clusters: KMeans) -> np.ndarray:
+        """
+        Finds and returns the actual raw frames closest to each cluster centroid.
+        """
+        representative_frames = []
+        if frame_embs.shape[0] == 0:
+            return np.array([])
+            
+        for i in range(clusters.n_clusters):
+            centroid = clusters.cluster_centers_[i]
+            # Find the index of the frame embedding closest to the centroid
+            distances = np.linalg.norm(frame_embs - centroid, axis=1)
+            closest_frame_idx = np.argmin(distances)
+            # Append the *actual frame*
+            representative_frames.append(frames[closest_frame_idx])
+            
+        return np.array(representative_frames)
     
     def _embed_temporal_segments(self, temporal_chunks: list[np.ndarray]) -> np.ndarray:
         """
@@ -104,39 +123,46 @@ class VideoEncoder(BaseEncoder):
         return video_emb.cpu().numpy()
 
 
-    def _embed_image_clusters(self, frames: np.ndarray, frame_embs: np.ndarray, clusters: dict[int, list[int]]):
-        result = {}
-        for cid, idxs in clusters.items():
-            if not idxs:
-                continue
+    # In VideoEncoder class
+    def _embed_image_clusters(self, frame_embs: np.ndarray, clusters: KMeans) -> np.ndarray:
+        """
+        Finds the frame embedding closest to each cluster centroid and returns it.
+        This reuses the existing embeddings and performs no new model inference.
+        """
+        centroid_embeddings = []
+        
+        if frame_embs.shape[0] == 0:
+            return np.zeros((0, self.static_model.config.hidden_size), dtype=np.float32)
+
+        for i in range(clusters.n_clusters):
+            # 1. Get the true centroid from the KMeans object
+            centroid = clusters.cluster_centers_[i]
             
-            # ... (Questa parte del codice per trovare l'immagine migliore non cambia)
-            embs = frame_embs[idxs]
-            centroid = embs.mean(axis=0, keepdims=True)
-            sims = (embs @ centroid.T) / (
-                np.linalg.norm(embs, axis=1, keepdims=True) * np.linalg.norm(centroid, axis=1, keepdims=True) + 1e-8
-            )
-            best_local_index_within_cluster = int(np.argmax(sims))
-            best_local = idxs[best_local_index_within_cluster]
-            img = frames[best_local]
-
-            inputs = self.image_processor(images=[img], return_tensors="pt").to(self.device)
-            with torch.no_grad():
-                outputs = self.image_model(**inputs)
-
-                img_emb = outputs.pooler_output.cpu().numpy().squeeze()
-
-            result[f"cluster_{cid}"] = {
-                "frame_idx_local": int(best_local),
-                "frame_embedding": torch.tensor(img_emb, dtype=torch.float32),
-            }
-        return result
+            # 2. Get the indices of all frames in this cluster
+            cluster_indices = np.where(clusters.labels_ == i)[0]
+            if len(cluster_indices) == 0:
+                continue
+                
+            # 3. Get the pre-computed embeddings for this cluster
+            embs_in_cluster = frame_embs[cluster_indices]
+            
+            # 4. Find the embedding in this cluster closest to the centroid
+            distances = np.linalg.norm(embs_in_cluster - centroid, axis=1)
+            closest_local_idx = np.argmin(distances) # Index *within* embs_in_cluster
+            
+            # 5. Get the global index of that embedding
+            closest_global_idx = cluster_indices[closest_local_idx]
+            
+            # 6. REUSE the existing embedding. NO new model call.
+            centroid_embeddings.append(frame_embs[closest_global_idx])
+            
+        return np.array(centroid_embeddings, dtype=np.float32)
     
     def encode(self, frames):
         try:
             frame_embs = self._embed_frames_clip(frames)
-            clusters = cluster_frames(frame_embs, self.max_temporal_segments)
-            keyframe_embedding = self._embed_image_clusters(frames, frame_embs, clusters)
+            km = cluster_frames(frame_embs, self.max_temporal_segments)
+            keyframe_embedding = self._embed_image_clusters(frame_embs, km)
 
             k = choose_k(len(frames), self.max_temporal_segments)
             if k <= 1 or len(frames) < 8: # If scene is too short, treat as one chunk
@@ -146,10 +172,12 @@ class VideoEncoder(BaseEncoder):
                 temporal_chunks = np.array_split(frames, k, axis=0)
             
             temporal_embedding = self._embed_temporal_segments(temporal_chunks)
+            representative_frames = self._get_representative_frames(frames, frame_embs, km)
 
             return {
                 "image": keyframe_embedding,
-                "video": torch.tensor(temporal_embedding, dtype=torch.float32)
+                "video": torch.tensor(temporal_embedding, dtype=torch.float32),
+                "keyframes": representative_frames,
             }
         finally:
             if self.device == "cuda":
