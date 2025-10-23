@@ -156,8 +156,14 @@ class MultiModalEncoder:
 
             frame_embs = self._embed_frames_clip(frames)
             clusters = self._cluster_frames(frame_embs)
+            k = self._choose_k(len(frames))
+            if k <= 1 or len(frames) < 8: # If scene is too short, treat as one chunk
+                temporal_chunks = [frames] 
+            else:
+                # This splits the frames into k *temporally contiguous* groups
+                temporal_chunks = np.array_split(frames, k, axis=0)
             
-            scene_video_emb = self._embed_scene_video_with_representatives(frames, clusters)
+            scene_video_emb = self._embed_temporal_segments(temporal_chunks)
 
             image_clusters = self._embed_image_clusters(frames, frame_embs, clusters)
             audio_emb, transcript, text_emb = self._encode_audio_and_text(video_path, scene.start_time, scene.end_time)
@@ -229,26 +235,37 @@ class MultiModalEncoder:
         return clusters
 
 
-    def _embed_scene_video_with_representatives(self, frames: np.ndarray, clusters: dict[int, list[int]]) -> np.ndarray:
+    def _embed_temporal_segments(self, temporal_chunks: list[np.ndarray]) -> np.ndarray:
+        """
+        Embeds a list of temporally contiguous frame chunks using XCLIP.
+        Each chunk is treated as a mini-clip and its embedding is calculated.
+        The final embedding is the mean of all mini-clip embeddings.
+        """
         segment_embeddings = []
-        for cid in sorted(clusters.keys()):
-            idxs = clusters[cid]
-            if not idxs:
+        
+        # The loop logic is now simpler and conceptually correct
+        for segment_frames in temporal_chunks:
+            
+            if len(segment_frames) == 0:
                 continue
-
-            segment_frames = [frames[i] for i in idxs]
+            
             n = len(segment_frames)
 
+            # Subsample this TEMPORAL chunk to 8 frames for XCLIP
             if n > 8:
-                step = n // 8
-                segment_frames = [segment_frames[i] for i in range(0, n, step)][:8]
+                # Evenly sample across the temporal segment
+                idxs = np.linspace(0, n - 1, 8, dtype=int)
+                segment_frames_subsampled = segment_frames[idxs]
             elif n < 8:
-                segment_frames += [segment_frames[-1]] * (8 - n)
+                # Pad with the last frame
+                padding = [segment_frames[-1]] * (8 - n)
+                segment_frames_subsampled = np.concatenate((segment_frames, padding), axis=0)
+            else:
+                segment_frames_subsampled = segment_frames
 
-            video_inputs = self.video_processor(images=segment_frames, return_tensors="pt").to(self.device)
+            video_inputs = self.video_processor(images=list(segment_frames_subsampled), return_tensors="pt").to(self.device)
 
             with torch.inference_mode():
-
                 text_inputs = self.video_processor(text = "", return_tensors="pt").to(self.device)
                 outputs = self.video_model(
                     pixel_values=video_inputs["pixel_values"],
@@ -259,7 +276,8 @@ class MultiModalEncoder:
                 segment_embeddings.append(video_embedding)
 
         if not segment_embeddings:
-            return np.zeros(768, dtype=np.float32)
+            # Use the dimension of your XCLIP model, e.g., 768
+            return np.zeros(768, dtype=np.float32) 
 
         video_emb = torch.stack(segment_embeddings).mean(dim=0)
         return video_emb.cpu().numpy()
