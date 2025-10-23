@@ -22,8 +22,9 @@ from transformers import (
 from sentence_transformers import SentenceTransformer
 from scenedetect import detect, ContentDetector
 
-from video_dataset import VideoDataset, VideoDataPoint, Scene
-from utils.logging_formatter import LevelAwareFormatter
+from data.video_dataset import VideoDataset, VideoDataPoint, Scene
+from indexing.utils.logging_formatter import LevelAwareFormatter
+from indexing.utils.clustering import choose_k, cluster_frames
 from transformers import logging as hf_logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
@@ -174,8 +175,8 @@ class MultiModalEncoder:
                 return None
 
             frame_embs = self._embed_frames_clip(frames)
-            clusters = self._cluster_frames(frame_embs)
-            k = self._choose_k(len(frames))
+            clusters = cluster_frames(frame_embs, self.max_temporal_segments)
+            k = choose_k(len(frames), self.max_temporal_segments)
             if k <= 1 or len(frames) < 8: # If scene is too short, treat as one chunk
                 temporal_chunks = [frames] 
             else:
@@ -232,26 +233,6 @@ class MultiModalEncoder:
             img_embs = outputs.pooler_output
             
         return img_embs.cpu().numpy()
-
-    def _choose_k(self, n_frames: int) -> int:
-        k = (n_frames // 8) + 1
-        return min(k, self.max_temporal_segments)
-    
-
-    def _cluster_frames(self, frame_embs: np.ndarray):
-        n = len(frame_embs)
-        if n < 2:
-            return {0: list(range(n))}
-
-        k = self._choose_k(n)
-        if k <= 1:
-            return {0: list(range(n))}
-
-        km = KMeans(n_clusters=k, random_state=0, n_init="auto").fit(frame_embs)
-        clusters = {}
-        for i, lab in enumerate(km.labels_):
-            clusters.setdefault(int(lab), []).append(i)
-        return clusters
 
 
     def _embed_temporal_segments(self, temporal_chunks: list[np.ndarray]) -> np.ndarray:

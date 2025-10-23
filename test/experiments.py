@@ -1,13 +1,13 @@
 import sys
 import logging
 import os
-from video_dataset import VideoDataset
-from video_encoder import MultiModalEncoder
+from data.video_dataset import VideoDataset
+from indexing.multimod_encoder import MultiModalEncoder
 import sys
 from sklearn.metrics.pairwise import cosine_similarity
 import itertools
 import numpy as np
-from utils.logging_formatter import LevelAwareFormatter
+from indexing.utils.logging_formatter import LevelAwareFormatter
 from transformers import logging as hf_logging
 
 handler = logging.StreamHandler()
@@ -112,7 +112,7 @@ def experiment_2():
     logging.info("🚀 Starting Multimodal Retrieval Test Run (FULL)...")
 
     # === 1️⃣ Setup dataset e encoder ===
-    data_dir = "../../../data"
+    data_dir = "../../data"
     if not os.path.exists(data_dir):
         logging.error(f"❌ Directory {os.path.abspath(data_dir)} non trovata.")
         sys.exit(1)

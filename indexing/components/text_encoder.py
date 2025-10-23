@@ -22,8 +22,9 @@ from transformers import BlipProcessor, BlipForConditionalGeneration, CLIPProces
 from sentence_transformers import SentenceTransformer
 from scenedetect import detect, ContentDetector
 
-from encoding_try.video_dataset import VideoDataset, VideoDataPoint, Scene
-from encoding_try.utils.logging_formatter import LevelAwareFormatter
+from data.video_dataset import VideoDataset, VideoDataPoint, Scene
+from indexing.utils.clustering import cluster_frames
+from indexing.utils.logging_formatter import LevelAwareFormatter
 from transformers import logging as hf_logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -374,7 +375,7 @@ class CaptionEncoder:
         frame_embs = self._embed_frames_clip(frames)
 
         # Clustering of frames, selection of representatives, and captioning
-        clusters = self._cluster_frames(frame_embs)
+        clusters = cluster_frames(frame_embs, self.max_k_clusters)
         rep_indices = self._select_representative_indices(frame_embs, clusters)
         rep_indices_sorted = sorted(rep_indices, key=lambda i: frame_idxs[i])
         rep_frames = [frames[i] for i in rep_indices_sorted]
@@ -427,45 +428,7 @@ class CaptionEncoder:
         idxs = np.unique(idxs)
         frames = vr.get_batch(idxs).asnumpy()
         return frames, idxs
-
-
-    def _choose_k(self, n_frames: int) -> int:
-        """
-        Choose the number of clusters K based on the number of frames.
-        Args:
-            n_frames (int): Number of frames.
-        Returns:
-            int: Chosen number of clusters K.
-        """
-        if n_frames <= 6:
-            return 1
-        if n_frames <= 20:
-            return 2
-        if n_frames <= 40:
-            return 3
-        if n_frames <= 80:
-            return 4
-        return min(self.max_k_clusters, 5)
     
-
-    def _cluster_frames(self, frame_embs: np.ndarray):
-        """
-        Cluster frame embeddings using KMeans.
-        Args:
-            frame_embs (np.ndarray): Array of frame embeddings (N, D).
-        Returns:
-            dict[int, list[int]]: Mapping from cluster ID to list of local frame indices.
-        """
-        n = len(frame_embs)
-        k = self._choose_k(n)
-        if k <= 1:
-            return {0: list(range(n))}
-
-        km = KMeans(n_clusters=k, random_state=0, n_init="auto").fit(frame_embs)
-        clusters = {}
-        for i, lab in enumerate(km.labels_):
-            clusters.setdefault(int(lab), []).append(i)
-        return clusters
 
     def _select_representative_indices(self, frame_embs: np.ndarray, clusters: dict[int, list[int]]) -> list[int]:
         """
@@ -561,7 +524,7 @@ class CaptionEncoder:
 if __name__ == "__main__":
 
     logging.info("Starting CaptionEncoder test run...")
-    data_dir = "../../../ego4d_data/v2/full_scale"
+    data_dir = "../../ego4d_data/v2/full_scale"
     if not os.path.exists(data_dir):
         logging.error(f"Directory {os.path.abspath(data_dir)} not found.")
         sys.exit(1)
@@ -571,8 +534,6 @@ if __name__ == "__main__":
         for f in os.listdir(data_dir)
         if f.lower().endswith((".mp4", ".mov", ".mkv", ".avi"))
     ]
-
-    print(video_files)
 
     if not video_files:
         logging.error(f"No videos found in {data_dir}.")
