@@ -2,7 +2,7 @@ import sys
 import logging
 import os
 from data.video_dataset import VideoDataset
-from indexing.multimod_encoder import MultiModalEncoder
+from indexing.multimodal_encoder import MultiModalEncoder
 import sys
 from sklearn.metrics.pairwise import cosine_similarity
 import itertools

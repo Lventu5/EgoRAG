@@ -25,6 +25,7 @@ from scenedetect import detect, ContentDetector
 from data.video_dataset import VideoDataset, VideoDataPoint, Scene
 from indexing.utils.logging_formatter import LevelAwareFormatter
 from indexing.utils.clustering import choose_k, cluster_frames
+from lori.EgoRAG.indexing.components.text_encoder_old import CaptionEncoder
 from transformers import logging as hf_logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
@@ -61,6 +62,7 @@ class MultiModalEncoder:
 
     def load_models(self): # FIXME: Move to __init__
         logging.info("[MODELS] Loading...")
+        self.text_encoder = CaptionEncoder(self.device, self.max_frames_per_scene, self.max_temporal_segments)
 
         self.video_processor = XCLIPProcessor.from_pretrained("microsoft/xclip-large-patch14", local_files_only=True)
         self.video_model = XCLIPModel.from_pretrained("microsoft/xclip-large-patch14", local_files_only=True).to(self.device)
