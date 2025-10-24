@@ -11,7 +11,6 @@ from transformers import (
 )
 import logging
 from torch.nn.functional import normalize
-from typing import Union
 
 class HierarchicalRetriever:
     def __init__(
@@ -21,7 +20,7 @@ class HierarchicalRetriever:
         text_model_name: str = "all-MiniLM-L6-v2",
         video_model_name: str = "microsoft/xclip-base-patch16",
         audio_model_name: str = "laion/clap-htsat-unfused",
-        caption_model_name: str = "Salesforce/blip-image-captioning-base",
+        caption_model_name: str = "all-MiniLM-L6-v2",
     ):
         self.video_dataset = video_dataset
         self.device = device
@@ -39,7 +38,7 @@ class HierarchicalRetriever:
                 "model": text_model_name
             },
             "caption": {
-                "size": 768,
+                "size": 384,
                 "model": caption_model_name
             }
         }
@@ -56,7 +55,6 @@ class HierarchicalRetriever:
         self.embedder = None
         target_modality = modality
 
-        
         if target_modality == "text":
             self.embedder = SentenceTransformer(
                 self.sizes["text"]["model"], device=self.device
@@ -75,7 +73,8 @@ class HierarchicalRetriever:
         elif target_modality == "caption":
             model_name = self.sizes["caption"]["model"]
             self.processor = BlipProcessor.from_pretrained(model_name)
-            self.embedder = BlipModel.from_pretrained(model_name).to(self.device)    
+            self.embedder = BlipModel.from_pretrained(model_name).to(self.device)     # type: ignore
+
         else:
             raise ValueError(f"Unknown modality: {modality}")
 
@@ -118,8 +117,8 @@ class HierarchicalRetriever:
         self, 
         queries: list[str],
         modalities: list[str] | str,
-        top_k: int = 5
-    ):
+        top_k: int = 1
+    )-> dict:
         if isinstance(modalities, str):
             modalities = [modalities]
 
@@ -142,12 +141,17 @@ class HierarchicalRetriever:
         modality: str,
         top_k: int = 1
     ) -> list[list[tuple[str, float]]]:
+        """
+        Retrieves the top-k videos for a given modality, and returns them in a format
+        List (each element corresponds to a query) of lists (each element corresponds to one of
+        the top-k elements) of tuples (video, score)
+        """
         
         video_names = []
         db_embeddings_list = []
         
         for dp in self.video_dataset.video_datapoints:
-            emb = dp.global_embeddings.get(modality)
+            emb = dp.global_embeddings.get(modality, None)
             if emb is not None:
                 video_names.append(dp.video_name)
                 db_embeddings_list.append(emb)
@@ -186,7 +190,10 @@ class HierarchicalRetriever:
         modality: str, 
         top_k: int = 1
     ) -> list[tuple[str, float]]:
-
+        """
+        Gets the best scene in a video (we already know it is a top-k video) for the specified query
+        Returns a list with the top k scenes and their similarity score
+        """
         target_dp = None
         for dp in self.video_dataset.video_datapoints:
             if dp.video_name == video_name:
@@ -196,14 +203,14 @@ class HierarchicalRetriever:
         if target_dp is None:
             raise RuntimeError(f"Video '{video_name}' not found")
 
-        self._load_models_for_modality(modality)
+        self._load_models_for_modality(modality) #FIXME: Questo si può ottimizzare passando direttamente gli embedding delle queries
         query_embedding = self._embed_queries([query])
 
         scene_ids = []
         scene_embeddings_list = []
         
         for scene_id, scene_data in target_dp.scene_embeddings.items():
-            emb = scene_data.get(modality) 
+            emb = scene_data.get(modality, None) 
             if emb is not None:
                 if not isinstance(emb, torch.Tensor):
                    try:
@@ -230,7 +237,7 @@ class HierarchicalRetriever:
         )
         results = []
         for score, scene_idx in zip(top_scores, top_indices):
-            results.append((scene_ids[scene_idx.item()], score.item()))
+            results.append((scene_ids[scene_idx.item()], score.item())) # type: ignore
         return results
 
 

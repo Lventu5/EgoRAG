@@ -12,12 +12,14 @@ class Scene:
     """
     def __init__(
         self,
+        scene_id: str,
         start_time: float,
         end_time: float,
         start_frame: Optional[int] = None,
         end_frame: Optional[int] = None,
         frames: Optional[List[int]] = None
     ):
+        self.scene_id = scene_id
         self.start_time = start_time
         self.end_time = end_time
         self.start_frame = start_frame if start_frame is not None else 0
@@ -26,6 +28,7 @@ class Scene:
 
     def __repr__(self):
         return (
+            f"Scene id: {self.scene_id}"
             f"Scene(start={self.start_time:.2f}s, end={self.end_time:.2f}s, "
             f"frames={self.start_frame}-{self.end_frame}, total_frames={len(self.frames)})"
         )
@@ -45,11 +48,12 @@ class VideoDataPoint:
         self.scenes = scenes or []
 
         # Embeddings globali (media sulle scene)
-        self.global_embeddings: Dict[str, Optional[torch.Tensor]] = {
+        self.global_embeddings: Dict[str, Optional[torch.Tensor | str]] = {
             "video": None,
             "audio": None,
             "text": None,
             "caption": None,
+            "caption_text": "",
         }
 
         # Embeddings per ogni scena
@@ -58,10 +62,11 @@ class VideoDataPoint:
                 "video": None,
                 "audio": None,
                 "text": None,
+                "caption": None,
                 "transcript": "",
                 "image": {},
                 "meta": {},
-                "caption": None,
+                "caption_text": "",
             }
             for i, _ in enumerate(self.scenes)
         }

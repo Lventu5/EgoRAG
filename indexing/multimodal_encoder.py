@@ -83,12 +83,13 @@ class MultiModalEncoder:
             scene_list = detect(video_path, ContentDetector())
             return [
                 Scene(
+                    scene_id=f"scene_{i}",
                     start_time=start.get_seconds(),
                     end_time=end.get_seconds(),
                     start_frame=start.get_frames(),
                     end_frame=end.get_frames(),
                 )
-                for start, end in scene_list
+                for i, (start, end) in enumerate(scene_list)
             ]
         except Exception as e:
             logging.error(f"Scene detection failed for {video_path}: {e}")
@@ -165,7 +166,7 @@ class MultiModalEncoder:
             if embs:
                 aggregated[key] = torch.stack(embs).mean(dim=0)
             else:
-                aggregated[key] = None # Or a zero vector
+                aggregated[key] = None 
                 
         return aggregated
 
@@ -192,9 +193,9 @@ class MultiModalEncoder:
                         if scene_out:
                             dp.scene_embeddings[sid] = scene_out
                         else:
-                            logging.warning(f"[SKIP] scena {sid} vuota.")
+                            logging.warning(f"[SKIP] scene {sid}, empty.")
                     except Exception as e:
-                        logging.error(f"[ERROR] scena {sid} fallita: {e}")
+                        logging.error(f"[ERROR] scene {sid} failed: {e}")
                 
             if not dp.scene_embeddings:
                 logging.warning(f"No scenes were successfully encoded for {video_path}.")
