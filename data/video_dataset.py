@@ -45,11 +45,12 @@ class VideoDataPoint:
         self.scenes = scenes or []
 
         # Embeddings globali (media sulle scene)
-        self.global_embeddings: Dict[str, Optional[torch.Tensor]] = {
+        self.global_embeddings: Dict[str, Optional[torch.Tensor | str]] = {
             "video": None,
             "audio": None,
             "text": None,
             "caption": None,
+            "caption_text": "",
         }
 
         # Embeddings per ogni scena
@@ -62,6 +63,7 @@ class VideoDataPoint:
                 "image": {},
                 "meta": {},
                 "caption": None,
+                "caption_text": "",
             }
             for i, _ in enumerate(self.scenes)
         }

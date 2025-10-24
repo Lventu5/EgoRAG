@@ -130,6 +130,7 @@ class MultiModalEncoder:
             )
             
             caption = self.captioner.encode(video_data["keyframes"])
+            caption_emb = self.text_encoder.encode(caption) if caption else torch.zeros(384, dtype=torch.float32)
             
             transcript = audio_data["transcript"]
             full_text = f"Transcript: {transcript}. Visuals: {caption}"
@@ -140,7 +141,8 @@ class MultiModalEncoder:
                 "video": video_data["video"],
                 "audio": audio_data["audio_embedding"],
                 "text": text_embedding,
-                "caption": caption,
+                "caption": caption_emb,
+                "caption_text": caption,
                 "transcript": transcript,
                 "keyframes": video_data["image"],
             }
@@ -154,7 +156,7 @@ class MultiModalEncoder:
 
     def _aggregate_embeddings(self, scene_embeddings: dict) -> dict:
         """Aggregates scene embeddings to create global video embeddings."""
-        global_embs = {"video": [], "audio": [], "text": []}
+        global_embs = {"video": [], "audio": [], "text": [], "caption": []}
         for scene_data in scene_embeddings.values():
             for key in global_embs.keys():
                 if scene_data[key] is not None:

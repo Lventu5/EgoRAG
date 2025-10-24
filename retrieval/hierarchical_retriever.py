@@ -21,7 +21,7 @@ class HierarchicalRetriever:
         text_model_name: str = "all-MiniLM-L6-v2",
         video_model_name: str = "microsoft/xclip-base-patch16",
         audio_model_name: str = "laion/clap-htsat-unfused",
-        caption_model_name: str = "Salesforce/blip-image-captioning-base",
+        caption_model_name: str = "all-MiniLM-L6-v2",
     ):
         self.video_dataset = video_dataset
         self.device = device
@@ -39,7 +39,7 @@ class HierarchicalRetriever:
                 "model": text_model_name
             },
             "caption": {
-                "size": 768,
+                "size": 384,
                 "model": caption_model_name
             }
         }
@@ -57,7 +57,7 @@ class HierarchicalRetriever:
         target_modality = modality
 
         
-        if target_modality == "text":
+        if target_modality == "text" or target_modality == "caption":
             self.embedder = SentenceTransformer(
                 self.sizes["text"]["model"], device=self.device
             )
@@ -71,11 +71,7 @@ class HierarchicalRetriever:
             model_name = self.sizes["audio"]["model"]
             self.processor = ClapProcessor.from_pretrained(model_name)
             self.embedder = ClapModel.from_pretrained(model_name).to(self.device) # type: ignore
-
-        elif target_modality == "caption":
-            model_name = self.sizes["caption"]["model"]
-            self.processor = BlipProcessor.from_pretrained(model_name)
-            self.embedder = BlipModel.from_pretrained(model_name).to(self.device)    
+    
         else:
             raise ValueError(f"Unknown modality: {modality}")
 
@@ -87,7 +83,7 @@ class HierarchicalRetriever:
         if self.embedder is None:
             raise RuntimeError("No model loaded for embedding. Call _load_models_for_modality first.")
 
-        if self.current_modality == "text":
+        if self.current_modality == "text" or self.current_modality == "caption":
             embeddings = self.embedder.encode(
                 queries, convert_to_tensor=True, device=self.device
             ) # type: ignore
@@ -98,12 +94,6 @@ class HierarchicalRetriever:
             with torch.no_grad():
                 embeddings = self.embedder.get_text_features(**inputs) # type: ignore
         elif self.current_modality == "audio":
-            inputs = self.processor(
-                text=queries, return_tensors="pt", padding=True # type: ignore
-            ).to(self.device)
-            with torch.no_grad():
-                embeddings = self.embedder.get_text_features(**inputs) # type: ignore
-        elif self.current_modality == "caption":
             inputs = self.processor(
                 text=queries, return_tensors="pt", padding=True # type: ignore
             ).to(self.device)
@@ -142,6 +132,7 @@ class HierarchicalRetriever:
         modality: str,
         top_k: int = 1
     ) -> list[list[tuple[str, float]]]:
+        logging.info(f"Retrieving top {top_k} results for modality '{modality}'")
         
         video_names = []
         db_embeddings_list = []

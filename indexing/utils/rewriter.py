@@ -45,6 +45,16 @@ class QueryRewriterLLM:
             return self.decompose_to_json(query)
         else:
             raise ValueError("Unknown modality. Use 'default' or 'decompose'.")
+        
+    # @staticmethod
+    def _strip_prompt_echo(self, text: str, after: Optional[str] = None) -> str:
+        """
+        Removes the prompt echo from the model’s output. If `after` is provided,
+        keeps only the substring after its first occurrence.
+        """
+        if after and after in text:
+            text = text.split(after, 1)[-1]
+        return text.strip()
 
     def generate(self, prompt: str) -> str:
         """
