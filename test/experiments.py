@@ -173,8 +173,8 @@ def experiment_2():
         return x
 
     # === 4️⃣ Embeddiamo tutte le queries ===
-    text_embedder = encoder.text_embedder
-    query_embs = text_embedder.encode(queries, convert_to_numpy=True)
+    text_encoder = encoder.text_encoder
+    query_embs = text_encoder.encode(queries, convert_to_numpy=True)
     logging.info(f"[INFO] Query embeddings shape: {query_embs.shape}") # (13, 384)
 
     # === 5️⃣ Otteniamo tutti gli embeddings video globali ===
