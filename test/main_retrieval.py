@@ -48,15 +48,15 @@ def main(
         raise RuntimeError("No encoded video datapoints found in the dataset.")
     
     queries = [
-        "Who scored the winning goal in Bologna’s match?",
-        "Who won between Sinner and Alcaraz?",
-        "Can you hear the crowd cheering?",
-        "Is the commentator describing an amazing point?",
-        "Did Sinner serve an ace during the match?",
-        "Did Pisa make a comeback?",
-        "Are there scenes of celebration or applause?",
-        "Can you hear the sound of the racket?",
-        "Is the atmosphere tense during the final rallies?",
+        "When is the first goal from Bologna scored?", # 00:30
+        "When is the player from Pisa receiving a red card?", # 00:52
+        "Who jumps over the ad board to celebrate?", # 01:14
+        "When do the second half highlights start?", # 01:38
+        "Who is the highlights sposnsor?", # 00:01
+        "When does the ball bounce on the net?", # 00:41
+        "When does the player without the cap wins the first set?", # 01:24
+        "How many people with a cap on the stands are celebrating the winning point?", # 01:32
+        "Who wins the tennis match?", # 04:33
         "Does the commentary rhythm suggest an important moment?",
         "Are there changes in pace or intensity in the commentary?",
         "Does it look like a break or preparation moment in the game?",

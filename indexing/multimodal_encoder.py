@@ -77,12 +77,12 @@ class MultiModalEncoder:
         self.captioner.load_models()
         logging.info("All models loaded successfully.")
 
-    def _detect_scenes(self, video_path: str) -> list[Scene]:
+    def _detect_scenes(self, video_path: str) -> dict[str, Scene]:
         """Detects content-based scenes and returns Scene objects."""
         try:
             scene_list = detect(video_path, ContentDetector())
-            return [
-                Scene(
+            return {
+                f"scene_{i}": Scene(
                     scene_id=f"scene_{i}",
                     start_time=start.get_seconds(),
                     end_time=end.get_seconds(),
@@ -90,10 +90,10 @@ class MultiModalEncoder:
                     end_frame=end.get_frames(),
                 )
                 for i, (start, end) in enumerate(scene_list)
-            ]
+            }
         except Exception as e:
             logging.error(f"Scene detection failed for {video_path}: {e}")
-            return []
+            return {}
 
     def _extract_frames(self, video_path: str, start_frame: int, end_frame: int, max_frames: int) -> tuple[np.ndarray, np.ndarray]:
         """Extracts frames for a given scene."""
@@ -184,8 +184,7 @@ class MultiModalEncoder:
 
             futures = {}
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                for i, scene in enumerate(dp.scenes):
-                    sid = f"scene_{i}"
+                for sid, scene in dp.scenes.items():
                     futures[executor.submit(self._encode_scene, dp.video_path, scene)] = sid
 
                 for f in tqdm(as_completed(futures), total=len(futures), desc=f"Scenes ({dp.video_name})"):

@@ -196,7 +196,7 @@ class HierarchicalRetriever:
         self._load_models_for_modality(modality) #FIXME: Questo si può ottimizzare passando direttamente gli embedding delle queries
         query_embedding = self._embed_queries([query])
 
-        scene_ids = []
+        scenes = []
         scene_embeddings_list = []
         
         for scene_id, scene_data in target_dp.scene_embeddings.items():
@@ -208,7 +208,7 @@ class HierarchicalRetriever:
                    except Exception as e:
                        logging.warning(f"Unable to convert embedding of scene {scene_id} to tensor: {e}. Skipping.")
                        continue
-                scene_ids.append(scene_id)
+                scenes.append(target_dp.get_scene_by_id(scene_id))
                 scene_embeddings_list.append(emb.to(self.device))
         
         if not scene_embeddings_list:
@@ -223,11 +223,11 @@ class HierarchicalRetriever:
         sim_vector = torch.matmul(query_embedding_norm, scene_embeddings_norm.T).squeeze(0)
 
         top_scores, top_indices = torch.topk(
-            sim_vector, k=min(top_k, len(scene_ids))
+            sim_vector, k=min(top_k, len(scenes))
         )
         results = []
         for score, scene_idx in zip(top_scores, top_indices):
-            results.append((scene_ids[scene_idx.item()], score.item())) # type: ignore
+            results.append((scenes[scene_idx.item()], score.item())) # type: ignore
         return results
 
 

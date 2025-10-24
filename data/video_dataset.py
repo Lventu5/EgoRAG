@@ -42,10 +42,10 @@ class VideoDataPoint:
       - embeddings globali (video/audio/text)
       - embeddings per ogni scena
     """
-    def __init__(self, video_path: str, scenes: Optional[List[Scene]] = None):
+    def __init__(self, video_path: str, scenes: Optional[Dict[str, Scene]] = None):
         self.video_path = video_path
         self.video_name = os.path.basename(video_path)
-        self.scenes = scenes or []
+        self.scenes = scenes or {}
 
         # Embeddings globali (media sulle scene)
         self.global_embeddings: Dict[str, Optional[torch.Tensor | str]] = {
@@ -73,6 +73,11 @@ class VideoDataPoint:
 
     def __repr__(self):
         return f"VideoDataPoint(name={self.video_name}, scenes={len(self.scenes)})"
+    
+    def get_scene_by_id(self, scene_id: str | int) -> Optional[Scene]:
+        if isinstance(scene_id, int):
+            scene_id = f"scene_{scene_id}"
+        return self.scenes.get(scene_id, None)
 
 
 class VideoDataset(Dataset):
@@ -80,13 +85,13 @@ class VideoDataset(Dataset):
     Dataset di video per il MultiModalEncoder.
     Contiene una lista di VideoDataPoint (uno per video).
     """
-    def __init__(self, video_files: List[str], scenes_per_video: Optional[Dict[str, List[Scene]]] = None):
+    def __init__(self, video_files: List[str], scenes_per_video: Optional[Dict[str, Dict[str, Scene]]] = None):
         self.video_files = video_files
         self.video_datapoints: List[VideoDataPoint] = []
         self.scenes_per_video = scenes_per_video or {}
 
         for path in video_files:
-            scenes = self.scenes_per_video.get(path, [])
+            scenes = self.scenes_per_video.get(path, {})
             self.video_datapoints.append(VideoDataPoint(path, scenes))
 
     def __len__(self):
