@@ -129,7 +129,7 @@ class MultiModalEncoder:
                 scene.end_time
             )
             
-            caption = self.captioner.encode(frames)
+            caption = self.captioner.encode(video_data["keyframes"])
             
             transcript = audio_data["transcript"]
             full_text = f"Transcript: {transcript}. Visuals: {caption}"

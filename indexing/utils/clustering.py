@@ -15,7 +15,4 @@ def cluster_frames(frame_embs: np.ndarray, max_temporal_segments: int) -> dict[i
             return {0: list(range(n))}
 
         km = KMeans(n_clusters=k, random_state=0, n_init="auto").fit(frame_embs)
-        clusters = {}
-        for i, lab in enumerate(km.labels_):
-            clusters.setdefault(int(lab), []).append(i)
-        return clusters
+        return km
