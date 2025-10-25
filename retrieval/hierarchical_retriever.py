@@ -1,6 +1,5 @@
-from data.video_dataset import VideoDataset
-from sentence_transformers import SentenceTransformer
 import torch
+import logging
 from transformers import (
     BlipProcessor, 
     BlipModel, 
@@ -9,8 +8,12 @@ from transformers import (
     ClapProcessor,
     ClapModel
 )
-import logging
+from sentence_transformers import SentenceTransformer
 from torch.nn.functional import normalize
+
+from data.video_dataset import VideoDataset
+from data.query import Query, QueryDataset
+from indexing.utils.rewriter import QueryRewriterLLM
 
 class HierarchicalRetriever:
     def __init__(
@@ -21,6 +24,7 @@ class HierarchicalRetriever:
         video_model_name: str = "microsoft/xclip-base-patch16",
         audio_model_name: str = "laion/clap-htsat-unfused",
         caption_model_name: str = "all-MiniLM-L6-v2",
+        rewriter_name: str = "Qwen/Qwen2.5-7B-Instruct",
     ):
         self.video_dataset = video_dataset
         self.device = device
@@ -42,6 +46,7 @@ class HierarchicalRetriever:
                 "model": caption_model_name
             }
         }
+        self.rewriter = rewriter_name
         self.current_modality = None
         self.processor = None
         self.embedder = None
@@ -75,58 +80,73 @@ class HierarchicalRetriever:
 
         self.current_modality = target_modality
 
+    def _rewrite_queries(self, queries: QueryDataset):
+        rewriter = QueryRewriterLLM(
+            model_name=self.rewriter, 
+            device=self.device
+        )
 
-    def _embed_queries(self, queries: list[str]) -> torch.Tensor:
+        for query in queries:
+            decomposition = rewriter(query.get_query(), modality="decompose")
+            query.decomposed = decomposition
+
+
+    def _embed_queries(self, queries: QueryDataset) -> torch.Tensor:
 
         if self.embedder is None:
             raise RuntimeError("No model loaded for embedding. Call _load_models_for_modality first.")
+        
+        mod_queries = queries.group_by_modality(self.current_modality)
 
         if self.current_modality == "text" or self.current_modality == "caption":
             embeddings = self.embedder.encode(
-                queries, convert_to_tensor=True, device=self.device
+                mod_queries, convert_to_tensor=True, device=self.device
             ) # type: ignore
         elif self.current_modality == "video":
             inputs = self.processor(
-                text=queries, return_tensors="pt", padding=True # type: ignore
+                text=mod_queries, return_tensors="pt", padding=True # type: ignore
             ).to(self.device)
             with torch.no_grad():
                 embeddings = self.embedder.get_text_features(**inputs) # type: ignore
         elif self.current_modality == "audio":
             inputs = self.processor(
-                text=queries, return_tensors="pt", padding=True # type: ignore
+                text=mod_queries, return_tensors="pt", padding=True # type: ignore
             ).to(self.device)
             with torch.no_grad():
                 embeddings = self.embedder.get_text_features(**inputs) # type: ignore
         else:
             raise ValueError(f"Unknown modality: {self.current_modality}")
+        
+        for query, emb in zip(queries, embeddings):
+            query.embeddings[self.current_modality] = emb.cpu()
 
         return embeddings
 
     def retrieve_queries_list(
         self, 
-        queries: list[str],
+        queries: QueryDataset,
         modalities: list[str] | str,
         top_k: int = 1
     )-> dict:
         if isinstance(modalities, str):
             modalities = [modalities]
 
-        final_results = {query: {} for query in queries}
+        final_results = {query.qid: {} for query in queries}
 
         for modality in modalities:
             self._load_models_for_modality(modality)
-            query_embeddings = self._embed_queries(queries)
+            self._embed_queries(queries)
             modality_results_batch = self._retrieve_for_modality(
-                query_embeddings, modality, top_k
+                queries, modality, top_k
             )
             for i, query in enumerate(queries):
-                final_results[query][modality] = modality_results_batch[i]
+                final_results[query.qid][modality] = modality_results_batch[i]
                 
         return final_results
 
     def _retrieve_for_modality(
         self, 
-        query_embeddings: torch.Tensor, 
+        queries: QueryDataset, 
         modality: str,
         top_k: int = 1
     ) -> list[list[tuple[str, float]]]:
@@ -136,6 +156,8 @@ class HierarchicalRetriever:
         the top-k elements) of tuples (video, score)
         """
         logging.info(f"Retrieving top {top_k} results for modality '{modality}'")
+
+        query_embeddings = queries.embeddings_by_modality(modality).to(self.device)
         
         video_names = []
         db_embeddings_list = []
@@ -175,7 +197,7 @@ class HierarchicalRetriever:
     
     def retrieve_best_scene(
         self, 
-        query: str, 
+        query: Query, 
         video_name: str, 
         modality: str, 
         top_k: int = 1
@@ -193,8 +215,7 @@ class HierarchicalRetriever:
         if target_dp is None:
             raise RuntimeError(f"Video '{video_name}' not found")
 
-        self._load_models_for_modality(modality) #FIXME: Questo si può ottimizzare passando direttamente gli embedding delle queries
-        query_embedding = self._embed_queries([query])
+        query_embedding = query.get_embedding(modality).to(self.device)
 
         scenes = []
         scene_embeddings_list = []
@@ -233,7 +254,7 @@ class HierarchicalRetriever:
 
     def retrieve_hierarchically(
         self,
-        queries: list[str],
+        queries: QueryDataset,
         modalities: list[str] | str,
         top_k_videos: int = 3, 
         top_k_scenes: int = 1  
@@ -242,6 +263,8 @@ class HierarchicalRetriever:
         if isinstance(modalities, str):
             modalities = [modalities]
 
+        self._rewrite_queries(queries)
+
         logging.info(f"Step 1: Retrieving top {top_k_videos} videos globally...")
         global_results = self.retrieve_queries_list(
             queries=queries, 
@@ -249,17 +272,18 @@ class HierarchicalRetriever:
             top_k=top_k_videos
         )
         
-        detailed_results = {query: {mod: [] for mod in modalities} for query in queries}
+        detailed_results = {query.qid: {mod: [] for mod in modalities} for query in queries}
 
         logging.info(f"Step 2: Retrieving top {top_k_scenes} scenes within top videos...")
         for modality in modalities:
             self._load_models_for_modality(modality) 
 
+
             for i, query in enumerate(queries):
-                top_videos_for_query = global_results[query][modality]
+                top_videos_for_query = global_results[query.qid][modality]
 
                 if not top_videos_for_query:
-                    logging.warning(f"No global results for query '{query}' in modality '{modality}'.")
+                    logging.warning(f"No global results for query '{query.qid}' in modality '{modality}'.")
                     continue
 
                 for video_name, global_score in top_videos_for_query:
@@ -270,7 +294,7 @@ class HierarchicalRetriever:
                         top_k=top_k_scenes
                     )
                     
-                    detailed_results[query][modality].append(
+                    detailed_results[query.qid][modality].append(
                         (video_name, global_score, best_scenes_in_video)
                     )
 

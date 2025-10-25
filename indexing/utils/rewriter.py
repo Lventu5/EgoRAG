@@ -66,7 +66,7 @@ class QueryRewriterLLM:
             temperature=0.0,
             top_p=1.0,
             return_full_text=True)[0]["generated_text"]
-        logging.info(f"Rewriting completed. Result:\n {out}")
+        # logging.info(f"Rewriting completed. Result:\n {out}")
         return out
 
     def build_prompt(self, query: str) -> str:
@@ -88,12 +88,17 @@ class QueryRewriterLLM:
         return (
             "Decompose this query for a MULTIMODAL video search. "
             "Return ONLY a valid JSON object with EXACTLY these keys:\n"
-            '  "text_query": string,\n'
-            '  "audio_query": string (comma-separated words/onomatopoeias),\n'
-            '  "video_query": string (short visual description)\n'
+            '  "text": string,\n'
+            '  "audio": string (comma-separated words/sounds/onomatopoeias),\n'
+            '  "video": string (short visual description)\n'
             "Do not add explanations, notes, code fences or extra text. \n\n "
+            "Here are a few examples:\n\n"
+            "1) Query: \"A dog barks as a car explodes\"\n"
+            "JSON: {\"text\": \"A dog barks as a car explodes\", \"audio\": \"barking, explosion\", \"video\": \"A dog barking and an exploding car\"}\n"
+            "2) Query: \"A plane flies over a city while sirens blare\"\n"
+            "JSON: {\"text\": \"A plane flies over a city while sirens blare\", \"audio\": \"sirens blaring, plane noise\", \"video\": \"A plane flying over a city\"}\n\n"
             f'Query: "{query}"\n'
-            "JSON:"
+            "Generated JSON:"
         )
     
     def rewrite(self, query: str) -> str:
@@ -111,6 +116,8 @@ class QueryRewriterLLM:
         """
         prompt = self.build_decompose_prompt(query)
         raw = self.generate(prompt)
+
+        raw = self._strip_prompt_echo(raw, after="Generated JSON:")
 
         data = JSONParser.parse_with_defaults(
             raw,

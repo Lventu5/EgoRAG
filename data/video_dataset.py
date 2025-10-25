@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import Dataset
 import os
+import pickle
 from typing import Dict, List, Optional
 import numpy as np
 
@@ -28,9 +29,9 @@ class Scene:
 
     def __repr__(self):
         return (
-            f"Scene id: {self.scene_id}"
-            f"Scene(start={self.start_time:.2f}s, end={self.end_time:.2f}s, "
-            f"frames={self.start_frame}-{self.end_frame}, total_frames={len(self.frames)})"
+            f"Scene id: {self.scene_id}, "
+            f"start={self.start_time:.2f}s, end={self.end_time:.2f}s, "
+            f"frames={self.start_frame}-{self.end_frame}, total_frames={len(self.frames)}"
         )
 
 
@@ -99,3 +100,13 @@ class VideoDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.video_datapoints[idx]
+    
+    def save_to_pickle(self, file_path: str):
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, 'wb') as f:
+            pickle.dump(self, f)
+
+    @staticmethod
+    def load_from_pickle(file_path: str) -> "VideoDataset":
+        with open(file_path, 'rb') as f:
+            return pickle.load(f)

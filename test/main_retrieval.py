@@ -1,6 +1,7 @@
 from indexing.multimodal_encoder import MultiModalEncoder
 from retrieval.hierarchical_retriever import HierarchicalRetriever
 from data.video_dataset import VideoDataset
+from data.query import QueryDataset, Query
 import torch
 import logging
 from transformers import logging as hf_logging
@@ -18,33 +19,45 @@ hf_logging.disable_progress_bar()
 
 
 def main(
-    data_directory: str = "../../data"
+    data_directory: str = "../../data",
+    pickle_file: str = "../../data/video_dataset.pkl"
 ):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     if not os.path.exists(data_directory):
         raise ValueError(f"Data directory {data_directory} does not exist.")
-    
-    logging.info(f"Loading video files from directory: {data_directory}")
-    video_files = [
-        os.path.join(data_directory, f)
-        for f in os.listdir(data_directory)
-        if f.lower().endswith((".mp4", ".mov", ".mkv", ".avi"))
+
+    if os.path.exists(pickle_file):
+        logging.info(f"Loading video dataset from pickle file: {pickle_file}")
+        video_dataset = VideoDataset.load_from_pickle(pickle_file)
+    else:
+        logging.info(f"Loading video files from directory: {data_directory}")
+        video_files = [
+            os.path.join(data_directory, f)
+            for f in os.listdir(data_directory)
+            if f.lower().endswith((".mp4", ".mov", ".mkv", ".avi"))
         and "animal" not in f.lower() 
         and "ai" not in f.lower()
-    ]
-    video_dataset = VideoDataset(video_files)
+        ]
+        video_dataset = VideoDataset(video_files)
 
-    logging.info("Initializing MultiModalEncoder...")
-    encoder = MultiModalEncoder(
-        video_dataset=video_dataset,
-        device="cuda" if torch.cuda.is_available() else "cpu",
-        max_workers=2
-    )
-    encoder.load_models()
-    encoder.encode_videos()
+        logging.info("Initializing MultiModalEncoder...")
+        encoder = MultiModalEncoder(
+            video_dataset=video_dataset,
+            device="cuda" if torch.cuda.is_available() else "cpu",
+            max_workers=2
+        )
+        encoder.load_models()
+        encoder.encode_videos()
 
-    retrieval = HierarchicalRetriever(encoder.dataset, device=encoder.device)
+        video_dataset = encoder.dataset
+        video_dataset.save_to_pickle(pickle_file)
+        logging.info(f"[SAVE] Video dataset saved to pickle file: {pickle_file}")
+        del encoder
+        torch.cuda.empty_cache()
 
-    if not encoder.dataset.video_datapoints:
+    retrieval = HierarchicalRetriever(video_dataset, device=device)
+
+    if not video_dataset.video_datapoints:
         raise RuntimeError("No encoded video datapoints found in the dataset.")
     
     queries = [
@@ -63,17 +76,19 @@ def main(
         "Does the video show strong emotions from the players or crowd?",
     ]
 
+    queries = QueryDataset(queries)
+
     modalities = ["video", "audio", "text", "caption"]
 
     hierarchical_results = retrieval.retrieve_hierarchically(
         queries=queries,
         modalities=modalities,
-        top_k_videos=1,
-        top_k_scenes=1
+        top_k_videos=2,
+        top_k_scenes=5
     )
 
     for query, results_by_modality in hierarchical_results.items():
-        print(f"\n===== Query: '{query}' =====")
+        print(f"\n===== Query: '{query}', {queries[int(query[-1])].get_query()} =====")
         for modality, video_list in results_by_modality.items():
             print(f"\n--- Modality: {modality.upper()} ---")
             if not video_list:
