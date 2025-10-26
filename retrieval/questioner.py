@@ -149,23 +149,36 @@ class Ego4D_NLQ_Runner:
         Returns:
             Dict mapping query IDs to retrieval results per modality.
         """
-        if self.encoder is None:
-            raise RuntimeError("Encoder is None. Please provide a MultiModalEncoder instance.")
+        needs_encoding = (
+            len(self.dataset.video_datapoints) == 0 or
+            any((not getattr(dp, "global_embeddings", None)) for dp in self.dataset.video_datapoints)
+        )
 
-        self.encoder.load_models()
-        self.encoder.encode_videos()
-
-        self.dataset = self.encoder.dataset
-        self.retriever.video_dataset = self.encoder.dataset
-
-        self.unload_encoder_models()
+        if needs_encoding:
+            if self.encoder is None:
+                self.encoder = MultiModalEncoder(
+                    video_dataset=self.dataset,
+                    device=self.device,
+                    max_workers=1
+                )
+            logging.info("Encoding videos in the dataset using the provided encoder...")
+            self.encoder.load_models()
+            self.encoder.encode_videos()
+            self.dataset = self.encoder.dataset
+            if self.retriever is not None:
+                self.retriever.video_dataset = self.encoder.dataset
+            self.unload_encoder_models()
 
         if self.retriever is None:
             raise RuntimeError("Retriever is None. Please provide a HierarchicalRetriever instance.")
 
         queries = self._ensure_query_dataset()
-        results = self.retriever.retrieve_hierarchically(queries=queries, modalities=modalities, top_k_videos=top_k_videos, top_k_scenes=top_k_scenes)
-
+        results = self.retriever.retrieve_hierarchically(
+            queries=queries,
+            modalities=modalities,
+            top_k_videos=top_k_videos,
+            top_k_scenes=top_k_scenes
+        )
         return results
 
     def run_retrieval_for_video(self, video_uid: str, modalities: list[str] | str = ("text", "audio", "video"), top_k_videos: int = 3, top_k_scenes: int = 1) -> Dict[str, Dict[str, list[tuple]]]:
@@ -264,26 +277,46 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     data_directory = "../../ego4d_data/v2/full_scale"
-    logging.info(f"Loading video files from directory: {data_directory}")
-    video_files = [
-        os.path.join(data_directory, f)
-        for f in os.listdir(data_directory)
-        if f.lower().endswith((".mp4", ".mov", ".mkv", ".avi"))
-    ]
+    pickle_file: str = "../../ego4d_data/video_dataset.pkl"
 
-    video_dataset = VideoDataset([video_files[0]])
+    if os.path.exists(pickle_file):
+        logging.info(f"Loading video dataset from pickle file: {pickle_file}")
+        video_dataset = VideoDataset.load_from_pickle(pickle_file)
+    else:
+        logging.info(f"Loading video files from directory: {data_directory}")
+        video_files = [
+            os.path.join(data_directory, f)
+            for f in os.listdir(data_directory)
+            if f.lower().endswith((".mp4", ".mov", ".mkv", ".avi"))
+        ]
+        video_dataset = VideoDataset([video_files[0]])
+
+        logging.info("Initializing MultiModalEncoder...")
+        encoder = MultiModalEncoder(
+            video_dataset=video_dataset,
+            device=device,
+            max_workers=1
+        )
+        encoder.load_models()
+        encoder.encode_videos()
+
+        video_dataset = encoder.dataset
+        # video_dataset.save_to_pickle(pickle_file)
+        # logging.info(f"[SAVE] Video dataset saved to pickle file: {pickle_file}")
+        del encoder
+        torch.cuda.empty_cache()
+
     print(f"Loaded {len(video_dataset)} videos into the dataset.")
     print("Sample video datapoint:", video_dataset.video_datapoints[0] if video_dataset.video_datapoints else "No datapoints found.")
 
     nlq_annotations_path = "../../ego4d_data/v2/annotations/nlq_train.json"
     logging.info(f"Loading NLQ annotations from: {nlq_annotations_path}")
 
-    encoder = MultiModalEncoder(video_dataset=video_dataset, device=device, max_workers=1)
+    # encoder = MultiModalEncoder(video_dataset=video_dataset, device=device, max_workers=1)
     retriever = HierarchicalRetriever(video_dataset, device=device)
     runner = Ego4D_NLQ_Runner(
         nlq_annotations_path=nlq_annotations_path,
         dataset=video_dataset,
-        encoder=encoder,
         retriever=retriever,
         llm_generate=lambda prompt: "This is a placeholder answer.",  # TODO: replace with actual LLM call
         llm_rewrite=None,
@@ -291,7 +324,7 @@ if __name__ == "__main__":
     )
 
     logging.info("Loading NLQ entries for the dataset...")
-    queries =runner.load_queries_for_dataset()
+    queries = runner.load_queries_for_dataset()
     logging.info(f"Loaded a total of {len(queries)} NLQ entries across the dataset.")
 
     for i, query in enumerate(queries):
