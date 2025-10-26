@@ -4,7 +4,7 @@ import os
 import pickle
 from typing import Dict, List, Optional
 import numpy as np
-from data.query import Query
+from data.query import Query, QueryDataset
 
 
 class Scene:
@@ -89,10 +89,11 @@ class VideoDataset(Dataset):
     Dataset di video per il MultiModalEncoder.
     Contiene una lista di VideoDataPoint (uno per video).
     """
-    def __init__(self, video_files: List[str], scenes_per_video: Optional[Dict[str, Dict[str, Scene]]] = None):
+    def __init__(self, video_files: List[str], scenes_per_video: Optional[Dict[str, Dict[str, Scene]]] = None, QueryDataset: Optional["QueryDataset"] = None):
         self.video_files = video_files
         self.video_datapoints: List[VideoDataPoint] = []
         self.scenes_per_video = scenes_per_video or {}
+        self.query_dataset = QueryDataset
 
         for path in video_files:
             scenes = self.scenes_per_video.get(path, {})

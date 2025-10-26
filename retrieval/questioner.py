@@ -8,6 +8,8 @@ import logging
 import torch
 from data.query import Query, QueryDataset
 from data.video_dataset import VideoDataset, VideoDataPoint
+from indexing.multimodal_encoder import MultiModalEncoder
+from retrieval.hierarchical_retriever import HierarchicalRetriever
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,12 +24,14 @@ class Ego4D_NLQ_Runner:
         self,
         nlq_annotations_path: str,
         dataset: VideoDataset,
-        retriever: Any = None,
+        encoder: MultiModalEncoder = None,
+        retriever: Optional[HierarchicalRetriever] = None,
         llm_generate: Callable[[str], str] = None,
         llm_rewrite: Optional[Callable[[str], str]] = None,
         llm_decompose: Optional[Callable[[str], Dict[str, str]]] = None,
         topk_videos: int = 3,
         topk_scenes: int = 5,
+        device: str = "cpu",
     ):
         """
         Args:
@@ -43,12 +47,14 @@ class Ego4D_NLQ_Runner:
         logging.info("Initializing Ego4D_NLQ_Runner...")
         self.nlq_annotations_path = nlq_annotations_path
         self.dataset = dataset
+        self.encoder = encoder
         self.retriever = retriever
         self.llm_generate = llm_generate
         self.llm_rewrite = llm_rewrite
         self.llm_decompose = llm_decompose
         self.topk_videos = topk_videos
         self.topk_scenes = topk_scenes
+        self.device = device
 
     # ---------- NLQ loading ----------
 
@@ -83,8 +89,8 @@ class Ego4D_NLQ_Runner:
                                 "query": q,
                                 "start_sec": float(vs),
                                 "end_sec": float(ve),
-                                "start_frame": int(fs),
-                                "end_frame": int(fe),
+                                "start_frame": int(fs) if fs is not None else None,
+                                "end_frame": int(fe) if fe is not None else None,
                             })
         return results
     
@@ -120,48 +126,94 @@ class Ego4D_NLQ_Runner:
                 all_queries.append(q)
 
         query_dataset = QueryDataset([q.to_dict() for q in all_queries])
+        self.dataset.query_dataset = query_dataset
         return query_dataset
     
     # ---------- Retrieval ----------
 
-    def retrieve_for_query(self, nlq: Query, use_decomposition: bool = True) -> Dict[str, Any]:
+    def _ensure_query_dataset(self) -> QueryDataset:
+        """Ensure the VideoDataset has a QueryDataset loaded."""
+        qd = getattr(self.dataset, "query_dataset", None)
+        if qd is None or len(qd) == 0:
+            logging.info("QueryDataset not found on VideoDataset — loading from NLQ annotations...")
+            qd = self.load_queries_for_dataset()
+        return qd
+
+    def run_retrieval(self, modalities: list[str] | str = ("text", "audio", "video"), top_k_videos: int = 3, top_k_scenes: int = 1) -> Dict[str, Dict[str, list[tuple]]]:
         """
-        Run retrieval for a single query:
-          - optional rewrite
-          - optional multimodal decomposition
-        Returns a dict with retrieval results and (if available) GT segment.
+        Run retrieval for all queries in the dataset's QueryDataset.
+        Args:
+            modalities: list of modalities to use for retrieval
+            top_k_videos: number of top videos to retrieve per query
+            top_k_scenes: number of top scenes to retrieve per video
+        Returns:
+            Dict mapping query IDs to retrieval results per modality.
         """
-        raw_q = nlq.query
-        q_rewritten = self.llm_rewrite(raw_q) if self.llm_rewrite else raw_q
+        if self.encoder is None:
+            raise RuntimeError("Encoder is None. Please provide a MultiModalEncoder instance.")
+        self.encoder.load_models()
+        self.encoder.encode_videos()
+        self.video_dataset = self.encoder.dataset
+        self.retriever.video_dataset = self.encoder.dataset
+        self.unload_models()
 
-        text_q = q_rewritten
-        audio_q = ""
-        video_q = ""
+        if self.retriever is None:
+            raise RuntimeError("Retriever is None. Please provide a HierarchicalRetriever instance.")
 
-        if use_decomposition and self.llm_decompose:
-            dec = self.llm_decompose(raw_q)
-            text_q = dec.get("text_query", text_q) or text_q
-            audio_q = dec.get("audio_query", "")
-            video_q = dec.get("video_query", "")
+        queries = self._ensure_query_dataset()
+        results = self.retriever.retrieve_hierarchically(queries=queries, modalities=modalities, top_k_videos=top_k_videos, top_k_scenes=top_k_scenes)
 
-        # --- Video shortlist by text only (simple & fast) ---
-        ### TODO: ADD RETRIEVER
+        return results
 
-        pass
-
-    def _scene_time_bounds(self, dp: "VideoDataPoint", scene_key: str) -> Tuple[float, float]:
+    def run_retrieval_for_video(self, video_uid: str, modalities: list[str] | str = ("text", "audio", "video"), top_k_videos: int = 3, top_k_scenes: int = 1) -> Dict[str, Dict[str, list[tuple]]]:
         """
-        Look up start/end seconds for a scene key like 'scene_12' from dp.scenes.
-        If not found, returns (0.0, 0.0).
+        Run retrieval for all queries associated with a specific video_uid.
+        Args:
+            video_uid: target video UID to filter queries
+            modalities: list of modalities to use for retrieval
+            top_k_videos: number of top videos to retrieve per query
+            top_k_scenes: number of top scenes to retrieve per video
+        Returns:
+            Dict mapping query IDs to retrieval results per modality.
         """
-        try:
-            idx = int(scene_key.split("_")[-1])
-            if 0 <= idx < len(dp.scenes):
-                sc = dp.scenes[idx]
-                return float(sc.start_time), float(sc.end_time)
-        except Exception:
-            pass
-        return (0.0, 0.0)
+        if self.retriever is None:
+            raise RuntimeError("Retriever is None. Please provide a HierarchicalRetriever instance.")
+
+        qd = self._ensure_query_dataset()
+        filtered = QueryDataset([q.to_dict() for q in qd if getattr(q, "video_uid", None) == video_uid])
+
+        if len(filtered) == 0:
+            logging.warning(f"No queries found for video_uid='{video_uid}'.")
+            return {}
+
+        results = self.retriever.retrieve_hierarchically(
+            queries=filtered,
+            modalities=modalities,
+            top_k_videos=top_k_videos,
+            top_k_scenes=top_k_scenes
+        )
+        return results
+
+    @staticmethod
+    def pretty_print_retrieval(results: Dict[str, Dict[str, list[tuple]]], max_videos: int = 3, max_scenes: int = 1):
+        """
+        Stampa compatta dei risultati di retrieval:
+        - per query (qid)
+        - per modality
+        - primi N video e prime M scene con score
+        """
+        for qid, per_mod in results.items():
+            print(f"\n=== Query {qid} ===")
+            for mod, items in per_mod.items():
+                print(f"  [{mod}]")
+                for vi, (video_name, global_score, scenes) in enumerate(items[:max_videos], 1):
+                    print(f"    {vi}. {video_name} (video score: {global_score:.4f})")
+                    for si, (scene_obj, s_score) in enumerate(scenes[:max_scenes], 1):
+                        if hasattr(scene_obj, "start_time"):
+                            span = f"{scene_obj.start_time:.2f}s–{scene_obj.end_time:.2f}s"
+                        else:
+                            span = str(scene_obj)
+                        print(f"       - scene {si}: {span} (score: {s_score:.4f})")
 
     # ---------- GPU memory ----------
 
@@ -173,6 +225,14 @@ class Ego4D_NLQ_Runner:
         except Exception:
             pass
         gc.collect()
+    
+    def unload_models(self):
+        if hasattr(self, "encoder") and self.encoder is not None:
+            del self.encoder
+        if hasattr(self, "processor") and self.processor is not None:
+            del self.processor
+        torch.cuda.empty_cache()
+        gc.collect()
 
     # ---------- LLM context ----------
 
@@ -180,17 +240,7 @@ class Ego4D_NLQ_Runner:
         """
         Build a compact prompt for the answering LLM, with top-scoring scenes.
         """
-        lines = []
-        lines.append("You are given a user query and candidate video scenes.")
-        lines.append("Use the evidence to answer the user's query. Be concise.")
-        lines.append("")
-        lines.append(f"User Query: {nlq.query}")
-        lines.append("")
-
-        ### TODO: ADD SCENES TO CONTEXT BASED ON RETRIEVAL RESULTS
-
-        lines.append("Answer:")
-        return "\n".join(lines)
+        pass
 
     def answer_with_llm(self, nlq: Query, retrieval: Dict[str, Any]) -> str:
         """
@@ -201,38 +251,59 @@ class Ego4D_NLQ_Runner:
 
 if __name__ == "__main__":
     data_directory = "../../ego4d_data/v2/full_scale"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     logging.info(f"Loading video files from directory: {data_directory}")
     video_files = [
         os.path.join(data_directory, f)
         for f in os.listdir(data_directory)
         if f.lower().endswith((".mp4", ".mov", ".mkv", ".avi"))
-        and "animal" not in f.lower() 
-        and "ai" not in f.lower()
     ]
-    video_dataset = VideoDataset(video_files)
+    print(f"Vido 0 is at: {video_files[0]}")
+    video_dataset = VideoDataset([video_files[0]])
     print(f"Loaded {len(video_dataset)} videos into the dataset.")
     print("Sample video datapoint:", video_dataset.video_datapoints[0] if video_dataset.video_datapoints else "No datapoints found.")
 
+    encoder = MultiModalEncoder(
+            video_dataset=video_dataset,
+            device=device,
+            max_workers=1
+        )
+
     nlq_annotations_path = "../../ego4d_data/v2/annotations/nlq_train.json"
     logging.info(f"Loading NLQ annotations from: {nlq_annotations_path}")
+
+    retriever = HierarchicalRetriever(video_dataset, device=device)
     runner = Ego4D_NLQ_Runner(
         nlq_annotations_path=nlq_annotations_path,
         dataset=video_dataset,
-        retriever=None,  # TODO: provide a Retriever instance
+        encoder=encoder,
+        retriever=retriever,
         llm_generate=lambda prompt: "This is a placeholder answer.",  # TODO: replace with actual LLM call
         llm_rewrite=None,
         llm_decompose=None,
     )
+    runner.free_gpu()
     logging.info("Loading NLQ entries for the dataset...")
-    runner.load_queries_for_dataset()
-    logging.info("NLQ entries loaded for dataset.")
+    queries =runner.load_queries_for_dataset()
+    logging.info(f"Loaded a total of {len(queries)} NLQ entries across the dataset.")
 
-    if video_dataset.video_datapoints and video_dataset.video_datapoints[0].queries:
-        first_dp = video_dataset.video_datapoints[0]
-        nlq = first_dp.queries
-        for i, query in enumerate(nlq):
-            logging.info(f"NLQ {i+1}/{len(nlq)}: {query.query}")
-            start_frame = query.start_frame if query.start_frame is not None else "N/A"
-            end_frame = query.end_frame if query.end_frame is not None else "N/A"
-            logging.info(f"GT Segment: {query.start_sec}s to {query.end_sec}s (frames {start_frame} to {end_frame})")
+    for i, query in enumerate(queries):
+        print(f"\n[{i+1}/{len(queries)}]")
+        print(f"Video UID: {query.video_uid}")
+        print(f"Query: {query.query_text}")
+        
+        if hasattr(query, "gt") and query.gt:
+            gt = query.gt
+            print(f"GT Segment: {gt['start_sec']}s → {gt['end_sec']}s "
+                f"(frames {gt.get('start_frame', 'N/A')}–{gt.get('end_frame', 'N/A')})")
 
+    # 4) Retrieval end-to-end (video + scene) con stampa risultati tramite metodo della classe
+    modalities = ["text", "caption", "audio", "video"]  # riduci se non hai embeddings per tutte
+    results = runner.run_retrieval(
+        modalities=modalities,
+        top_k_videos=3,
+        top_k_scenes=2
+    )
+
+    # 5) Stampa “pulita” gestita dalla classe
+    runner.pretty_print_retrieval(results, max_videos=3, max_scenes=2)
