@@ -4,11 +4,20 @@ import torch
 from typing import Optional, Dict, Union
 
 class Query:
-    def __init__(self, qid: str | int, query_text: str, decomposed: Optional[dict] = None, embeds: Optional[dict] = None):
+    def __init__(self, qid: str | int, query_text: str, video_uid: Optional[str] = None, decomposed: Optional[dict] = None, embeds: Optional[dict] = None, gt: Optional[Dict[str, Optional[float | int]]] = None):
         self.qid = qid if isinstance(qid, str) else f"query_{qid}"
         self.query_text = query_text
+        self.video_uid = video_uid
         self.decomposed = decomposed if decomposed is not None else {"text": query_text, "audio": query_text, "video": query_text}
         self.embeddings = embeds if embeds is not None else {"text": None, "audio": None, "video": None, "caption": None}
+        self.gt = {
+            "start_sec": None,
+            "end_sec": None,
+            "start_frame": None,
+            "end_frame": None,
+        }
+        if gt:
+            self.gt.update(gt)
 
     def __repr__(self):
         return f"Query(qid={self.qid}, query_text={self.query_text})"
@@ -17,8 +26,10 @@ class Query:
         return {
             "qid": self.qid,
             "query_text": self.query_text,
+            "video_uid": self.video_uid,
             "decomposed": self.decomposed,
-            "embeddings": self.embeddings
+            "embeddings": self.embeddings,
+            "gt": self.gt,
         }
     
     def get_query(self, modality: str = None) -> str:
@@ -37,8 +48,10 @@ class Query:
         return Query(
             qid=data["qid"],
             query_text=data["query_text"],
+            video_uid=data.get("video_uid"),
             decomposed=data.get("decomposed"),
-            embeds=data.get("embeddings")
+            embeds=data.get("embeddings"),
+            gt=data.get("gt"),
         )
 
     # def save_to_pickle(self, file_path: str):
@@ -55,7 +68,16 @@ class Query:
 
 class QueryDataset:
     def __init__(self, queries: Optional[list[str]] = None):
-        self.queries = [Query(qid=i, query_text=q) for i, q in enumerate(queries)] if queries is not None else []
+        # self.queries = [Query(qid=i, query_text=q, ) for i, q in enumerate(queries)] if queries is not None else []
+        self.queries = [
+            Query(
+                qid=i,
+                query_text=q["query_text"] if isinstance(q, dict) else q,
+                video_uid=q.get("video_uid") if isinstance(q, dict) else None,
+                gt=q.get("gt") if isinstance(q, dict) else None,
+            )
+            for i, q in enumerate(queries)
+        ] if queries is not None else []
 
     def __len__(self):
         return len(self.queries)

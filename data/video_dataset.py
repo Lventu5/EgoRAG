@@ -4,6 +4,7 @@ import os
 import pickle
 from typing import Dict, List, Optional
 import numpy as np
+from data.query import Query
 
 
 class Scene:
@@ -46,6 +47,7 @@ class VideoDataPoint:
     def __init__(self, video_path: str, scenes: Optional[Dict[str, Scene]] = None):
         self.video_path = video_path
         self.video_name = os.path.basename(video_path)
+        self.video_uid = os.path.splitext(self.video_name)[0]
         self.scenes = scenes or {}
 
         # Embeddings globali (media sulle scene)
@@ -71,6 +73,7 @@ class VideoDataPoint:
             }
             for i, _ in enumerate(self.scenes)
         }
+        self.queries: List[Query] = []
 
     def __repr__(self):
         return f"VideoDataPoint(name={self.video_name}, scenes={len(self.scenes)})"
