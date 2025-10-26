@@ -133,7 +133,7 @@ class AudioEncoder(BaseEncoder):
             input_features = inputs.input_features.to(self.device) 
 
             with torch.inference_mode():
-                predicted_ids = self.asr_model.generate(input_features)
+                predicted_ids = self.asr_model.generate(input_features, language="en", task="transcribe")
 
             transcript_list = self.asr_processor.batch_decode(predicted_ids, skip_special_tokens=True)
             transcript = transcript_list[0].strip() if transcript_list else ""

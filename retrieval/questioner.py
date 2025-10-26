@@ -151,11 +151,14 @@ class Ego4D_NLQ_Runner:
         """
         if self.encoder is None:
             raise RuntimeError("Encoder is None. Please provide a MultiModalEncoder instance.")
+
         self.encoder.load_models()
         self.encoder.encode_videos()
-        self.video_dataset = self.encoder.dataset
+
+        self.dataset = self.encoder.dataset
         self.retriever.video_dataset = self.encoder.dataset
-        self.unload_models()
+
+        self.unload_encoder_models()
 
         if self.retriever is None:
             raise RuntimeError("Retriever is None. Please provide a HierarchicalRetriever instance.")
@@ -197,10 +200,11 @@ class Ego4D_NLQ_Runner:
     @staticmethod
     def pretty_print_retrieval(results: Dict[str, Dict[str, list[tuple]]], max_videos: int = 3, max_scenes: int = 1):
         """
-        Stampa compatta dei risultati di retrieval:
-        - per query (qid)
-        - per modality
-        - primi N video e prime M scene con score
+        Pretty-print retrieval results.
+        Args:
+            results: Dict mapping query IDs to retrieval results per modality.
+            max_videos: maximum number of videos to print per query
+            max_scenes: maximum number of scenes to print per video
         """
         for qid, per_mod in results.items():
             print(f"\n=== Query {qid} ===")
@@ -226,11 +230,16 @@ class Ego4D_NLQ_Runner:
             pass
         gc.collect()
     
-    def unload_models(self):
-        if hasattr(self, "encoder") and self.encoder is not None:
-            del self.encoder
-        if hasattr(self, "processor") and self.processor is not None:
-            del self.processor
+    def unload_encoder_models(self):
+        """Unload heavy model weights from GPU but keep embeddings in memory."""
+        if self.encoder is not None:
+            try:
+                if hasattr(self.encoder, "unload_models"):
+                    self.encoder.unload_models()
+                else:
+                    del self.encoder.model
+            except Exception as e:
+                logging.warning(f"Could not unload encoder models: {e}")
         torch.cuda.empty_cache()
         gc.collect()
 
@@ -250,28 +259,26 @@ class Ego4D_NLQ_Runner:
         return self.llm_generate(prompt)
 
 if __name__ == "__main__":
-    data_directory = "../../ego4d_data/v2/full_scale"
+
+    logging.info("Starting Ego4D NLQ Runner...")
     device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    data_directory = "../../ego4d_data/v2/full_scale"
     logging.info(f"Loading video files from directory: {data_directory}")
     video_files = [
         os.path.join(data_directory, f)
         for f in os.listdir(data_directory)
         if f.lower().endswith((".mp4", ".mov", ".mkv", ".avi"))
     ]
-    print(f"Vido 0 is at: {video_files[0]}")
+
     video_dataset = VideoDataset([video_files[0]])
     print(f"Loaded {len(video_dataset)} videos into the dataset.")
     print("Sample video datapoint:", video_dataset.video_datapoints[0] if video_dataset.video_datapoints else "No datapoints found.")
 
-    encoder = MultiModalEncoder(
-            video_dataset=video_dataset,
-            device=device,
-            max_workers=1
-        )
-
     nlq_annotations_path = "../../ego4d_data/v2/annotations/nlq_train.json"
     logging.info(f"Loading NLQ annotations from: {nlq_annotations_path}")
 
+    encoder = MultiModalEncoder(video_dataset=video_dataset, device=device, max_workers=1)
     retriever = HierarchicalRetriever(video_dataset, device=device)
     runner = Ego4D_NLQ_Runner(
         nlq_annotations_path=nlq_annotations_path,
@@ -282,7 +289,7 @@ if __name__ == "__main__":
         llm_rewrite=None,
         llm_decompose=None,
     )
-    runner.free_gpu()
+
     logging.info("Loading NLQ entries for the dataset...")
     queries =runner.load_queries_for_dataset()
     logging.info(f"Loaded a total of {len(queries)} NLQ entries across the dataset.")
@@ -297,13 +304,11 @@ if __name__ == "__main__":
             print(f"GT Segment: {gt['start_sec']}s → {gt['end_sec']}s "
                 f"(frames {gt.get('start_frame', 'N/A')}–{gt.get('end_frame', 'N/A')})")
 
-    # 4) Retrieval end-to-end (video + scene) con stampa risultati tramite metodo della classe
-    modalities = ["text", "caption", "audio", "video"]  # riduci se non hai embeddings per tutte
+    logging.info("Running retrieval for all queries in the dataset...")
+    modalities = ["text", "caption", "video"]
     results = runner.run_retrieval(
         modalities=modalities,
         top_k_videos=3,
         top_k_scenes=2
     )
-
-    # 5) Stampa “pulita” gestita dalla classe
     runner.pretty_print_retrieval(results, max_videos=3, max_scenes=2)

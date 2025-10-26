@@ -1,3 +1,4 @@
+import gc
 import os
 import logging
 import tempfile
@@ -95,9 +96,9 @@ class MultiModalEncoder:
             logging.error(f"Scene detection failed for {video_path}: {e}")
             return {}
 
-    def _extract_frames(self, video_path: str, start_frame: int, end_frame: int, max_frames: int) -> tuple[np.ndarray, np.ndarray]:
+    def _extract_frames(self, vr: VideoReader, start_frame: int, end_frame: int, max_frames: int) -> tuple[np.ndarray, np.ndarray]:
         """Extracts frames for a given scene."""
-        vr = VideoReader(video_path, ctx=cpu(0))
+        # vr = VideoReader(video_path, ctx=cpu(0))
         num_frames_in_scene = end_frame - start_frame
         
         if num_frames_in_scene > max_frames:
@@ -108,45 +109,53 @@ class MultiModalEncoder:
         frames = vr.get_batch(indices).asnumpy()
         return frames
 
-    def _encode_scene(self, video_path: str, scene: Scene) -> dict | None:
+    def _encode_scene(self, video_path: str, scene: Scene, vr: VideoReader) -> dict | None:
         """
         Orchestrates the encoding of a single scene by delegating
         to the modular components. (UPDATED)
         """
         scene_key = f"scene_{scene.start_frame}_{scene.end_frame}"
         try:
+            '''
             frames = self._extract_frames(
                 video_path, 
                 scene.start_frame, 
                 scene.end_frame, 
                 self.video_encoder.max_frames_per_scene
             )
+            '''
+            frames = self._extract_frames(vr, scene.start_frame, scene.end_frame, self.video_encoder.max_frames_per_scene)
             
             video_data = self.video_encoder.encode(frames)
             
+            '''
             audio_data = self.audio_encoder.encode(
                 video_path,
                 scene.start_time,
                 scene.end_time
             )
+            '''
             
             caption = self.captioner.encode(video_data["keyframes"])
             caption_emb = self.text_encoder.encode(caption) if caption else torch.zeros(384, dtype=torch.float32)
-            
-            transcript = audio_data["transcript"]
-            full_text = f"Transcript: {transcript}. Visuals: {caption}"
+
+                        
+            # transcript = audio_data["transcript"]
+            # full_text = f"Transcript: {transcript}. Visuals: {caption}"
+            full_text = f"Visuals: {caption}"
             
             text_embedding = self.text_encoder.encode(full_text)
             
             return {
                 "video": video_data["video"],
-                "audio": audio_data["audio_embedding"],
+                "audio": None,
                 "text": text_embedding,
                 "caption": caption_emb,
                 "caption_text": caption,
-                "transcript": transcript,
+                "transcript": None,
                 "keyframes": video_data["image"],
             }
+        
         except Exception as e:
             logging.error(f"Failed to encode scene {scene_key}: {e}")
             return None
@@ -181,11 +190,12 @@ class MultiModalEncoder:
             if not dp.scenes:
                 logging.warning(f"No scenes detected for {video_path}. Skipping.")
                 continue
-
+            
+            vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
             futures = {}
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 for sid, scene in dp.scenes.items():
-                    futures[executor.submit(self._encode_scene, dp.video_path, scene)] = sid
+                    futures[executor.submit(self._encode_scene, dp.video_path, scene, vr)] = sid
 
                 for f in tqdm(as_completed(futures), total=len(futures), desc=f"Scenes ({dp.video_name})"):
                     sid = futures[f]
@@ -202,6 +212,22 @@ class MultiModalEncoder:
                 logging.warning(f"No scenes were successfully encoded for {video_path}.")
                 continue
 
+            del vr
+
             dp.global_embeddings = self._aggregate_embeddings(dp.scene_embeddings)
         
         return self.dataset
+    
+    def unload_models(self):
+        """Free heavy encoder models from GPU."""
+        if hasattr(self, "text_encoder"):
+            del self.text_encoder
+        if hasattr(self, "video_encoder"):
+            del self.video_encoder
+        if hasattr(self, "audio_encoder"):
+            del self.audio_encoder
+        if hasattr(self, "captioner"):
+            del self.captioner
+        if self.device == "cuda":
+            torch.cuda.empty_cache()
+            gc.collect()
