@@ -6,6 +6,7 @@ import os
 import gc
 import logging
 import torch
+from copy import deepcopy
 from data.query import Query, QueryDataset
 from data.video_dataset import VideoDataset, VideoDataPoint
 from indexing.multimodal_encoder import MultiModalEncoder
@@ -149,29 +150,40 @@ class Ego4D_NLQ_Runner:
         Returns:
             Dict mapping query IDs to retrieval results per modality.
         """
+        # Check if encoding is needed
         needs_encoding = (
             len(self.dataset.video_datapoints) == 0 or
             any((not getattr(dp, "global_embeddings", None)) for dp in self.dataset.video_datapoints)
         )
 
         if needs_encoding:
-            if self.encoder is None:
-                self.encoder = MultiModalEncoder(
-                    video_dataset=self.dataset,
-                    device=self.device,
-                    max_frames_per_scene=32,
-                    max_workers=1
-                )
-            logging.info("Encoding videos in the dataset using the provided encoder...")
-            self.encoder.load_models()
-            self.encoder.encode_videos()
-            self.dataset = self.encoder.dataset
-            if self.retriever is not None:
-                self.retriever.video_dataset = self.encoder.dataset
-            self.unload_encoder_models()
+            local_encoder = self.encoder or MultiModalEncoder(
+                video_dataset=self.dataset,
+                device=self.device,
+                max_workers=1,
+            )
+            try:
+                logging.info("Encoding videos in the dataset (on-demand)...")
+                local_encoder.load_models()
+                local_encoder.encode_videos()
+
+                self.dataset = local_encoder.dataset
+                if self.retriever is not None:
+                    self.retriever.video_dataset = self.dataset
+            finally:
+                # free GPU memory
+                try:
+                    local_encoder.unload_models()
+                except Exception as e:
+                    logging.warning(f"Could not unload encoder models: {e}")
+                del local_encoder
+                torch.cuda.empty_cache()
+                gc.collect()
 
         if self.retriever is None:
-            raise RuntimeError("Retriever is None. Please provide a HierarchicalRetriever instance.")
+            from retrieval.hierarchical_retriever import HierarchicalRetriever
+            logging.info("No retriever found — initializing a default HierarchicalRetriever.")
+            self.retriever = HierarchicalRetriever(self.dataset, device=self.device)
 
         queries = self._ensure_query_dataset()
         results = self.retriever.retrieve_hierarchically(
@@ -180,6 +192,7 @@ class Ego4D_NLQ_Runner:
             top_k_videos=top_k_videos,
             top_k_scenes=top_k_scenes
         )
+
         return results
 
     def run_retrieval_for_video(self, video_uid: str, modalities: list[str] | str = ("text", "audio", "video"), top_k_videos: int = 3, top_k_scenes: int = 1) -> Dict[str, Dict[str, list[tuple]]]:
@@ -193,11 +206,59 @@ class Ego4D_NLQ_Runner:
         Returns:
             Dict mapping query IDs to retrieval results per modality.
         """
+        target_dp = None
+        for dp in getattr(self.dataset, "video_datapoints", []):
+            if getattr(dp, "video_uid", None) == video_uid:
+                target_dp = dp
+                break
+
+        if target_dp is None:
+            logging.warning(f"Video uid '{video_uid}' not found.")
+            return {}
+
+        needs_encoding = not getattr(target_dp, "global_embeddings", None)
+
+        if needs_encoding:
+            tmp_ds = VideoDataset([target_dp.video_path])
+            tmp_dp = tmp_ds.video_datapoints[0]
+            tmp_dp.video_uid = target_dp.video_uid
+            tmp_dp.video_name = getattr(target_dp, "video_name", os.path.basename(target_dp.video_path))
+
+            local_encoder = self.encoder or MultiModalEncoder(
+                video_dataset=tmp_ds,
+                device=self.device,
+                max_workers=1,
+            )
+            try:
+                logging.info(f"Encoding on-demand only of video: '{video_uid}'...")
+                local_encoder.load_models()
+                local_encoder.encode_videos()
+
+                enc_dp = local_encoder.dataset.video_datapoints[0]
+                target_dp.scenes = enc_dp.scenes
+                target_dp.scene_embeddings = enc_dp.scene_embeddings
+                target_dp.global_embeddings = enc_dp.global_embeddings
+
+            finally:
+                # Free GPU/CPU memory of the temporary encoder
+                try:
+                    local_encoder.unload_models()
+                except Exception as e:
+                    logging.warning(f"Could not unload encoder models: {e}")
+                del local_encoder
+                torch.cuda.empty_cache()
+                gc.collect()
+
         if self.retriever is None:
-            raise RuntimeError("Retriever is None. Please provide a HierarchicalRetriever instance.")
+            from retrieval.hierarchical_retriever import HierarchicalRetriever
+            logging.info("No retriever found — initializing a default HierarchicalRetriever.")
+            self.retriever = HierarchicalRetriever(self.dataset, device=self.device)
+        else:
+            self.retriever.video_dataset = self.dataset
 
         qd = self._ensure_query_dataset()
-        filtered = QueryDataset([q.to_dict() for q in qd if getattr(q, "video_uid", None) == video_uid])
+        filtered = QueryDataset([q.to_dict() for q in qd
+                                if getattr(q, "video_uid", None) == video_uid])
 
         if len(filtered) == 0:
             logging.warning(f"No queries found for video_uid='{video_uid}'.")

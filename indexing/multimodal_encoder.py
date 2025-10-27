@@ -81,7 +81,7 @@ class MultiModalEncoder:
     def _detect_scenes(self, video_path: str) -> dict[str, Scene]:
         """Detects content-based scenes and returns Scene objects."""
         try:
-            scene_list = detect(video_path, ContentDetector(threshold=20.0))
+            scene_list = detect(video_path, ContentDetector(threshold=25.0))
             return {
                 f"scene_{i}": Scene(
                     scene_id=f"scene_{i}",
