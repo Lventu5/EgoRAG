@@ -38,7 +38,7 @@ class Query:
             "gt": self.gt,
         }
     
-    def get_query(self, modality: str = None) -> str:
+    def get_query(self, modality: str | None = None) -> str:
         if modality is None:
             return self.query_text
         return self.decomposed.get(modality, self.query_text)

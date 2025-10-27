@@ -1,8 +1,6 @@
 import torch
 import logging
 from transformers import (
-    BlipProcessor, 
-    BlipModel, 
     XCLIPProcessor,
     XCLIPModel,
     ClapProcessor,
@@ -14,11 +12,13 @@ from torch.nn.functional import normalize
 from data.video_dataset import VideoDataset
 from data.query import Query, QueryDataset
 from retrieval.rewriter import QueryRewriterLLM
+from .fuser import Fuser
 
 class HierarchicalRetriever:
     def __init__(
         self, 
         video_dataset: VideoDataset,
+        fuser: Fuser | None = None,
         device: str = "cuda",
         text_model_name: str = "all-MiniLM-L6-v2",
         video_model_name: str = "microsoft/xclip-base-patch16",
@@ -50,6 +50,11 @@ class HierarchicalRetriever:
         self.current_modality = None
         self.processor = None
         self.embedder = None
+        if fuser is None:
+            logging.warning("Fuser not specified, using a RRF fuser")
+            self.fuser = Fuser()
+        else:
+            self.fuser = fuser
 
     def _load_models_for_modality(self, modality: str):
 
@@ -271,31 +276,31 @@ class HierarchicalRetriever:
             modalities=modalities, 
             top_k=top_k_videos
         )
+
+        for query in queries:
+            fused_video_ranking = self.fuser.fuse(global_results[query.qid])
+            global_results[query.qid]["fused"] = fused_video_ranking[:top_k_videos]
         
-        detailed_results = {query.qid: {mod: [] for mod in modalities} for query in queries}
+        detailed_results = {query.qid: {"fused": []} for query in queries}
 
         logging.info(f"Step 2: Retrieving top {top_k_scenes} scenes within top videos...")
-        for modality in modalities:
-            self._load_models_for_modality(modality) 
-
-
-            for i, query in enumerate(queries):
-                top_videos_for_query = global_results[query.qid][modality]
-
-                if not top_videos_for_query:
-                    logging.warning(f"No global results for query '{query.qid}' in modality '{modality}'.")
-                    continue
-
-                for video_name, global_score in top_videos_for_query:
-                    best_scenes_in_video = self.retrieve_best_scene(
+        for query in queries:
+            fused_video_list = global_results[query.qid]["fused"]
+            for video_name, global_score in fused_video_list:
+                modality_scene_rankings = {}
+                for modality in modalities:
+                    logging.info(f"Retrieving beste scene, modality {modality}, video {video_name}")
+                    modality_scene_rankings[modality] = self.retrieve_best_scene(
                         query=query,
                         video_name=video_name,
                         modality=modality,
                         top_k=top_k_scenes
                     )
-                    
-                    detailed_results[query.qid][modality].append(
-                        (video_name, global_score, best_scenes_in_video)
-                    )
+                fused_scene_ranking = self.fuser.fuse(modality_scene_rankings)
+
+                detailed_results[query.qid]["fused"].append(
+                    (video_name, global_score, fused_scene_ranking[:top_k_scenes])
+                )
+
 
         return detailed_results

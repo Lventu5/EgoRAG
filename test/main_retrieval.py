@@ -87,21 +87,24 @@ def main(
         top_k_scenes=5
     )
 
-    for query, results_by_modality in hierarchical_results.items():
-        print(f"\n===== Query: '{query}', {queries[int(query[-1])].get_query()} =====")
-        for modality, video_list in results_by_modality.items():
-            print(f"\n--- Modality: {modality.upper()} ---")
-            if not video_list:
-                print("  No results found.")
-                continue
-            
-            for rank, (video_name, global_score, scene_list) in enumerate(video_list):
-                print(f"  Rank {rank+1}: Video '{video_name}' (Global Score: {global_score:.4f})")
-                if scene_list:
-                    for scene_rank, (scene_id, scene_score) in enumerate(scene_list):
-                        print(f"    - Best Scene {scene_rank+1}: {scene_id} (Scene Score: {scene_score:.4f})")
-                else:
-                    print(f"    - No relevant scenes found in this video for modality '{modality}'.")
+    for query, results in hierarchical_results.items():
+        print(f"\n===== QUERY: '{query}' → {queries[int(query[-1])].get_query()} =====")
+
+        fused_videos = results["fused"]
+        if not fused_videos:
+            print("  No fused results found.")
+            continue
+
+        print("\n--- FUSED MULTIMODAL RANKING ---")
+
+        for rank, (video_name, global_score, fused_scenes) in enumerate(fused_videos, start=1):
+            print(f"  [Rank {rank}] Video: '{video_name}'  |  Score: {global_score:.4f}")
+
+            if fused_scenes:
+                for scene_rank, (scene_id, scene_score) in enumerate(fused_scenes, start=1):
+                    print(f"      → Scene {scene_rank}: {scene_id}  |  Score: {scene_score:.4f}")
+            else:
+                print("      → No relevant scenes found.")
 
 
 if __name__ == "__main__":    

@@ -140,7 +140,7 @@ class Ego4D_NLQ_Runner:
             qd = self.load_queries_for_dataset()
         return qd
 
-    def run_retrieval(self, modalities: list[str] | str = ("text", "audio", "video"), top_k_videos: int = 3, top_k_scenes: int = 1) -> Dict[str, Dict[str, list[tuple]]]:
+    def run_retrieval(self, modalities: list[str] | str = ["text", "audio", "video"], top_k_videos: int = 3, top_k_scenes: int = 1) -> Dict[str, Dict[str, list[tuple]]]:
         """
         Run retrieval for all queries in the dataset's QueryDataset.
         Args:
@@ -195,7 +195,7 @@ class Ego4D_NLQ_Runner:
 
         return results
 
-    def run_retrieval_for_video(self, video_uid: str, modalities: list[str] | str = ("text", "audio", "video"), top_k_videos: int = 3, top_k_scenes: int = 1) -> Dict[str, Dict[str, list[tuple]]]:
+    def run_retrieval_for_video(self, video_uid: str, modalities: list[str] | str = ["text", "audio", "video"], top_k_videos: int = 3, top_k_scenes: int = 1) -> Dict[str, Dict[str, list[tuple]]]:
         """
         Run retrieval for all queries associated with a specific video_uid.
         Args:
