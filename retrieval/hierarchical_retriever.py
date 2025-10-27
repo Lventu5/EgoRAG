@@ -13,7 +13,7 @@ from torch.nn.functional import normalize
 
 from data.video_dataset import VideoDataset
 from data.query import Query, QueryDataset
-from indexing.utils.rewriter import QueryRewriterLLM
+from retrieval.rewriter import QueryRewriterLLM
 
 class HierarchicalRetriever:
     def __init__(

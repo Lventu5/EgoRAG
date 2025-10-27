@@ -5,7 +5,7 @@ from data.query import QueryDataset, Query
 import torch
 import logging
 from transformers import logging as hf_logging
-from indexing.utils.logging_formatter import LevelAwareFormatter
+from indexing.utils.logging import LevelAwareFormatter
 import os
 
 handler = logging.StreamHandler()

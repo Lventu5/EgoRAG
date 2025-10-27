@@ -4,7 +4,13 @@ import torch
 from typing import Optional, Dict, Union
 
 class Query:
-    def __init__(self, qid: str | int, query_text: str, video_uid: Optional[str] = None, decomposed: Optional[dict] = None, embeds: Optional[dict] = None, gt: Optional[Dict[str, Optional[float | int]]] = None):
+    def __init__(
+            self, qid: str | int, query_text: str, 
+            video_uid: Optional[str] = None, 
+            decomposed: Optional[dict] = None, 
+            embeds: Optional[dict] = None, 
+            gt: Optional[Dict[str, Optional[float | int]]] = None
+    ):
         self.qid = qid if isinstance(qid, str) else f"query_{qid}"
         self.query_text = query_text
         self.video_uid = video_uid
@@ -20,7 +26,7 @@ class Query:
             self.gt.update(gt)
 
     def __repr__(self):
-        return f"Query(qid={self.qid}, query_text={self.query_text})"
+        return f"Query(qid={self.qid}, query_text={self.query_text.strip()})"
 
     def to_dict(self) -> Dict:
         return {
@@ -37,9 +43,7 @@ class Query:
             return self.query_text
         return self.decomposed.get(modality, self.query_text)
 
-    def get_embedding(self, modality: str = None) -> Optional[list[float]]:
-        if modality is None:
-            return self.embeddings
+    def get_embedding(self, modality: str = "video") -> Optional[torch.Tensor]:
         return self.embeddings.get(modality, None)
     
 
@@ -67,17 +71,20 @@ class Query:
     #     self.embeds = embeds
 
 class QueryDataset:
-    def __init__(self, queries: Optional[list[str]] = None):
+    def __init__(self, queries: Optional[list[str] | list[Query]] = None):
         # self.queries = [Query(qid=i, query_text=q, ) for i, q in enumerate(queries)] if queries is not None else []
-        self.queries = [
-            Query(
-                qid=i,
-                query_text=q["query_text"] if isinstance(q, dict) else q,
-                video_uid=q.get("video_uid") if isinstance(q, dict) else None,
-                gt=q.get("gt") if isinstance(q, dict) else None,
-            )
-            for i, q in enumerate(queries)
-        ] if queries is not None else []
+        if queries and isinstance(queries[0], Query):
+            self.queries = queries  # type: ignore
+        else:
+            self.queries = [
+                Query(
+                    qid=i,
+                    query_text=q["query_text"] if isinstance(q, dict) else q,
+                    video_uid=q.get("video_uid") if isinstance(q, dict) else None,
+                    gt=q.get("gt") if isinstance(q, dict) else None,
+                )
+                for i, q in enumerate(queries)
+            ] if queries is not None else []
 
     def __len__(self):
         return len(self.queries)

@@ -7,7 +7,7 @@ import sys
 from sklearn.metrics.pairwise import cosine_similarity
 import itertools
 import numpy as np
-from indexing.utils.logging_formatter import LevelAwareFormatter
+from indexing.utils.logging import LevelAwareFormatter
 from transformers import logging as hf_logging
 
 handler = logging.StreamHandler()

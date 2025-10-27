@@ -10,7 +10,7 @@ from scenedetect import detect, ContentDetector
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data.video_dataset import VideoDataset, VideoDataPoint, Scene
-from indexing.utils.logging_formatter import LevelAwareFormatter
+from indexing.utils.logging import LevelAwareFormatter
 from indexing.components.video_encoder import VideoEncoder
 from indexing.components.audio_encoder import AudioEncoder # <--- UPDATED
 from indexing.components.text_encoder import TextEncoder
@@ -215,6 +215,8 @@ class MultiModalEncoder:
             del vr
 
             dp.global_embeddings = self._aggregate_embeddings(dp.scene_embeddings)
+
+        self.dataset.encoded = True
         
         return self.dataset
     

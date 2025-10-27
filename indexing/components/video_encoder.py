@@ -11,7 +11,7 @@ from transformers import logging as hf_logging
 from sklearn.cluster import KMeans
 
 from .base_encoder import BaseEncoder
-from indexing.utils.logging_formatter import LevelAwareFormatter
+from indexing.utils.logging import LevelAwareFormatter
 from indexing.utils.clustering import choose_k, cluster_frames
 
 class VideoEncoder(BaseEncoder):

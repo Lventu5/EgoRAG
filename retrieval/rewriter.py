@@ -112,7 +112,7 @@ class QueryRewriterLLM:
     def decompose_to_json(self, query: str) -> Dict[str, str]:
         """
         Decompose the query into multimodal components. Returns a dict:
-        {text_query, audio_query, video_query}.
+        {text, audio, video}.
         """
         prompt = self.build_decompose_prompt(query)
         raw = self.generate(prompt)
@@ -121,13 +121,13 @@ class QueryRewriterLLM:
 
         data = JSONParser.parse_with_defaults(
             raw,
-            default_keys={"text_query": "", "audio_query": "", "video_query": ""}
+            default_keys={"text": "", "audio": "", "video": ""}
         )
 
-        data["text_query"]  = " ".join(data["text_query"].split()).strip()
-        data["audio_query"] = ",".join(
-            [t.strip().lower() for t in data["audio_query"].split(",") if t.strip()]
+        data["text"]  = " ".join(data["text"].split()).strip()
+        data["audio"] = ",".join(
+            [t.strip().lower() for t in data["audio"].split(",") if t.strip()]
         )
-        data["video_query"] = " ".join(data["video_query"].split()).strip()
+        data["video"] = " ".join(data["video"].split()).strip()
 
         return data

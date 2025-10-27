@@ -93,6 +93,7 @@ class VideoDataset(Dataset):
         self.video_files = video_files
         self.video_datapoints: List[VideoDataPoint] = []
         self.scenes_per_video = scenes_per_video or {}
+        self.encoded = False
         self.query_dataset = QueryDataset
 
         for path in video_files:
@@ -104,6 +105,9 @@ class VideoDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.video_datapoints[idx]
+    
+    def get_uids(self) -> List[str]:
+        return [os.path.splitext(os.path.basename(v))[0] for v in self.video_files]
     
     def save_to_pickle(self, file_path: str):
         os.makedirs(os.path.dirname(file_path), exist_ok=True)

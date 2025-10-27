@@ -1,7 +1,7 @@
 import argparse
 import logging
 from typing import List
-from indexing.utils.rewriter import QueryRewriterLLM
+from retrieval.rewriter import QueryRewriterLLM
 
 def run_tests(queries: List[str], model_name: str, device: str):
     rewriter = QueryRewriterLLM(model_name=model_name, device=device)
