@@ -159,6 +159,7 @@ class Ego4D_NLQ_Runner:
                 self.encoder = MultiModalEncoder(
                     video_dataset=self.dataset,
                     device=self.device,
+                    max_frames_per_scene=32,
                     max_workers=1
                 )
             logging.info("Encoding videos in the dataset using the provided encoder...")
@@ -295,6 +296,7 @@ if __name__ == "__main__":
         encoder = MultiModalEncoder(
             video_dataset=video_dataset,
             device=device,
+            max_frames_per_scene=32,
             max_workers=1
         )
         encoder.load_models()
@@ -338,7 +340,7 @@ if __name__ == "__main__":
                 f"(frames {gt.get('start_frame', 'N/A')}–{gt.get('end_frame', 'N/A')})")
 
     logging.info("Running retrieval for all queries in the dataset...")
-    modalities = ["text", "caption", "video"]
+    modalities = ["text", "caption", "video", "audio"]
     results = runner.run_retrieval(
         modalities=modalities,
         top_k_videos=3,

@@ -41,6 +41,13 @@ class AudioEncoder(BaseEncoder):
         asr_model_id = "openai/whisper-base"
         self.asr_model = WhisperForConditionalGeneration.from_pretrained(asr_model_id).to(self.device)
         self.asr_processor = WhisperProcessor.from_pretrained(asr_model_id)
+
+        if self.device == "cuda":
+            self.asr_model = self.asr_model.half()
+
+        self.asr_model.config.forced_decoder_ids = self.asr_processor.get_decoder_prompt_ids(
+            language="en", task="transcribe"
+        )
         
         # 2. Load CLAP (Audio Embedding)
         audio_model_id = "laion/clap-htsat-unfused"
@@ -72,6 +79,8 @@ class AudioEncoder(BaseEncoder):
                     return None
                     
                 audio_array = np.array(audio_frames)
+                clip.close()
+                del clip
 
             # Convert to mono if stereo
             if audio_array.ndim == 2:
@@ -130,13 +139,17 @@ class AudioEncoder(BaseEncoder):
                 sampling_rate=self.asr_sr, 
                 return_tensors="pt"
             )
-            input_features = inputs.input_features.to(self.device) 
+            dtype = torch.float16 if (self.device == "cuda") else torch.float32
+            input_features = inputs.input_features.to(self.device, dtype=dtype)
+            # input_features = inputs.input_features.to(self.device)    
 
             with torch.inference_mode():
                 predicted_ids = self.asr_model.generate(input_features, language="en", task="transcribe")
 
             transcript_list = self.asr_processor.batch_decode(predicted_ids, skip_special_tokens=True)
             transcript = transcript_list[0].strip() if transcript_list else ""
+            del inputs, input_features, predicted_ids
+            torch.cuda.empty_cache()
             return transcript
 
         except Exception as e:
