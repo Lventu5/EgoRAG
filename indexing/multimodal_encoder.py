@@ -1,7 +1,7 @@
 import gc
 import os
 import logging
-import tempfile
+import traceback
 import torch
 import numpy as np
 from tqdm import tqdm
@@ -17,10 +17,10 @@ from indexing.components.text_encoder import TextEncoder
 from indexing.components.visual_captioner import VisualCaptioner
 
 # --- Setup logging (can be moved to a main file) ---
-handler = logging.StreamHandler()
-handler.setFormatter(LevelAwareFormatter())
-logging.basicConfig(level=logging.INFO, handlers=[handler])
-# ---
+# handler = logging.StreamHandler()
+# handler.setFormatter(LevelAwareFormatter())
+# logging.basicConfig(level=logging.INFO, handlers=[handler])
+# # ---
 
 class MultiModalEncoder:
     """
@@ -93,7 +93,8 @@ class MultiModalEncoder:
                 for i, (start, end) in enumerate(scene_list)
             }
         except Exception as e:
-            logging.error(f"Scene detection failed for {video_path}: {e}")
+            logging.error(f"{"="*100} \n Scene detection failed for {video_path}: {e}")
+            logging.error(traceback.format_exc())
             return {}
 
     def _extract_frames(self, vr: VideoReader, start_frame: int, end_frame: int, max_frames: int) -> tuple[np.ndarray, np.ndarray]:
@@ -158,9 +159,9 @@ class MultiModalEncoder:
         
         except Exception as e:
             logging.error(f"Failed to encode scene {scene_key}: {e}")
+            logging.error(traceback.format_exc())
             return None
         finally:
-            # No more temp files to clean up
             if self.device == "cuda":
                 torch.cuda.empty_cache()
 
@@ -207,6 +208,7 @@ class MultiModalEncoder:
                             logging.warning(f"[SKIP] scene {sid}, empty.")
                     except Exception as e:
                         logging.error(f"[ERROR] scene {sid} failed: {e}")
+                        logging.error(traceback.format_exc())
                 
             if not dp.scene_embeddings:
                 logging.warning(f"No scenes were successfully encoded for {video_path}.")

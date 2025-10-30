@@ -101,5 +101,9 @@ class Launcher:
         return retrieval_results
     
     def evaluate(self):
+        """
+        Runs the evaluation using the metrics created
+        """
         retrieval_evaluator = RetrievalEvaluator()
         generation_evaluator = GenerationEvaluator()
+        return 
