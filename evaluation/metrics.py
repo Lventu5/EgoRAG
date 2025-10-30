@@ -5,7 +5,7 @@ from data.video_dataset import Scene
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from nltk.translate.meteor_score import meteor_score
 from rouge_score import rouge_scorer
-from bleurt import score as bleurt_score
+from bleurt import score as bleurt_score # FIXME, to install
 
 class Metric(ABC):
     def __init__(self, name: str | None = None):

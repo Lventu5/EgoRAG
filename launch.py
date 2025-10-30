@@ -6,7 +6,7 @@ from indexing.multimodal_encoder import MultiModalEncoder
 from data.dataset import DatasetFactory
 from indexing.utils.logging import pretty_print_retrieval
 from retrieval.hierarchical_retriever import HierarchicalRetriever
-
+from evaluation.evaluator import RetrievalEvaluator, GenerationEvaluator
 
 class Launcher:
     def __init__(
@@ -99,3 +99,7 @@ class Launcher:
         pretty_print_retrieval(retrieval_results, max_videos=self.topk_videos, max_scenes=self.topk_scenes)
         # answers = self.generate_answers(retrieval_results)
         return retrieval_results
+    
+    def evaluate(self):
+        retrieval_evaluator = RetrievalEvaluator()
+        generation_evaluator = GenerationEvaluator()
