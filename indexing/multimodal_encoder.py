@@ -191,6 +191,8 @@ class MultiModalEncoder:
             if not dp.scenes:
                 logging.warning(f"No scenes detected for {video_path}. Skipping.")
                 continue
+            for scene in dp.scenes.values():
+                logging.info(f"Detected scene {scene.scene_id}: frames {scene.start_frame}-{scene.end_frame}, time {scene.start_time:.2f}-{scene.end_time:.2f}s")
             
             vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
             futures = {}

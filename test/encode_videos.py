@@ -10,8 +10,10 @@ from tqdm import tqdm
 
 def encode(video_dir, save_dir):
     video_ids = glob.glob(os.path.join(video_dir, "*.mp4"))
+    # video_ids = [v for v in video_ids if "animals" not in v]
+    video_ids = video_ids[:2]
 
-    for video in tqdm(video_ids[3:]):
+    for video in tqdm(video_ids):
         dataset = VideoDataset([video])
         encoder = MultiModalEncoder(dataset, max_workers=1)
         encoder.load_models()
@@ -23,5 +25,6 @@ def encode(video_dir, save_dir):
 
 if __name__ == "__main__":
     video_dir = "../../ego4d_data/v2/full_scale"
+    #video_dir = "../../data/"
     save_dir = "../../ego4d_data/v2/encoded_videos"
     encode(video_dir, save_dir)

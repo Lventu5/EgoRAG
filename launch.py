@@ -7,6 +7,8 @@ from data.dataset import DatasetFactory
 from indexing.utils.logging import pretty_print_retrieval
 from retrieval.hierarchical_retriever import HierarchicalRetriever
 from evaluation.evaluator import RetrievalEvaluator, GenerationEvaluator
+from generation.generator import Generator
+from data.query import QueryDataset
 
 class Launcher:
     def __init__(
@@ -14,7 +16,7 @@ class Launcher:
         dataset_type: str,
         video_path: str,
         nlq_annotations_path: str,
-        generator: Any,
+        generator: str = "InternVideo",
         modalities: list[str] = ["video", "audio", "text", "caption"],
         topk_videos: int = 3,
         topk_scenes: int = 5,
@@ -54,6 +56,8 @@ class Launcher:
 
         self.retriever = HierarchicalRetriever(self.video_dataset, device=self.encoder.device)
 
+        self.generator = Generator(model_name=generator)
+
     def encode(self):
         """
         Encode the videos using the multimodal encoder.
@@ -78,15 +82,16 @@ class Launcher:
         )
         return results
     
-    def generate_answers(self, retrieval_results: dict):
+    def generate_answers(self, retrieval_results: dict, queries: QueryDataset):
         """
         Generate answers for the retrieved video segments using the LLM generator.
         Args:
             retrieval_results (dict): The retrieval results from the retriever.
+            queries (QueryDataset): The original queries.
         Returns:
             dict: Generated answers for each query.
         """
-        pass
+        return self.generator.generate_answers(retrieval_results, queries)
 
     def run(self):
         """
