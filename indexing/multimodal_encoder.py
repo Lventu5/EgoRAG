@@ -4,6 +4,7 @@ import logging
 import traceback
 import torch
 import numpy as np
+from threading import Lock
 from tqdm import tqdm
 from decord import VideoReader, cpu
 from scenedetect import detect, ContentDetector
@@ -48,6 +49,7 @@ class MultiModalEncoder:
         self.dataset = video_dataset
         self.device = device if torch.cuda.is_available() else "cpu"
         self.max_workers = max_workers
+        self.video_reader_lock = Lock()  # Serialize VideoReader access
 
         # 1. Instantiate Atomic Components
         self.video_encoder = VideoEncoder(
@@ -110,12 +112,18 @@ class MultiModalEncoder:
         frames = vr.get_batch(indices).asnumpy()
         return frames
 
-    def _encode_video_stage(self, video_path: str, dp: VideoDataPoint, vr: VideoReader) -> None:
+    def _encode_video_stage(self, video_path: str, dp: VideoDataPoint) -> None:
         """
         Stage 1: Extract frames and encode all scenes with video encoder.
         Stores raw video embeddings and keyframes for later stages.
+        Uses a single VideoReader with a lock to serialize frame extraction.
+        Encoding happens in parallel after frame extraction.
         """
         logging.info(f"[Stage 1] Video encoding for {video_path}")
+        
+        # Create a single VideoReader (will be accessed serially via lock)
+        vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
+        
         futures = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             for sid, scene in dp.scenes.items():
@@ -132,16 +140,26 @@ class MultiModalEncoder:
                 except Exception as e:
                     logging.error(f"[ERROR] scene {sid} video encoding failed: {e}")
                     logging.error(traceback.format_exc())
+        
+        del vr
 
     def _extract_and_encode_video(self, scene: Scene, vr: VideoReader) -> dict | None:
-        """Helper: Extract frames and encode with video encoder."""
+        """
+        Helper: Extract frames and encode with video encoder.
+        Frame extraction is serialized via lock, but encoding is parallel.
+        """
         try:
-            frames = self._extract_frames(vr, scene.start_frame, scene.end_frame, self.video_encoder.max_frames_per_scene)
+            # Serialize frame extraction to avoid Decord segfaults
+            with self.video_reader_lock:
+                frames = self._extract_frames(vr, scene.start_frame, scene.end_frame, self.video_encoder.max_frames_per_scene)
+            
+            # Encoding happens in parallel (no lock needed)
             video_data = self.video_encoder.encode(frames)
             del frames
             return {"video": video_data["video"], "keyframes": video_data["image"]}
         except Exception as e:
             logging.error(f"Failed to encode video for scene: {e}")
+            logging.error(traceback.format_exc())
             return None
 
     def _encode_audio_stage(self, video_path: str, dp: VideoDataPoint) -> None:
@@ -264,11 +282,9 @@ class MultiModalEncoder:
             for scene in dp.scenes.values():
                 logging.info(f"Detected scene {scene.scene_id}: frames {scene.start_frame}-{scene.end_frame}, time {scene.start_time:.2f}-{scene.end_time:.2f}s")
             
-            vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
-            
             # Stage 1: Video Encoding
             self.video_encoder.load_models()
-            self._encode_video_stage(video_path, dp, vr)
+            self._encode_video_stage(video_path, dp)
             self.video_encoder.unload_models() if hasattr(self.video_encoder, 'unload_models') else None
             if self.device == "cuda":
                 torch.cuda.empty_cache()
@@ -276,7 +292,6 @@ class MultiModalEncoder:
             
             if not dp.scene_embeddings:
                 logging.warning(f"No scenes were successfully encoded for {video_path} (video stage).")
-                del vr
                 continue
             
             # Stage 2: Audio Encoding
@@ -302,8 +317,6 @@ class MultiModalEncoder:
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 gc.collect()
-            
-            del vr
             
             # Aggregate embeddings
             dp.global_embeddings = self._aggregate_embeddings(dp.scene_embeddings)
