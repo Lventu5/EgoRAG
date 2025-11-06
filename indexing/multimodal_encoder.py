@@ -159,7 +159,8 @@ class MultiModalEncoder:
             # Encoding happens in parallel (no lock needed)
             video_data = self.video_encoder.encode(frames)
             del frames
-            return {"video": video_data["video"], "keyframes": video_data["image"]}
+            # video_data["image"] holds embedding(s); video_data["keyframes"] holds the actual raw frames
+            return {"video": video_data["video"], "keyframes": video_data["keyframes"]}
         except Exception as e:
             logging.error(f"Failed to encode video for scene: {e}")
             logging.error(traceback.format_exc())
