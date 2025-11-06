@@ -12,19 +12,18 @@ def encode(video_dir, save_dir):
     video_ids = glob.glob(os.path.join(video_dir, "*.mp4"))
     print(f"Found {len(video_ids)} videos")
 
-    for video in tqdm(video_ids):
+    for video in tqdm(video_ids[1:]):
         print("-"*50)
         print(f"Encoding video {video}")
         print("-"*50)
         dataset = VideoDataset([video])
-        encoder = MultiModalEncoder(dataset, max_workers=2)
+        encoder = MultiModalEncoder(dataset, max_workers=1)
         encoder.load_models()
         video_dataset = encoder.encode_videos()
-        pickle_path = f"{save_dir}/{video}_encoded.pkl"
+        pickle_path = f"{save_dir}/{os.path.basename(video)}_encoded.pkl"
         video_dataset.save_to_pickle(pickle_path)
         encoder.unload_models()
         torch.cuda.empty_cache()
-        break
 
 if __name__ == "__main__":
     video_dir = "../ego4d_data/v2/full_scale"

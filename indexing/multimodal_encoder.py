@@ -142,7 +142,8 @@ class MultiModalEncoder:
             frames = self._extract_frames(vr, scene.start_frame, scene.end_frame, self.video_encoder.max_frames_per_scene)
             video_data = self.video_encoder.encode(frames)
             del frames
-            return {"video": video_data["video"], "keyframes": video_data["image"]}
+            # video_data["image"] holds embedding(s); video_data["keyframes"] holds the actual raw frames
+            return {"video": video_data["video"], "keyframes": video_data["keyframes"]}
         except Exception as e:
             logging.error(f"Failed to encode video for scene: {e}")
             return None
