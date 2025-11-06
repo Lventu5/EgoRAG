@@ -84,6 +84,9 @@ class MultiModalEncoder:
         """Detects content-based scenes and returns Scene objects."""
         try:
             scene_list = detect(video_path, ContentDetector(threshold=25.0))
+            logging.info(
+                f"Scene extraction for video {os.path.basename(video_path)}, found {len(scene_list)} scenes"
+            )
             return {
                 f"scene_{i}": Scene(
                     scene_id=f"scene_{i}",
@@ -95,7 +98,7 @@ class MultiModalEncoder:
                 for i, (start, end) in enumerate(scene_list)
             }
         except Exception as e:
-            logging.error(f"{"="*100} \n Scene detection failed for {video_path}: {e}")
+            logging.error(f"{'='*100} \n Scene detection failed for {video_path}: {e}")
             logging.error(traceback.format_exc())
             return {}
 
