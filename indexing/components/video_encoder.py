@@ -179,7 +179,7 @@ class VideoEncoder(BaseEncoder):
             representative_frames = self._get_representative_frames(frames, frame_embs, km)
 
             return {
-                "image": keyframe_embedding.detach().cpu(),
+                "image": torch.tensor(keyframe_embedding, device="cpu", dtype=torch.float32) if isinstance(keyframe_embedding, np.ndarray) else keyframe_embedding,
                 "video": torch.tensor(temporal_embedding, device="cpu", dtype=torch.float32),
                 "keyframes": representative_frames,
             }

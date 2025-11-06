@@ -11,9 +11,11 @@ from tqdm import tqdm
 def encode(video_dir, save_dir):
     video_ids = glob.glob(os.path.join(video_dir, "*.mp4"))
     # video_ids = [v for v in video_ids if "animals" not in v]
-    video_ids = video_ids[:2]
+    print(f"Found {len(video_ids)} videos to encode.")
+    video_ids = video_ids[:1]
 
     for video in tqdm(video_ids):
+        print(f"Encoding video: {video}")
         dataset = VideoDataset([video])
         encoder = MultiModalEncoder(dataset, max_workers=1)
         encoder.load_models()
