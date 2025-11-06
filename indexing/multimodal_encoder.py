@@ -288,7 +288,7 @@ class MultiModalEncoder:
             # Stage 1: Video Encoding
             self.video_encoder.load_models()
             self._encode_video_stage(video_path, dp)
-            self.video_encoder.unload_models() if hasattr(self.video_encoder, 'unload_models') else None
+            self.unload_models("video")
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 gc.collect()
@@ -300,7 +300,7 @@ class MultiModalEncoder:
             # Stage 2: Audio Encoding
             self.audio_encoder.load_models()
             self._encode_audio_stage(video_path, dp)
-            self.audio_encoder.unload_models() if hasattr(self.audio_encoder, 'unload_models') else None
+            self.unload_models("audio")
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 gc.collect()
@@ -308,7 +308,7 @@ class MultiModalEncoder:
             # Stage 3: Caption Generation
             self.captioner.load_models()
             self._encode_caption_stage(dp)
-            self.captioner.unload_models() if hasattr(self.captioner, 'unload_models') else None
+            self.unload_models("caption")
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 gc.collect()
@@ -316,7 +316,7 @@ class MultiModalEncoder:
             # Stage 4: Text Encoding
             self.text_encoder.load_models()
             self._encode_text_stage(dp)
-            self.text_encoder.unload_models() if hasattr(self.text_encoder, 'unload_models') else None
+            self.unload_models("text")
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 gc.collect()
@@ -328,16 +328,16 @@ class MultiModalEncoder:
         
         return self.dataset
     
-    def unload_models(self):
+    def unload_model(self, modality: str) -> None:
         """Free heavy encoder models from GPU."""
-        if hasattr(self, "text_encoder"):
+        if modality == "text" and hasattr(self, "text_encoder"):
             del self.text_encoder
-        if hasattr(self, "video_encoder"):
+        if modality == "video" and hasattr(self, "video_encoder"):
             del self.video_encoder
-        if hasattr(self, "audio_encoder"):
+        if modality == "audio" and hasattr(self, "audio_encoder"):
             del self.audio_encoder
-        if hasattr(self, "captioner"):
+        if modality == "caption" and hasattr(self, "captioner"):
             del self.captioner
         if self.device == "cuda":
             torch.cuda.empty_cache()
-            gc.collect()
+        gc.collect()
