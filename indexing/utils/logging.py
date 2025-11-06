@@ -13,6 +13,30 @@ class LevelAwareFormatter(logging.Formatter):
         formatter = logging.Formatter(fmt)
         return formatter.format(record)
 
+
+def get_logger(name: str, level: str = "INFO") -> logging.Logger:
+    """
+    Create or retrieve a logger with LevelAwareFormatter.
+    
+    Args:
+        name: Name of the logger (typically __name__)
+        level: Logging level (INFO, DEBUG, WARNING, ERROR)
+        
+    Returns:
+        Configured logger instance
+    """
+    logger = logging.getLogger(name)
+    
+    # Only configure if the logger doesn't have handlers
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(LevelAwareFormatter())
+        logger.addHandler(handler)
+        logger.setLevel(getattr(logging, level.upper(), logging.INFO))
+        logger.propagate = False
+    
+    return logger
+
 def pretty_print_retrieval(results: Dict[str, Dict[str, list[tuple]]], max_videos: int = 3, max_scenes: int = 1):
     """
     Pretty-print retrieval results.

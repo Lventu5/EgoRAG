@@ -131,3 +131,70 @@ class QueryRewriterLLM:
         data["video"] = " ".join(data["video"].split()).strip()
 
         return data
+    
+    def decompose(self, query_text: str) -> Dict[str, str]:
+        """
+        Decompose a query into multimodal components.
+        
+        Alias for decompose_to_json for consistency with the new API.
+        
+        Args:
+            query_text: Query text to decompose
+            
+        Returns:
+            Dictionary with keys: text, audio, video
+        """
+        return self.decompose_to_json(query_text)
+    
+    def subquestions(self, query_text: str, num_hops: int = 2) -> list[str]:
+        """
+        Generate follow-up sub-questions for multi-hop retrieval.
+        
+        Args:
+            query_text: Original query text
+            num_hops: Number of sub-questions to generate
+            
+        Returns:
+            List of sub-question strings
+        """
+        prompt = self._build_subquestions_prompt(query_text, num_hops)
+        raw = self.generate(prompt)
+        
+        # Parse sub-questions from output
+        raw = self._strip_prompt_echo(raw, after="Sub-questions:")
+        
+        # Extract numbered questions
+        lines = raw.strip().split("\n")
+        subqs = []
+        for line in lines:
+            # Match patterns like "1. ", "1) ", or just numbered items
+            line = line.strip()
+            if not line:
+                continue
+            # Remove leading numbers/bullets
+            cleaned = re.sub(r"^\d+[\.\)]\s*", "", line)
+            if cleaned and len(cleaned) > 5:  # Minimum length check
+                subqs.append(cleaned)
+        
+        # Return up to num_hops questions
+        return subqs[:num_hops]
+    
+    def _build_subquestions_prompt(self, query: str, num_hops: int) -> str:
+        """
+        Build prompt for generating sub-questions.
+        
+        Args:
+            query: Original query
+            num_hops: Number of sub-questions to generate
+            
+        Returns:
+            Formatted prompt string
+        """
+        return (
+            f"Given a query about video content, generate {num_hops} related follow-up questions "
+            "that would help gather more specific information to answer the original query. "
+            "Each sub-question should explore a different aspect or detail.\n\n"
+            f"Original query: {query}\n\n"
+            f"Generate exactly {num_hops} numbered sub-questions:\n"
+            "Sub-questions:"
+        )

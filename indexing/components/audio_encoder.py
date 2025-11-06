@@ -11,6 +11,10 @@ from transformers import (
 )
 
 from .base_encoder import BaseEncoder
+from indexing.components.model_registry import get_registry, GPUMemoryGuard
+from indexing.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 class AudioEncoder(BaseEncoder):
     """
@@ -27,34 +31,61 @@ class AudioEncoder(BaseEncoder):
         super().__init__(device)
         self.audio_sr = audio_sr
         self.asr_sr = asr_sr
+        self.registry = get_registry()
+        
+        # Register model loaders
+        self.registry.register("whisper_asr_model", self._load_whisper_model)
+        self.registry.register("whisper_asr_processor", self._load_whisper_processor)
+        self.registry.register("clap_audio_model", self._load_clap_model)
+        self.registry.register("clap_audio_processor", self._load_clap_processor)
         
         # Models to be loaded
         self.audio_embed_model: AutoModel = None
         self.audio_embed_processor: AutoProcessor = None
         self.asr_model: WhisperForConditionalGeneration = None
         self.asr_processor: WhisperProcessor = None
+    
+    def _load_whisper_model(self):
+        """Loader for Whisper ASR model."""
+        logger.info(f"[{self.__class__.__name__}] Loading Whisper ASR model...")
+        asr_model_id = "openai/whisper-base"
+        model = WhisperForConditionalGeneration.from_pretrained(asr_model_id).to(self.device)
+        if self.device == "cuda":
+            model = model.half()
+        return model
+    
+    def _load_whisper_processor(self):
+        """Loader for Whisper processor."""
+        asr_model_id = "openai/whisper-base"
+        return WhisperProcessor.from_pretrained(asr_model_id)
+    
+    def _load_clap_model(self):
+        """Loader for CLAP audio embedding model."""
+        logger.info(f"[{self.__class__.__name__}] Loading CLAP audio model...")
+        audio_model_id = "laion/clap-htsat-unfused"
+        return AutoModel.from_pretrained(audio_model_id).to(self.device)
+    
+    def _load_clap_processor(self):
+        """Loader for CLAP processor."""
+        audio_model_id = "laion/clap-htsat-unfused"
+        return AutoProcessor.from_pretrained(audio_model_id)
 
     def load_models(self):
-        logging.info(f"[{self.__class__.__name__}] Loading models...")
+        logger.info(f"[{self.__class__.__name__}] Loading models...")
         
-        # 1. Load Whisper (ASR)
-        asr_model_id = "openai/whisper-base"
-        self.asr_model = WhisperForConditionalGeneration.from_pretrained(asr_model_id).to(self.device)
-        self.asr_processor = WhisperProcessor.from_pretrained(asr_model_id)
-
-        if self.device == "cuda":
-            self.asr_model = self.asr_model.half()
-
+        # Fetch models from registry (lazy loading)
+        self.asr_model = self.registry.get("whisper_asr_model")
+        self.asr_processor = self.registry.get("whisper_asr_processor")
+        
+        # Set decoder IDs after loading
         self.asr_model.config.forced_decoder_ids = self.asr_processor.get_decoder_prompt_ids(
             language="en", task="transcribe"
         )
         
-        # 2. Load CLAP (Audio Embedding)
-        audio_model_id = "laion/clap-htsat-unfused"
-        self.audio_embed_model = AutoModel.from_pretrained(audio_model_id).to(self.device)
-        self.audio_embed_processor = AutoProcessor.from_pretrained(audio_model_id)
+        self.audio_embed_model = self.registry.get("clap_audio_model")
+        self.audio_embed_processor = self.registry.get("clap_audio_processor")
         
-        logging.info(f"[{self.__class__.__name__}] Models loaded.")
+        logger.info(f"[{self.__class__.__name__}] Models loaded.")
 
     def _extract_audio_array(self, video_path: str, start_t: float, end_t: float) -> np.ndarray | None:
         """
@@ -64,18 +95,18 @@ class AudioEncoder(BaseEncoder):
         try:
             with VideoFileClip(video_path) as vid:
                 if start_t >= vid.duration or start_t >= end_t:
-                    logging.warning(f"Invalid time range {start_t}-{end_t} for video {video_path}")
+                    logger.warning(f"Invalid time range {start_t}-{end_t} for video {video_path}")
                     return None
                 
                 clip = vid.subclip(start_t, end_t)
                 if clip.audio is None:
-                    logging.warning(f"No audio found in subclip {start_t}-{end_t} for {video_path}")
+                    logger.warning(f"No audio found in subclip {start_t}-{end_t} for {video_path}")
                     return None
 
                 # Moviepy workaround: iter_frames() instead of to_soundarray()
                 audio_frames = list(clip.audio.iter_frames(fps=self.audio_sr))
                 if not audio_frames:
-                    logging.warning(f"Audio frames list is empty for {video_path}")
+                    logger.warning(f"Audio frames list is empty for {video_path}")
                     return None
                     
                 audio_array = np.array(audio_frames)
@@ -89,7 +120,7 @@ class AudioEncoder(BaseEncoder):
             return audio_array.astype(np.float32)
 
         except Exception as e:
-            logging.error(f"Failed to extract audio array for {video_path} ({start_t}-{end_t}): {e}")
+            logger.error(f"Failed to extract audio array for {video_path} ({start_t}-{end_t}): {e}")
             return None
 
     def _embed_audio(self, audio_array_48k: np.ndarray) -> np.ndarray | None:
@@ -98,7 +129,7 @@ class AudioEncoder(BaseEncoder):
             # Trim silence for a more representative CLAP embedding
             audio_trimmed_48k, _ = librosa.effects.trim(audio_array_48k, top_db=20)
             if audio_trimmed_48k.size == 0:
-                logging.warning("Audio clip silent or too short for CLAP.")
+                logger.warning("Audio clip silent or too short for CLAP.")
                 return None
 
             inputs_audio = self.audio_embed_processor(
@@ -107,13 +138,13 @@ class AudioEncoder(BaseEncoder):
                 return_tensors="pt"
             ).to(self.device)
             
-            with torch.inference_mode():
+            with torch.inference_mode(), torch.autocast(device_type=self.device, enabled=(self.device == "cuda")):
                 audio_emb = self.audio_embed_model.get_audio_features(**inputs_audio)
             
             return audio_emb.cpu().numpy().squeeze()
         
         except Exception as e:
-            logging.error(f"Error during CLAP audio embedding: {e}")
+            logger.error(f"Error during CLAP audio embedding: {e}")
             return None
 
     def _transcribe_audio(self, audio_array_48k: np.ndarray) -> str:
@@ -130,7 +161,7 @@ class AudioEncoder(BaseEncoder):
                 audio_array_16k = audio_array_48k
 
             if audio_array_16k.size == 0:
-                logging.warning("Audio too short for ASR after resampling.")
+                logger.warning("Audio too short for ASR after resampling.")
                 return ""
 
             # 2. Transcribe IN-MEMORY
@@ -143,7 +174,7 @@ class AudioEncoder(BaseEncoder):
             input_features = inputs.input_features.to(self.device, dtype=dtype)
             # input_features = inputs.input_features.to(self.device)    
 
-            with torch.inference_mode():
+            with torch.inference_mode(), torch.autocast(device_type=self.device, enabled=(self.device == "cuda")):
                 predicted_ids = self.asr_model.generate(input_features, language="en", task="transcribe")
 
             transcript_list = self.asr_processor.batch_decode(predicted_ids, skip_special_tokens=True)
@@ -153,7 +184,7 @@ class AudioEncoder(BaseEncoder):
             return transcript
 
         except Exception as e:
-            logging.error(f"Error during transcription: {e}")
+            logger.error(f"Error during transcription: {e}")
             return ""
 
     def encode(self, video_path: str, start_time: float, end_time: float) -> dict:
@@ -168,25 +199,26 @@ class AudioEncoder(BaseEncoder):
         Returns:
             A dictionary containing 'audio_embedding' and 'transcript'.
         """
-        audio_array_48k = self._extract_audio_array(video_path, start_time, end_time)
-        
-        if audio_array_48k is None:
-            return {"audio_embedding": None, "transcript": ""}
+        with GPUMemoryGuard():
+            audio_array_48k = self._extract_audio_array(video_path, start_time, end_time)
+            
+            if audio_array_48k is None:
+                return {"audio_embedding": None, "transcript": ""}
 
-        # 1. Get CLAP embedding
-        audio_embedding = self._embed_audio(audio_array_48k)
-        if audio_embedding is None:
-            # Create a zero vector if CLAP fails
-            zero_emb = np.zeros(self.audio_embed_model.config.hidden_size, dtype=np.float32)
-            audio_embedding = torch.tensor(zero_emb, dtype=torch.float32)
-        else:
-            audio_embedding = torch.tensor(audio_embedding, dtype=torch.float32)
+            # 1. Get CLAP embedding
+            audio_embedding = self._embed_audio(audio_array_48k)
+            if audio_embedding is None:
+                # Create a zero vector if CLAP fails
+                zero_emb = np.zeros(self.audio_embed_model.config.hidden_size, dtype=np.float32)
+                audio_embedding = torch.tensor(zero_emb, dtype=torch.float32)
+            else:
+                audio_embedding = torch.tensor(audio_embedding, dtype=torch.float32)
 
-        # 2. Get Whisper transcript
-        # We use the original (non-trimmed) audio for transcription
-        transcript = self._transcribe_audio(audio_array_48k)
-        
-        return {
-            "audio_embedding": audio_embedding,
-            "transcript": transcript
-        }
+            # 2. Get Whisper transcript
+            # We use the original (non-trimmed) audio for transcription
+            transcript = self._transcribe_audio(audio_array_48k)
+            
+            return {
+                "audio_embedding": audio_embedding,
+                "transcript": transcript
+            }

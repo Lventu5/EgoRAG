@@ -5,6 +5,10 @@ from transformers import BlipProcessor, BlipForConditionalGeneration
 from indexing.utils.clustering import cluster_frames
 
 from .base_encoder import BaseEncoder
+from indexing.components.model_registry import get_registry, GPUMemoryGuard
+from indexing.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 class VisualCaptioner(BaseEncoder):
     """
@@ -14,17 +18,32 @@ class VisualCaptioner(BaseEncoder):
     def __init__(self, device: str = "cuda", max_k_clusters: int = 5):
         super().__init__(device)
         self.max_k_clusters = max_k_clusters
+        self.registry = get_registry()
+        
+        # Register model loaders
+        self.registry.register("blip_processor", self._load_blip_processor)
+        self.registry.register("blip_model", self._load_blip_model)
         
         # Models to be loaded
         self.processor: BlipProcessor = None
         self.model: BlipForConditionalGeneration = None
+    
+    def _load_blip_processor(self):
+        """Loader for BLIP processor."""
+        model_id = "Salesforce/blip-image-captioning-base"
+        return BlipProcessor.from_pretrained(model_id)
+    
+    def _load_blip_model(self):
+        """Loader for BLIP model."""
+        logger.info(f"[{self.__class__.__name__}] Loading BLIP model...")
+        model_id = "Salesforce/blip-image-captioning-base"
+        return BlipForConditionalGeneration.from_pretrained(model_id).to(self.device)
 
     def load_models(self):
-        logging.info(f"[{self.__class__.__name__}] Loading BLIP models...")
-        model_id = "Salesforce/blip-image-captioning-base"
-        self.processor = BlipProcessor.from_pretrained(model_id)
-        self.model = BlipForConditionalGeneration.from_pretrained(model_id).to(self.device)
-        logging.info(f"[{self.__class__.__name__}] Models loaded.")
+        logger.info(f"[{self.__class__.__name__}] Loading BLIP models...")
+        self.processor = self.registry.get("blip_processor")
+        self.model = self.registry.get("blip_model")
+        logger.info(f"[{self.__class__.__name__}] Models loaded.")
 
     # def _cluster_frames_for_captioning(self, frames: np.ndarray) -> np.ndarray:
     #     """
@@ -53,23 +72,24 @@ class VisualCaptioner(BaseEncoder):
         Returns:
             A string containing the concatenated captions.
         """
-        if len(keyframes) == 0:
-            logging.warning("No frames provided to VisualCaptioner.")
-            return ""
-            
-        captions = []
-
-        with torch.inference_mode():
-            for frame in keyframes:
-                inputs = self.processor(images=frame, text=prompt, return_tensors="pt").to(self.device)
-                outputs = self.model.generate(**inputs, max_new_tokens=50)
-                caption = self.processor.decode(outputs[0], skip_special_tokens=True)
+        with GPUMemoryGuard():
+            if len(keyframes) == 0:
+                logger.warning("No frames provided to VisualCaptioner.")
+                return ""
                 
-                # Post-process to remove the prompt
-                caption = caption.replace(prompt, "").strip()
-                if caption:
-                    captions.append(caption)
-        
-        # Combine unique captions into a single description
-        unique_captions = sorted(list(set(captions)), key=captions.index)
-        return ". ".join(unique_captions)
+            captions = []
+
+            with torch.inference_mode(), torch.autocast(device_type=self.device, enabled=(self.device == "cuda")):
+                for frame in keyframes:
+                    inputs = self.processor(images=frame, text=prompt, return_tensors="pt").to(self.device)
+                    outputs = self.model.generate(**inputs, max_new_tokens=50)
+                    caption = self.processor.decode(outputs[0], skip_special_tokens=True)
+                    
+                    # Post-process to remove the prompt
+                    caption = caption.replace(prompt, "").strip()
+                    if caption:
+                        captions.append(caption)
+            
+            # Combine unique captions into a single description
+            unique_captions = sorted(list(set(captions)), key=captions.index)
+            return ". ".join(unique_captions)

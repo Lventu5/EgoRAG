@@ -1,0 +1,39 @@
+# EgoRAG Default Configuration
+
+# Retrieval settings
+retrieval:
+  max_hops: 2
+  top_k_videos: 3
+  top_k_scenes: 2
+  rewriter_model: "Qwen/Qwen2.5-7B-Instruct"
+  similarity: "cosine"  # cosine | dot
+
+# Reranker settings
+reranker:
+  alpha: 0.70  # weight for base fused score
+  beta: 0.20   # weight for modality agreement
+  gamma: 0.10  # weight for temporal decay
+  temporal_decay_half_life_sec: 86400  # 1 day in seconds
+
+# Encoder settings
+encoder:
+  max_frames_per_scene: 96
+  max_temporal_segments: 8
+
+# QA settings
+qa:
+  llm_model: "placeholder-local-llm"
+  max_ctx_scenes: 4
+  max_tokens: 2048
+
+# Memory management settings
+memory:
+  prune:
+    keep_ratio: 0.75
+  saliency:
+    min_frames: 8
+    min_audio_sec: 0.5
+
+# Logging settings
+logging:
+  level: "INFO"  # INFO | DEBUG

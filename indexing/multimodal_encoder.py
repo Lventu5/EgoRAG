@@ -10,11 +10,12 @@ from scenedetect import detect, ContentDetector
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data.video_dataset import VideoDataset, VideoDataPoint, Scene
-from indexing.utils.logging import LevelAwareFormatter
+from indexing.components.model_registry import ModelRegistry
 from indexing.components.video_encoder import VideoEncoder
-from indexing.components.audio_encoder import AudioEncoder # <--- UPDATED
+from indexing.components.audio_encoder import AudioEncoder
 from indexing.components.text_encoder import TextEncoder
 from indexing.components.visual_captioner import VisualCaptioner
+from indexing.analytics.tagging import tag_scene_types, tag_dialogue_roles
 
 # --- Setup logging (can be moved to a main file) ---
 # handler = logging.StreamHandler()
@@ -30,7 +31,10 @@ class MultiModalEncoder:
     1.  Scene Detection
     2.  Asset Extraction (frames, audio)
     3.  Delegation to atomic components (Video, Audio, Text, Captioner)
-    4.  Aggregation of results into a VideoDataPoint.
+    4.  Scene Tagging (types and dialogue roles)
+    5.  Aggregation of results into a VideoDataPoint.
+    
+    Uses ModelRegistry for efficient model lifecycle management.
     """
     def __init__(
         self,
@@ -41,6 +45,7 @@ class MultiModalEncoder:
         audio_sr: int = 48000, 
         asr_sr: int = 16000,
         max_workers: int = 2,
+        apply_tagging: bool = True,
     ):
         if video_dataset is None or len(video_dataset) == 0:
             raise ValueError("Video dataset is empty or not provided.")
@@ -48,14 +53,18 @@ class MultiModalEncoder:
         self.dataset = video_dataset
         self.device = device if torch.cuda.is_available() else "cpu"
         self.max_workers = max_workers
+        self.apply_tagging = apply_tagging
 
-        # 1. Instantiate Atomic Components
+        # Initialize ModelRegistry
+        self.registry = ModelRegistry()
+
+        # 1. Instantiate Atomic Components (without loading models)
         self.video_encoder = VideoEncoder(
             device=self.device,
             max_frames_per_scene=max_frames_per_scene,
             max_temporal_segments=max_temporal_segments
         )
-        self.audio_encoder = AudioEncoder( # <-- UPDATED
+        self.audio_encoder = AudioEncoder(
             device=self.device,
             audio_sr=audio_sr,
             asr_sr=asr_sr
@@ -63,20 +72,20 @@ class MultiModalEncoder:
         self.text_encoder = TextEncoder(device=self.device)
         self.captioner = VisualCaptioner(device=self.device)
         
-        logging.info(f"MultiModalEncoder initialized with {max_workers} workers.")
+        logging.info(f"MultiModalEncoder initialized with {max_workers} workers and ModelRegistry.")
 
     def load_models(self):
         """
-        Loads all component models in parallel.
-        This is a heavy operation.
+        Loads all component models. 
+        Note: With ModelRegistry, models are loaded lazily on first use.
+        This method can be used to pre-warm the registry if needed.
         """
-        logging.info("Loading all models...")
-        # (In a real scenario, you might parallelize this)
-        self.video_encoder.load_models()
-        self.audio_encoder.load_models()
-        self.text_encoder.load_models()
-        self.captioner.load_models()
-        logging.info("All models loaded successfully.")
+        logging.info("Models will be loaded lazily via ModelRegistry.")
+        # Optional: pre-load all models
+        # self.video_encoder.load_models()
+        # self.audio_encoder.load_models()
+        # self.text_encoder.load_models()
+        # self.captioner.load_models()
 
     def _detect_scenes(self, video_path: str) -> dict[str, Scene]:
         """Detects content-based scenes and returns Scene objects."""
@@ -222,6 +231,34 @@ class MultiModalEncoder:
                     logging.error(f"[ERROR] scene {sid} text encoding failed: {e}")
                     logging.error(traceback.format_exc())
 
+    def _tag_scenes_stage(self, dp: VideoDataPoint) -> None:
+        """
+        Stage 5: Tag scenes with scene types and dialogue roles.
+        Requires caption_text and transcript from previous stages.
+        """
+        if not self.apply_tagging:
+            logging.info(f"[Stage 5] Skipping scene tagging for {dp.video_name} (disabled)")
+            return
+            
+        logging.info(f"[Stage 5] Scene tagging for {dp.video_name}")
+        
+        # Tag scene types
+        scene_types = tag_scene_types(dp)
+        
+        # Tag dialogue roles
+        dialogue_roles = tag_dialogue_roles(dp)
+        
+        # Store in scene metadata
+        for sid in dp.scene_embeddings.keys():
+            if "meta" not in dp.scene_embeddings[sid]:
+                dp.scene_embeddings[sid]["meta"] = {}
+            
+            dp.scene_embeddings[sid]["meta"]["scene_type"] = scene_types.get(sid, "other")
+            dp.scene_embeddings[sid]["meta"]["speech_type"] = dialogue_roles.get(sid, "no_speech")
+        
+        logging.info(f"[Stage 5] Tagged {len(dp.scene_embeddings)} scenes for {dp.video_name}")
+
+
     def _encode_text_pair(self, full_text: str, caption: str) -> tuple[torch.Tensor, torch.Tensor]:
         """Helper: Encode both full text and caption separately."""
         text_embedding = self.text_encoder.encode(full_text)
@@ -247,13 +284,16 @@ class MultiModalEncoder:
 
     def encode_videos(self) -> VideoDataset:
         """
-        Orchestrates encoding in stages to load/unload models one at a time.
+        Orchestrates encoding in stages using ModelRegistry for efficient memory management.
         
         Stages:
         1. Video encoding (extract frames + encode)
         2. Audio encoding
         3. Caption generation
         4. Text encoding (captions + transcripts)
+        5. Scene tagging (types and dialogue roles)
+        
+        Models are managed via ModelRegistry - no manual load/unload needed per stage.
         """
         for dp in tqdm(self.dataset.video_datapoints, desc="Encoding Videos"):
             video_path = dp.video_path
@@ -269,13 +309,8 @@ class MultiModalEncoder:
             
             vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
             
-            # Stage 1: Video Encoding
-            self.video_encoder.load_models()
+            # Stage 1: Video Encoding (ModelRegistry handles model lifecycle)
             self._encode_video_stage(video_path, dp, vr)
-            self.video_encoder.unload_models() if hasattr(self.video_encoder, 'unload_models') else None
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
-                gc.collect()
             
             if not dp.scene_embeddings:
                 logging.warning(f"No scenes were successfully encoded for {video_path} (video stage).")
@@ -283,48 +318,39 @@ class MultiModalEncoder:
                 continue
             
             # Stage 2: Audio Encoding
-            self.audio_encoder.load_models()
             self._encode_audio_stage(video_path, dp)
-            self.audio_encoder.unload_models() if hasattr(self.audio_encoder, 'unload_models') else None
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
-                gc.collect()
             
             # Stage 3: Caption Generation
-            self.captioner.load_models()
             self._encode_caption_stage(dp)
-            self.captioner.unload_models() if hasattr(self.captioner, 'unload_models') else None
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
-                gc.collect()
             
             # Stage 4: Text Encoding
-            self.text_encoder.load_models()
             self._encode_text_stage(dp)
-            self.text_encoder.unload_models() if hasattr(self.text_encoder, 'unload_models') else None
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
-                gc.collect()
+            
+            # Stage 5: Scene Tagging
+            self._tag_scenes_stage(dp)
             
             del vr
             
             # Aggregate embeddings
             dp.global_embeddings = self._aggregate_embeddings(dp.scene_embeddings)
+            
+            # Periodic GPU cleanup (ModelRegistry handles model caching)
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
 
         self.dataset.encoded = True
+        logging.info(f"Encoding complete for {len(self.dataset.video_datapoints)} videos.")
         
         return self.dataset
     
     def unload_models(self):
-        """Free heavy encoder models from GPU."""
-        if hasattr(self, "text_encoder"):
-            del self.text_encoder
-        if hasattr(self, "video_encoder"):
-            del self.video_encoder
-        if hasattr(self, "audio_encoder"):
-            del self.audio_encoder
-        if hasattr(self, "captioner"):
-            del self.captioner
+        """
+        Free heavy encoder models from GPU.
+        With ModelRegistry, this unloads all registered models.
+        """
+        logging.info("Unloading all models via ModelRegistry...")
+        self.registry.unload_all()
         if self.device == "cuda":
             torch.cuda.empty_cache()
             gc.collect()
+        logging.info("All models unloaded successfully.")

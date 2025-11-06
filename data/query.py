@@ -9,7 +9,9 @@ class Query:
             video_uid: Optional[str] = None, 
             decomposed: Optional[dict] = None, 
             embeds: Optional[dict] = None, 
-            gt: Optional[Dict[str, Optional[float | int]]] = None
+            gt: Optional[Dict[str, Optional[float | int]]] = None,
+            time_hint_sec: Optional[float] = None,
+            rewrite_log: Optional[Dict] = None
     ):
         self.qid = qid if isinstance(qid, str) else f"query_{qid}"
         self.query_text = query_text
@@ -24,6 +26,10 @@ class Query:
         }
         if gt:
             self.gt.update(gt)
+        
+        # New fields for enhanced retrieval
+        self.time_hint_sec = time_hint_sec  # Optional temporal hint for the query
+        self.rewrite_log = rewrite_log if rewrite_log is not None else {}  # Log of query rewriting steps
 
     def __repr__(self):
         return f"Query(qid={self.qid}, query_text={self.query_text.strip()})"
@@ -36,6 +42,8 @@ class Query:
             "decomposed": self.decomposed,
             "embeddings": self.embeddings,
             "gt": self.gt,
+            "time_hint_sec": self.time_hint_sec,
+            "rewrite_log": self.rewrite_log,
         }
     
     def get_query(self, modality: str | None = None) -> str:
@@ -56,6 +64,8 @@ class Query:
             decomposed=data.get("decomposed"),
             embeds=data.get("embeddings"),
             gt=data.get("gt"),
+            time_hint_sec=data.get("time_hint_sec"),
+            rewrite_log=data.get("rewrite_log"),
         )
 
     # def save_to_pickle(self, file_path: str):
