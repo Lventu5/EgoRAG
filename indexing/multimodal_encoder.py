@@ -82,6 +82,9 @@ class MultiModalEncoder:
         """Detects content-based scenes and returns Scene objects."""
         try:
             scene_list = detect(video_path, ContentDetector(threshold=25.0))
+            logging.info(
+                f"Scene extraction for video {os.path.basename(video_path)}, found {len(scene_list)} scenes"
+            )
             return {
                 f"scene_{i}": Scene(
                     scene_id=f"scene_{i}",
@@ -93,7 +96,7 @@ class MultiModalEncoder:
                 for i, (start, end) in enumerate(scene_list)
             }
         except Exception as e:
-            logging.error(f"{"="*100} \n Scene detection failed for {video_path}: {e}")
+            logging.error(f"{'='*100} \n Scene detection failed for {video_path}: {e}")
             logging.error(traceback.format_exc())
             return {}
 
@@ -110,60 +113,120 @@ class MultiModalEncoder:
         frames = vr.get_batch(indices).asnumpy()
         return frames
 
-    def _encode_scene(self, video_path: str, scene: Scene, vr: VideoReader) -> dict | None:
+    def _encode_video_stage(self, video_path: str, dp: VideoDataPoint, vr: VideoReader) -> None:
         """
-        Orchestrates the encoding of a single scene by delegating
-        to the modular components. (UPDATED)
+        Stage 1: Extract frames and encode all scenes with video encoder.
+        Stores raw video embeddings and keyframes for later stages.
         """
-        scene_key = f"scene_{scene.start_frame}_{scene.end_frame}"
+        logging.info(f"[Stage 1] Video encoding for {video_path}")
+        futures = {}
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            for sid, scene in dp.scenes.items():
+                futures[executor.submit(self._extract_and_encode_video, scene, vr)] = sid
+
+            for f in tqdm(as_completed(futures), total=len(futures), desc=f"Video Encoding ({dp.video_name})"):
+                sid = futures[f]
+                try:
+                    video_data = f.result()
+                    if video_data:
+                        dp.scene_embeddings[sid] = {"video": video_data["video"], "keyframes": video_data["keyframes"]}
+                    else:
+                        logging.warning(f"[SKIP] scene {sid}, video encoding failed.")
+                except Exception as e:
+                    logging.error(f"[ERROR] scene {sid} video encoding failed: {e}")
+                    logging.error(traceback.format_exc())
+
+    def _extract_and_encode_video(self, scene: Scene, vr: VideoReader) -> dict | None:
+        """Helper: Extract frames and encode with video encoder."""
         try:
-            '''
-            frames = self._extract_frames(
-                video_path, 
-                scene.start_frame, 
-                scene.end_frame, 
-                self.video_encoder.max_frames_per_scene
-            )
-            '''
             frames = self._extract_frames(vr, scene.start_frame, scene.end_frame, self.video_encoder.max_frames_per_scene)
             video_data = self.video_encoder.encode(frames)
             del frames
-    
-            audio_data = self.audio_encoder.encode(
-                video_path,
-                scene.start_time,
-                scene.end_time
-            )
-            #print(audio_data)
-            
-            caption = self.captioner.encode(video_data["keyframes"])
-            caption_emb = self.text_encoder.encode(caption) if caption else torch.zeros(384, dtype=torch.float32)
-                        
-            transcript = audio_data["transcript"]
-            full_text = f"Transcript: {transcript}. Visuals: {caption}"
-            text_embedding = self.text_encoder.encode(full_text)
-
-            result = {
-                "video": video_data["video"],
-                "audio": audio_data["audio_embedding"],
-                "text": text_embedding,
-                "caption": caption_emb,
-                "caption_text": caption,
-                "transcript": transcript,
-                "keyframes": video_data["image"],
-            }
-            del video_data, audio_data, caption_emb, text_embedding
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
-            return result
-        
+            return {"video": video_data["video"], "keyframes": video_data["image"]}
         except Exception as e:
-            logging.error(f"Failed to encode scene {scene_key}: {e}")
-            logging.error(traceback.format_exc())
+            logging.error(f"Failed to encode video for scene: {e}")
             return None
-        finally:
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
+
+    def _encode_audio_stage(self, video_path: str, dp: VideoDataPoint) -> None:
+        """
+        Stage 2: Encode all scenes with audio encoder.
+        Requires video_path and scene timing information.
+        """
+        logging.info(f"[Stage 2] Audio encoding for {video_path}")
+        futures = {}
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            for sid, scene in dp.scenes.items():
+                futures[executor.submit(self.audio_encoder.encode, video_path, scene.start_time, scene.end_time)] = sid
+
+            for f in tqdm(as_completed(futures), total=len(futures), desc=f"Audio Encoding ({dp.video_name})"):
+                sid = futures[f]
+                try:
+                    audio_data = f.result()
+                    if audio_data and sid in dp.scene_embeddings:
+                        dp.scene_embeddings[sid]["audio"] = audio_data["audio_embedding"]
+                        dp.scene_embeddings[sid]["transcript"] = audio_data["transcript"]
+                    else:
+                        logging.warning(f"[SKIP] scene {sid}, audio encoding failed.")
+                except Exception as e:
+                    logging.error(f"[ERROR] scene {sid} audio encoding failed: {e}")
+                    logging.error(traceback.format_exc())
+
+    def _encode_caption_stage(self, dp: VideoDataPoint) -> None:
+        """
+        Stage 3: Generate captions from keyframes for all scenes.
+        Requires keyframes from video encoding stage.
+        """
+        logging.info(f"[Stage 3] Caption generation for {dp.video_name}")
+        futures = {}
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            for sid, scene_data in dp.scene_embeddings.items():
+                if "keyframes" in scene_data:
+                    futures[executor.submit(self.captioner.encode, scene_data["keyframes"])] = sid
+
+            for f in tqdm(as_completed(futures), total=len(futures), desc=f"Caption Generation ({dp.video_name})"):
+                sid = futures[f]
+                try:
+                    caption = f.result()
+                    if sid in dp.scene_embeddings:
+                        dp.scene_embeddings[sid]["caption_text"] = caption
+                    else:
+                        logging.warning(f"[SKIP] scene {sid}, caption generation failed.")
+                except Exception as e:
+                    logging.error(f"[ERROR] scene {sid} caption generation failed: {e}")
+                    logging.error(traceback.format_exc())
+
+    def _encode_text_stage(self, dp: VideoDataPoint) -> None:
+        """
+        Stage 4: Encode all text (captions + transcripts) with text encoder.
+        Requires caption_text and transcript from previous stages.
+        """
+        logging.info(f"[Stage 4] Text encoding for {dp.video_name}")
+        futures = {}
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            for sid, scene_data in dp.scene_embeddings.items():
+                caption = scene_data.get("caption_text", "")
+                transcript = scene_data.get("transcript", "")
+                full_text = f"Transcript: {transcript}. Visuals: {caption}"
+                futures[executor.submit(self._encode_text_pair, full_text, caption)] = sid
+
+            for f in tqdm(as_completed(futures), total=len(futures), desc=f"Text Encoding ({dp.video_name})"):
+                sid = futures[f]
+                try:
+                    text_emb, caption_emb = f.result()
+                    if sid in dp.scene_embeddings:
+                        dp.scene_embeddings[sid]["text"] = text_emb
+                        dp.scene_embeddings[sid]["caption"] = caption_emb
+                    else:
+                        logging.warning(f"[SKIP] scene {sid}, text encoding failed.")
+                except Exception as e:
+                    logging.error(f"[ERROR] scene {sid} text encoding failed: {e}")
+                    logging.error(traceback.format_exc())
+
+    def _encode_text_pair(self, full_text: str, caption: str) -> tuple[torch.Tensor, torch.Tensor]:
+        """Helper: Encode both full text and caption separately."""
+        text_embedding = self.text_encoder.encode(full_text)
+        caption_emb = self.text_encoder.encode(caption) if caption else torch.zeros(384, dtype=torch.float32)
+        return text_embedding, caption_emb
 
     def _aggregate_embeddings(self, scene_embeddings: dict) -> dict:
         """Aggregates scene embeddings to create global video embeddings."""
@@ -183,39 +246,69 @@ class MultiModalEncoder:
         return aggregated
 
     def encode_videos(self) -> VideoDataset:
+        """
+        Orchestrates encoding in stages to load/unload models one at a time.
+        
+        Stages:
+        1. Video encoding (extract frames + encode)
+        2. Audio encoding
+        3. Caption generation
+        4. Text encoding (captions + transcripts)
+        """
         for dp in tqdm(self.dataset.video_datapoints, desc="Encoding Videos"):
             video_path = dp.video_path
             logging.info(f"Processing video: {video_path}")
             
+            # Detect scenes for all videos first
             dp.scenes = self._detect_scenes(video_path)
             if not dp.scenes:
                 logging.warning(f"No scenes detected for {video_path}. Skipping.")
                 continue
+            for scene in dp.scenes.values():
+                logging.info(f"Detected scene {scene.scene_id}: frames {scene.start_frame}-{scene.end_frame}, time {scene.start_time:.2f}-{scene.end_time:.2f}s")
             
             vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
-            futures = {}
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                for sid, scene in dp.scenes.items():
-                    futures[executor.submit(self._encode_scene, dp.video_path, scene, vr)] = sid
-
-                for f in tqdm(as_completed(futures), total=len(futures), desc=f"Scenes ({dp.video_name})"):
-                    sid = futures[f]
-                    try:
-                        scene_out = f.result()
-                        if scene_out:
-                            dp.scene_embeddings[sid] = scene_out
-                        else:
-                            logging.warning(f"[SKIP] scene {sid}, empty.")
-                    except Exception as e:
-                        logging.error(f"[ERROR] scene {sid} failed: {e}")
-                        logging.error(traceback.format_exc())
-                
+            
+            # Stage 1: Video Encoding
+            self.video_encoder.load_models()
+            self._encode_video_stage(video_path, dp, vr)
+            self.video_encoder.unload_models() if hasattr(self.video_encoder, 'unload_models') else None
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+                gc.collect()
+            
             if not dp.scene_embeddings:
-                logging.warning(f"No scenes were successfully encoded for {video_path}.")
+                logging.warning(f"No scenes were successfully encoded for {video_path} (video stage).")
+                del vr
                 continue
-
+            
+            # Stage 2: Audio Encoding
+            self.audio_encoder.load_models()
+            self._encode_audio_stage(video_path, dp)
+            self.audio_encoder.unload_models() if hasattr(self.audio_encoder, 'unload_models') else None
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+                gc.collect()
+            
+            # Stage 3: Caption Generation
+            self.captioner.load_models()
+            self._encode_caption_stage(dp)
+            self.captioner.unload_models() if hasattr(self.captioner, 'unload_models') else None
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+                gc.collect()
+            
+            # Stage 4: Text Encoding
+            self.text_encoder.load_models()
+            self._encode_text_stage(dp)
+            self.text_encoder.unload_models() if hasattr(self.text_encoder, 'unload_models') else None
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+                gc.collect()
+            
             del vr
-
+            
+            # Aggregate embeddings
             dp.global_embeddings = self._aggregate_embeddings(dp.scene_embeddings)
 
         self.dataset.encoded = True

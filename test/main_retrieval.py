@@ -83,7 +83,7 @@ def main(
     hierarchical_results = retrieval.retrieve_hierarchically(
         queries=queries,
         modalities=modalities,
-        top_k_videos=2,
+        top_k_videos=1,
         top_k_scenes=5
     )
 

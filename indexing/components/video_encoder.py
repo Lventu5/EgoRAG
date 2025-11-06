@@ -41,11 +41,11 @@ class VideoEncoder(BaseEncoder):
     def load_models(self):
         logging.info(f"[{self.__class__.__name__}] Loading models...")
         # Load XCLIP (Temporal)
-        self.video_model = XCLIPModel.from_pretrained("microsoft/xclip-base-patch16").to(self.device)
+        self.video_model = XCLIPModel.from_pretrained("microsoft/xclip-base-patch16").to(self.device).eval()
         self.video_processor = XCLIPProcessor.from_pretrained("microsoft/xclip-base-patch16")
         
         # Load CLIP-Vision (Static)
-        self.image_model = CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch32").to(self.device)
+        self.image_model = CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch32").to(self.device).eval()
         self.image_processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-base-patch32")
         logging.info(f"[{self.__class__.__name__}] Models loaded.")
 
@@ -112,8 +112,12 @@ class VideoEncoder(BaseEncoder):
                     input_ids=text_inputs["input_ids"],
                     attention_mask=text_inputs["attention_mask"],
                 )
-                video_embedding = outputs.video_embeds.squeeze(0)
+                video_embedding = outputs.video_embeds.squeeze(0).detach().cpu()
                 segment_embeddings.append(video_embedding)
+                del video_inputs
+                del text_inputs
+                del outputs
+                torch.cuda.empty_cache()
 
         if not segment_embeddings:
             # Use the dimension of your XCLIP model, e.g., 768
@@ -175,8 +179,8 @@ class VideoEncoder(BaseEncoder):
             representative_frames = self._get_representative_frames(frames, frame_embs, km)
 
             return {
-                "image": keyframe_embedding,
-                "video": torch.tensor(temporal_embedding, dtype=torch.float32),
+                "image": torch.tensor(keyframe_embedding, device="cpu", dtype=torch.float32) if isinstance(keyframe_embedding, np.ndarray) else keyframe_embedding,
+                "video": torch.tensor(temporal_embedding, device="cpu", dtype=torch.float32),
                 "keyframes": representative_frames,
             }
         finally:
