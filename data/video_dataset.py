@@ -30,7 +30,7 @@ class Scene:
 
     def __repr__(self):
         return (
-            f"Scene id: {self.scene_id}, "
+            f"Scene id= {self.scene_id}, "
             f"start={self.start_time:.2f}s, end={self.end_time:.2f}s, "
             f"frames={self.start_frame}-{self.end_frame}, total_frames={len(self.frames)}"
         )

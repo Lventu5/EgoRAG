@@ -59,7 +59,6 @@ class HierarchicalRetriever:
             self.fuser = fuser
 
     def _load_models_for_modality(self, modality: str):
-
         if self.current_modality == modality:
             return
         
@@ -285,6 +284,7 @@ class HierarchicalRetriever:
         for query in queries:
             fused_video_ranking = self.fuser.fuse(results[query.qid])
             results[query.qid]["fused"] = fused_video_ranking[:top_k_videos]
+            
         
         detailed_results = {query.qid: [] for query in queries}
 

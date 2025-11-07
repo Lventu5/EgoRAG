@@ -24,17 +24,11 @@ def convert_and_evaluate(retrieval_results: dict, queries, evaluator: RetrievalE
     preds = []
     trues = []
 
-    for q in queries[:1]:
+    for q in queries:
         qid = q.qid
         # `retrieval_results` can be a plain dict, a RetrievalResults wrapper,
         # or the detailed_results list returned by the retriever.
-        if hasattr(retrieval_results, "get"):
-            entry = retrieval_results.get(qid, {})
-        else:
-            try:
-                entry = retrieval_results[qid]
-            except Exception:
-                entry = {}
+        entry = retrieval_results.get(qid, {})
 
         # entry can be either a dict with a 'fused' key, or a list of fused tuples
         if isinstance(entry, dict):
@@ -125,10 +119,10 @@ def main(
 
 
 if __name__ == "__main__":
-    video_pickle = "../ego4d_data/v2/noframe_encoded_videos/2b5569df-5deb-4ebd-8a45-dd6524330eb8_encoded.pkl"
+    video_pickle = "../ego4d_data/v2/noframe_encoded_videos/base_10_videos.pkl"
     annotations = "../ego4d_data/v2/annotations/nlq_train.json"
-    modalities = ["video", "caption", "text"]
-    topk_videos = 1
+    modalities = ["caption"]
+    topk_videos = 3
     topk_scenes = 10
     device = "cuda"
 

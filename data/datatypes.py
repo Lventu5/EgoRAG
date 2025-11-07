@@ -4,6 +4,10 @@ type TopKScenes = list[tuple[str, float]]
 type DetailedResults = dict[str, tuple[str, float, TopKScenes]]
 
 class RetrievalResults:
+    """
+    Retrieval results is a dict with key query id, as values it has
+    a list of (video, video_score, [list of scenes]) tuples
+    """
     def __init__(self, results = None):
         if results is None:
             self.results = {}

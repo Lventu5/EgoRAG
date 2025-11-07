@@ -34,18 +34,6 @@ class topKAccuracyScene(Metric):
         pred: list where each element is a list with the top k (video, scene) tuples
         true: list of (video-moments) of the ground truth
         """
-        # Compute mean IoU (intersection over union) between predicted scenes and GT interval.
-        def _unpack_true(t):
-            # support both (video, moment) and (video, start, end)
-            if len(t) == 2:
-                vid, moment = t
-                # small epsilon interval around the moment
-                return vid, float(moment) - 0.5, float(moment) + 0.5
-            elif len(t) >= 3:
-                vid, start, end = t[0], t[1], t[2]
-                return vid, float(start) if start is not None else 0.0, float(end) if end is not None else float(start or 0.0)
-            else:
-                raise ValueError("Unsupported true format")
 
         def _iou(pred_scene, gt_start, gt_end):
             p_start, p_end = pred_scene.start_time, pred_scene.end_time
@@ -58,15 +46,13 @@ class topKAccuracyScene(Metric):
         total_score = 0.0
         for i in range(n):
             top_k = pred[i]
-            gt_video, gt_start, gt_end = _unpack_true(true[i])
-            # for each predicted scene compute IoU w.r.t GT, take the best
+            gt_video, gt_start, gt_end = true[i]
             best_iou = 0.0
-            for video_name, prediction in top_k:
+            for el in top_k:
+                video_name = el[0]
+                prediction = el[1]
                 if video_name != gt_video:
                     continue
-                print("-"*75)
-                print(f"Predicted {prediction.start_time:.2f}-{prediction.end_time:.2f}s for GT {gt_start:.2f}-{gt_end:.2f}s")
-                print("-"*75)
                 best_iou = max(best_iou, _iou(prediction, gt_start, gt_end))
             total_score += best_iou
         return total_score / n
@@ -84,12 +70,7 @@ class topKAccuracyVideo(Metric):
         pred: list where each element is a list with the top k (video, scene) tuples
         true: list of (video-moments) of the ground truth
         """
-        # same behavior as before (video-level accuracy), keep as binary
-        print("="*75)
-        print(pred)
-        print("-"*150)
-        print(true)
-        print("="*75)
+
         correct = 0
         assert len(pred) == len(true), "The predictions and the ground truths must have the same length"
         n = len(pred)
@@ -162,18 +143,14 @@ class topKPrecisionVideo(Metric):
         correct = 0
         total = 0
         assert len(pred) == len(true), "The predictions and the ground truths must have the same length"
-        print("Holy shit\n")
         for i in range(len(pred)):
             top_k = pred[i]
             gt_video = true[i][0]
             for el in top_k:
                 video_name = el[0]
-                print(video_name, "\n")
                 if video_name == gt_video:
                     correct += 1
-                    print("corrected")
                 total += 1
-        print(total, correct)
         return correct/total
     
 class MeanRank(Metric):
