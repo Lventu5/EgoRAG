@@ -29,6 +29,7 @@ class HierarchicalRetriever:
     ):
         self.video_dataset = video_dataset
         self.device = device
+        logging.info(f"Retriever running on {self.device}")
         self.sizes = {
             "video": {
                 "size": 512,
@@ -270,11 +271,11 @@ class HierarchicalRetriever:
             modalities = [modalities]
 
         self._rewrite_queries(queries)
-        results = types.RetrievalResults
+        results = types.RetrievalResults()
 
         logging.info(f"Step 1: Retrieving top {top_k_videos} videos globally...")
         results.add_top_level(
-            self.retrieve_queries_list(
+            top_level_results = self.retrieve_queries_list(
                 queries=queries, 
                 modalities=modalities, 
                 top_k=top_k_videos
@@ -293,7 +294,6 @@ class HierarchicalRetriever:
             for video_name, global_score in fused_video_list:
                 modality_scene_rankings = {}
                 for modality in modalities:
-                    logging.info(f"Retrieving beste scene, modality {modality}, video {video_name}")
                     modality_scene_rankings[modality] = self.retrieve_best_scene(
                         query=query,
                         video_name=video_name,

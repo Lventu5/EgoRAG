@@ -21,7 +21,7 @@ def load_pickle(path: str):
         return pickle.load(f)
 
 
-def merge_pickles(input_dir: str, output_path: str, recursive: bool = False) -> VideoDataset:
+def merge_pickles(input_dir: str, output_path: str, recursive: bool = False, deduplicate: bool = False, drop_keyframes: bool = False) -> VideoDataset:
     """Merge all .pkl files in input_dir into a single VideoDataset and save to output_path.
 
     Args:
@@ -79,6 +79,18 @@ def merge_pickles(input_dir: str, output_path: str, recursive: bool = False) -> 
 
         print(f"Warning: pickle {p} contains unsupported object of type {type(obj)}. Skipping.")
 
+    # Optionally deduplicate by video_uid (keep first occurrence)
+    if deduplicate:
+        seen_uids = set()
+        deduped = []
+        for dp in merged_video_datapoints:
+            uid = getattr(dp, "video_uid", None) or os.path.splitext(os.path.basename(getattr(dp, "video_path", "")))[0]
+            if uid in seen_uids:
+                continue
+            seen_uids.add(uid)
+            deduped.append(dp)
+        merged_video_datapoints = deduped
+
     # Build a new VideoDataset from the merged datapoints
     video_files = [v.video_path for v in merged_video_datapoints]
 
@@ -87,8 +99,24 @@ def merge_pickles(input_dir: str, output_path: str, recursive: bool = False) -> 
     merged_dataset.video_datapoints = merged_video_datapoints
     merged_dataset.encoded = True
 
-    # Ensure output dir exists
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    # Optionally drop keyframes from scene_embeddings before saving to keep files small
+    if drop_keyframes:
+        for dp in merged_dataset.video_datapoints:
+            se = getattr(dp, "scene_embeddings", {})
+            if not isinstance(se, dict):
+                continue
+            for sid, scene_dict in list(se.items()):
+                if isinstance(scene_dict, dict) and "keyframes" in scene_dict:
+                    try:
+                        scene_dict.pop("keyframes")
+                    except Exception:
+                        continue
+
+    # Ensure output dir exists (handle case with no dirname)
+    out_dir = os.path.dirname(output_path)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
     with open(output_path, "wb") as f:
         pickle.dump(merged_dataset, f)
 
@@ -96,10 +124,10 @@ def merge_pickles(input_dir: str, output_path: str, recursive: bool = False) -> 
     return merged_dataset
 
 
-if __name__ == "__main__2":
+if __name__ == "__main__":
     # EDIT THESE PATHS as needed (no argparse here - edit and run)
-    input_dir = "../ego4d_data/v2/encoded_videos"  # directory containing many *_encoded.pkl files
-    output_path = "../ego4d_data/v2/encoded_videos/base_10_videos.pkl"
+    input_dir = "../ego4d_data/v2/noframe_encoded_videos"  # directory containing many *_encoded.pkl files
+    output_path = "../ego4d_data/v2/noframe_encoded_videos/base_10_videos.pkl"
     recursive = False
 
     merged = merge_pickles(input_dir=input_dir, output_path=output_path, recursive=recursive)

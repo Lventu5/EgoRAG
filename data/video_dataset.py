@@ -46,7 +46,7 @@ class VideoDataPoint:
     """
     def __init__(self, video_path: str, scenes: Optional[Dict[str, Scene]] = None):
         self.video_path = video_path
-        self.video_name = os.path.basename(video_path)
+        self.video_name = os.path.splitext(os.path.basename(video_path))[0]
         self.video_uid = os.path.splitext(self.video_name)[0]
         self.scenes = scenes or {}
 
@@ -133,4 +133,13 @@ class VideoDataset(Dataset):
     @staticmethod
     def load_from_pickle(file_path: str) -> "VideoDataset":
         with open(file_path, 'rb') as f:
-            return pickle.load(f)
+            ds = pickle.load(f)
+        
+        # Normalize video_name and video_uid in case they still have extensions
+        for dp in ds.video_datapoints:
+            if hasattr(dp, 'video_name') and '.' in dp.video_name:
+                dp.video_name = os.path.splitext(dp.video_name)[0]
+            if hasattr(dp, 'video_uid') and '.' in dp.video_uid:
+                dp.video_uid = os.path.splitext(dp.video_uid)[0]
+        
+        return ds

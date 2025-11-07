@@ -24,10 +24,25 @@ def convert_and_evaluate(retrieval_results: dict, queries, evaluator: RetrievalE
     preds = []
     trues = []
 
-    for q in queries:
+    for q in queries[:1]:
         qid = q.qid
-        entry = retrieval_results.get(qid, {})
-        fused_list = entry.get("fused", [])
+        # `retrieval_results` can be a plain dict, a RetrievalResults wrapper,
+        # or the detailed_results list returned by the retriever.
+        if hasattr(retrieval_results, "get"):
+            entry = retrieval_results.get(qid, {})
+        else:
+            try:
+                entry = retrieval_results[qid]
+            except Exception:
+                entry = {}
+
+        # entry can be either a dict with a 'fused' key, or a list of fused tuples
+        if isinstance(entry, dict):
+            fused_list = entry.get("fused", [])
+        elif isinstance(entry, list):
+            fused_list = entry
+        else:
+            fused_list = []
 
         # flatten scenes: produce list of (video_name, Scene)
         query_preds = []
@@ -46,14 +61,13 @@ def convert_and_evaluate(retrieval_results: dict, queries, evaluator: RetrievalE
 
         # Ground truth: try start_sec, else end_sec, else None
         gt_video = q.video_uid
-        gt_moment = None
         if getattr(q, "gt", None):
             if q.gt.get("start_sec") is not None and q.gt.get("start_sec") >= 0:
-                gt_moment = q.gt.get("start_sec")
-            elif q.gt.get("end_sec") is not None and q.gt.get("end_sec") >= 0:
-                gt_moment = q.gt.get("end_sec")
+                gt_moment_start = q.gt.get("start_sec")
+            if q.gt.get("end_sec") is not None and q.gt.get("end_sec") >= 0:
+                gt_moment_end = q.gt.get("end_sec")
 
-        trues.append((gt_video, gt_moment))
+        trues.append((gt_video, gt_moment_start, gt_moment_end))
 
     return evaluator.forward_pass(pred=preds, true=trues)
 
@@ -78,6 +92,8 @@ def main(
     if not os.path.exists(annotations):
         logging.error(f"Annotations file not found: {annotations}")
         sys.exit(1)
+
+    logging.info("Loading Data and Queries...")
 
     dataset = Ego4DDataset(video_pickle, annotations)
     video_dataset = dataset.load_videos(is_pickle=True)
@@ -109,11 +125,11 @@ def main(
 
 
 if __name__ == "__main__":
-    video_pickle = "../ego4d_data/v2/encoded_videos/encoded_videos.pkl"
+    video_pickle = "../ego4d_data/v2/noframe_encoded_videos/2b5569df-5deb-4ebd-8a45-dd6524330eb8_encoded.pkl"
     annotations = "../ego4d_data/v2/annotations/nlq_train.json"
     modalities = ["video", "caption", "text"]
-    topk_videos = 3
-    topk_scenes = 1
-    device = "cpu"
+    topk_videos = 1
+    topk_scenes = 10
+    device = "cuda"
 
     main(video_pickle, annotations, modalities, topk_videos, topk_scenes, device)
