@@ -17,7 +17,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.dataset import DatasetFactory
 from indexing.multimodal_encoder import MultiModalEncoder
-from indexing.analytics.tagging import tag_all_scenes
 from indexing.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -40,10 +39,20 @@ def main():
                        help="Maximum frames per scene")
     parser.add_argument("--max_temporal_segments", type=int, default=8,
                        help="Maximum temporal segments")
+    parser.add_argument("--max_workers", type=int, default=1,
+                       help="Maximum number of worker threads (IMPORTANT: >1 may cause segfaults due to VideoReader thread-safety issues)")
     parser.add_argument("--apply_tagging", action="store_true",
-                       help="Apply scene tagging after encoding")
+                       help="Apply scene tagging during encoding")
     
     args = parser.parse_args()
+    
+    # Validate max_workers
+    if args.max_workers > 1:
+        logger.warning("="*80)
+        logger.warning("WARNING: max_workers > 1 may cause segmentation faults!")
+        logger.warning("VideoReader (decord) is NOT thread-safe when shared across threads.")
+        logger.warning("Recommended: Use --max_workers 1 for stable execution.")
+        logger.warning("="*80)
     
     logger.info("="*80)
     logger.info("Video Encoding Script")
@@ -65,25 +74,23 @@ def main():
         video_dataset=dataset.load_videos(is_pickle=False),
         device=args.device,
         max_frames_per_scene=args.max_frames_per_scene,
-        max_temporal_segments=args.max_temporal_segments
+        max_temporal_segments=args.max_temporal_segments,
+        max_workers=args.max_workers,
+        apply_tagging=args.apply_tagging  # Tagging integrated into pipeline
     )
     
-    # Load models
-    logger.info("Loading encoder models...")
-    encoder.load_models()
+    # NOTE: Models are loaded lazily via ModelRegistry - no explicit load_models() needed
     
-    # Encode videos
-    logger.info("Encoding videos...")
+    # Encode videos (models will be loaded on-demand)
+    logger.info("Encoding videos (models loaded lazily via ModelRegistry)...")
     encoded_dataset = encoder.encode_videos()
     
-    # Unload models
+    # Unload models to free GPU memory
+    logger.info("Unloading models...")
     encoder.unload_models()
     
-    # Apply tagging if requested
-    if args.apply_tagging:
-        logger.info("Applying scene tagging...")
-        for dp in encoded_dataset.video_datapoints:
-            tag_all_scenes(dp)
+    # Note: Scene tagging is now integrated into encode_videos() when apply_tagging=True
+    # No need for separate tagging step
     
     # Save encoded dataset
     logger.info(f"Saving encoded dataset to {args.output}")

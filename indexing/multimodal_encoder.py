@@ -55,6 +55,15 @@ class MultiModalEncoder:
         self.max_workers = max_workers
         self.apply_tagging = apply_tagging
 
+        # IMPORTANT: VideoReader (decord) is NOT thread-safe
+        # Using max_workers > 1 can cause segmentation faults
+        if max_workers > 1:
+            logging.warning(
+                "WARNING: max_workers > 1 may cause segmentation faults! "
+                "VideoReader is not thread-safe when shared across threads. "
+                "Consider using max_workers=1 for stable execution."
+            )
+
         # Initialize ModelRegistry
         self.registry = ModelRegistry()
 
