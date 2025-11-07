@@ -118,7 +118,7 @@ class MultiModalEncoder:
     def _encode_video_stage(self, video_path: str, dp: VideoDataPoint) -> None:
         """
         Stage 1: Extract frames and encode all scenes with video encoder.
-        Stores raw video embeddings and keyframes for later stages.
+        Stores raw video embeddings. Keyframes are stored temporarily for caption generation.
         Uses a single VideoReader with a lock to serialize frame extraction.
         Encoding happens in parallel after frame extraction.
         """
@@ -126,6 +126,9 @@ class MultiModalEncoder:
         
         # Create a single VideoReader (will be accessed serially via lock)
         vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
+        
+        # Temporary storage for keyframes (will be deleted after caption generation)
+        dp._temp_keyframes = {}
         
         futures = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
@@ -137,7 +140,8 @@ class MultiModalEncoder:
                 try:
                     video_data = f.result()
                     if video_data:
-                        dp.scene_embeddings[sid] = {"video": video_data["video"], "keyframes": video_data["keyframes"]}
+                        dp.scene_embeddings[sid] = {"video": video_data["video"]}
+                        dp._temp_keyframes[sid] = video_data["keyframes"]  # Store temporarily
                     else:
                         logging.warning(f"[SKIP] scene {sid}, video encoding failed.")
                 except Exception as e:
@@ -193,14 +197,14 @@ class MultiModalEncoder:
     def _encode_caption_stage(self, dp: VideoDataPoint) -> None:
         """
         Stage 3: Generate captions from keyframes for all scenes.
-        Requires keyframes from video encoding stage.
+        Requires keyframes from temporary storage (deleted after this stage).
         """
         logging.info(f"[Stage 3] Caption generation for {dp.video_name}")
         futures = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            for sid, scene_data in dp.scene_embeddings.items():
-                if "keyframes" in scene_data:
-                    futures[executor.submit(self.captioner.encode, scene_data["keyframes"])] = sid
+            for sid in dp.scene_embeddings.keys():
+                if sid in dp._temp_keyframes:
+                    futures[executor.submit(self.captioner.encode, dp._temp_keyframes[sid])] = sid
 
             for f in tqdm(as_completed(futures), total=len(futures), desc=f"Caption Generation ({dp.video_name})"):
                 sid = futures[f]
@@ -213,6 +217,10 @@ class MultiModalEncoder:
                 except Exception as e:
                     logging.error(f"[ERROR] scene {sid} caption generation failed: {e}")
                     logging.error(traceback.format_exc())
+        
+        # Delete keyframes immediately after caption generation
+        del dp._temp_keyframes
+        logging.info(f"[Stage 3] Keyframes cleaned up for {dp.video_name}")
 
     def _encode_text_stage(self, dp: VideoDataPoint) -> None:
         """
@@ -306,7 +314,7 @@ class MultiModalEncoder:
                 torch.cuda.empty_cache()
                 gc.collect()
             
-            # Stage 3: Caption Generation
+            # Stage 3: Caption Generation (keyframes are deleted inside this stage)
             self.captioner.load_models()
             self._encode_caption_stage(dp)
             self.unload_models("caption")
