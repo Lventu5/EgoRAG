@@ -18,10 +18,10 @@ from indexing.components.text_encoder import TextEncoder
 from indexing.components.visual_captioner import VisualCaptioner
 
 # --- Setup logging (can be moved to a main file) ---
-# handler = logging.StreamHandler()
-# handler.setFormatter(LevelAwareFormatter())
-# logging.basicConfig(level=logging.INFO, handlers=[handler])
-# # ---
+handler = logging.StreamHandler()
+handler.setFormatter(LevelAwareFormatter())
+logging.basicConfig(level=logging.INFO, handlers=[handler])
+# ---
 
 class MultiModalEncoder:
     """
