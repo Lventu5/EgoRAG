@@ -11,6 +11,7 @@ from torch.nn.functional import normalize
 
 from data.video_dataset import VideoDataset
 from data.query import Query, QueryDataset
+import data.datatypes as types
 from retrieval.rewriter import QueryRewriterLLM
 from .fuser import Fuser
 
@@ -132,7 +133,7 @@ class HierarchicalRetriever:
         queries: QueryDataset,
         modalities: list[str] | str,
         top_k: int = 1
-    )-> dict:
+    )-> types.TopKVideosPerQuery:
         if isinstance(modalities, str):
             modalities = [modalities]
 
@@ -154,7 +155,7 @@ class HierarchicalRetriever:
         queries: QueryDataset, 
         modality: str,
         top_k: int = 1
-    ) -> list[list[tuple[str, float]]]:
+    ) -> types.TopKVideosPerModality:
         """
         Retrieves the top-k videos for a given modality, and returns them in a format
         List (each element corresponds to a query) of lists (each element corresponds to one of
@@ -206,7 +207,7 @@ class HierarchicalRetriever:
         video_name: str, 
         modality: str, 
         top_k: int = 1
-    ) -> list[tuple[str, float]]:
+    ) -> types.TopKScenes:
         """
         Gets the best scene in a video (we already know it is a top-k video) for the specified query
         Returns a list with the top k scenes and their similarity score
@@ -263,29 +264,32 @@ class HierarchicalRetriever:
         modalities: list[str] | str,
         top_k_videos: int = 3, 
         top_k_scenes: int = 1  
-    )-> dict[str, dict[str, list[tuple[str, float, list[tuple[str, float]]]]]]:
+    ) -> types.RetrievalResults:
 
         if isinstance(modalities, str):
             modalities = [modalities]
 
         self._rewrite_queries(queries)
+        results = types.RetrievalResults
 
         logging.info(f"Step 1: Retrieving top {top_k_videos} videos globally...")
-        global_results = self.retrieve_queries_list(
-            queries=queries, 
-            modalities=modalities, 
-            top_k=top_k_videos
+        results.add_top_level(
+            self.retrieve_queries_list(
+                queries=queries, 
+                modalities=modalities, 
+                top_k=top_k_videos
+            )
         )
 
         for query in queries:
-            fused_video_ranking = self.fuser.fuse(global_results[query.qid])
-            global_results[query.qid]["fused"] = fused_video_ranking[:top_k_videos]
+            fused_video_ranking = self.fuser.fuse(results[query.qid])
+            results[query.qid]["fused"] = fused_video_ranking[:top_k_videos]
         
-        detailed_results = {query.qid: {"fused": []} for query in queries}
+        detailed_results = {query.qid: [] for query in queries}
 
         logging.info(f"Step 2: Retrieving top {top_k_scenes} scenes within top videos...")
         for query in queries:
-            fused_video_list = global_results[query.qid]["fused"]
+            fused_video_list = results[query.qid]["fused"]
             for video_name, global_score in fused_video_list:
                 modality_scene_rankings = {}
                 for modality in modalities:
@@ -298,9 +302,10 @@ class HierarchicalRetriever:
                     )
                 fused_scene_ranking = self.fuser.fuse(modality_scene_rankings)
 
-                detailed_results[query.qid]["fused"].append(
+                detailed_results[query.qid].append(
                     (video_name, global_score, fused_scene_ranking[:top_k_scenes])
                 )
+        
+        results.add_detailed_results(detailed_results)
 
-
-        return detailed_results
+        return results
