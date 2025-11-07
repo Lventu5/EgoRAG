@@ -62,12 +62,10 @@ class Launcher:
         """
         Encode the videos using the multimodal encoder.
         """
-        self.encoder.load_models()
         self.video_dataset = self.encoder.encode_videos()
         if self.save_encoded and self.save_dir is not None:
             pickle_path = f"{self.save_dir}/encoded_videos.pkl"
             self.video_dataset.save_to_pickle(pickle_path)
-        self.encoder.unload_models()
         torch.cuda.empty_cache()
 
     def retrieve(self):
@@ -105,10 +103,97 @@ class Launcher:
         # answers = self.generate_answers(retrieval_results)
         return retrieval_results
     
-    def evaluate(self):
+    
+
+    def evaluate(
+        self,
+        retrieval_results: dict,
+        responses: dict | list[str] | None = None,
+        run_retrieval: bool = True,
+        run_generation: bool = False,
+    ) -> dict:
         """
-        Runs the evaluation using the metrics created
+        Evaluate retrieval and generation results.
+
+        Args:
+            retrieval_results: output of `HierarchicalRetriever.retrieve_hierarchically`.
+            responses: either a dict mapping qid -> generated string, or a list of generated strings
+                aligned with `self.query_datasets` order. If None and run_generation=True an error is raised.
+            run_retrieval: whether to compute retrieval metrics (requires retrieval_results).
+            run_generation: whether to compute generation metrics (requires responses).
+
+        Returns:
+            dict with optional keys "retrieval" and "generation" containing metric dicts.
         """
-        retrieval_evaluator = RetrievalEvaluator()
-        generation_evaluator = GenerationEvaluator()
-        return 
+        results = {}
+
+        # Build ordered list of queries to preserve alignment.
+        # QueryDataset stores queries in .queries as a list[Query]
+        queries = getattr(self.query_datasets, "queries", list(self.query_datasets))
+
+        if run_retrieval:
+            if retrieval_results is None:
+                raise ValueError("retrieval_results must be provided when run_retrieval is True")
+
+            # Convert hierarchical retriever output to the format expected by RetrievalEvaluator:
+            # pred: list (per query) of list of (video_name, Scene) tuples
+            preds = []
+            trues = []
+
+            for query in queries:
+                qid = query.qid
+                entry = retrieval_results.get(qid, {})
+                fused_list = entry.get("fused", [])
+
+                # Flatten: for each top video, append its top scenes (scene objects)
+                query_preds: list[tuple[str, Any]] = []
+                for video_name, global_score, scene_ranking in fused_list:
+                    # scene_ranking is expected to be a list of tuples (Scene, score)
+                    for scene_item in scene_ranking:
+                        # scene_item may be (Scene, score) or Scene depending on fuser
+                        if isinstance(scene_item, tuple) and len(scene_item) >= 1:
+                            scene_obj = scene_item[0]
+                        else:
+                            scene_obj = scene_item
+                        query_preds.append((video_name, scene_obj))
+
+                preds.append(query_preds)
+
+                # Ground truth: try to get a representative timestamp from the query gt
+                gt_video = query.video_uid
+                gt_moment = None
+                if query.gt and query.gt.get("start_sec") is not None:
+                    gt_moment = query.gt.get("start_sec")
+                elif query.gt and query.gt.get("end_sec") is not None:
+                    gt_moment = query.gt.get("end_sec")
+
+                trues.append((gt_video, gt_moment))
+
+            retrieval_evaluator = RetrievalEvaluator()
+            results["retrieval"] = retrieval_evaluator.forward_pass(pred=preds, true=trues)
+
+        if run_generation:
+            if responses is None:
+                raise ValueError("responses must be provided when run_generation is True")
+
+            # Normalize responses into ordered list aligned with queries
+            if isinstance(responses, dict):
+                gen_preds = [responses.get(q.qid, "") for q in queries]
+            else:
+                # assume list aligned with queries
+                gen_preds = list(responses)
+
+            # Attempt to extract ground truth textual answers from the query dataset if present
+            # Fallback: empty strings
+            gen_trues = []
+            for q in queries:
+                # look for a 'answer' field in query.gt or elsewhere; default to empty
+                gt_answer = None
+                if q.gt and isinstance(q.gt.get("answer"), str):
+                    gt_answer = q.gt.get("answer")
+                gen_trues.append(gt_answer or "")
+
+            generation_evaluator = GenerationEvaluator()
+            results["generation"] = generation_evaluator.forward_pass(pred=gen_preds, true=gen_trues)
+
+        return results

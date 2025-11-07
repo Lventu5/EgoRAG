@@ -263,7 +263,7 @@ class HierarchicalRetriever:
         modalities: list[str] | str,
         top_k_videos: int = 3, 
         top_k_scenes: int = 1  
-    ):
+    )-> dict[str, dict[str, list[tuple[str, float, list[tuple[str, float]]]]]]:
 
         if isinstance(modalities, str):
             modalities = [modalities]

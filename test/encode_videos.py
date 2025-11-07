@@ -17,15 +17,15 @@ def encode(video_dir, save_dir):
         print(f"Encoding video {video}")
         print("-"*50)
         dataset = VideoDataset([video])
-        encoder = MultiModalEncoder(dataset, max_workers=1)
-        encoder.load_models()
+        encoder = MultiModalEncoder(dataset, max_workers=4)
         video_dataset = encoder.encode_videos()
-        pickle_path = f"{save_dir}/{os.path.basename(video)}_encoded.pkl"
+        # Remove the original extension (e.g. .mp4) from the video basename
+        base = os.path.splitext(os.path.basename(video))[0]
+        pickle_path = f"{save_dir}/{base}_encoded.pkl"
         video_dataset.save_to_pickle(pickle_path)
-        encoder.unload_models()
         torch.cuda.empty_cache()
 
 if __name__ == "__main__":
     video_dir = "../ego4d_data/v2/full_scale"
-    save_dir = "../ego4d_data/v2/encoded_videos"
+    save_dir = "../ego4d_data/v2/noframe_encoded_videos"
     encode(video_dir, save_dir)

@@ -3,7 +3,12 @@
 */__pycache__
 
 */temp_audio/
-*/logs
 
 */scene_clips/
-*/logs/
+*/logs
+
+*.pkl
+*.pth
+*.pt
+*.out
+*.err

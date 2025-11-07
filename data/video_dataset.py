@@ -111,6 +111,22 @@ class VideoDataset(Dataset):
     
     def save_to_pickle(self, file_path: str):
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        # Avoid saving large raw keyframes if present in scene_embeddings.
+        # Permanently remove 'keyframes' entries prior to pickling to keep
+        # the saved file small. NOTE: this mutates the in-memory dataset and
+        # will not restore keyframes after saving.
+        for dp in self.video_datapoints:
+            se = getattr(dp, "scene_embeddings", {})
+            if not isinstance(se, dict):
+                continue
+            for sid, scene_dict in list(se.items()):
+                if isinstance(scene_dict, dict) and "keyframes" in scene_dict:
+                    try:
+                        scene_dict.pop("keyframes")
+                    except Exception:
+                        # if deletion fails, skip and continue
+                        continue
+
         with open(file_path, 'wb') as f:
             pickle.dump(self, f)
 

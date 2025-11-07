@@ -208,6 +208,15 @@ class MultiModalEncoder:
                     caption = f.result()
                     if sid in dp.scene_embeddings:
                         dp.scene_embeddings[sid]["caption_text"] = caption
+                        # Free keyframes after caption generation to avoid storing large
+                        # raw frames inside the VideoDataPoint (we only needed them for
+                        # captioning). This keeps the pickled dataset small.
+                        if "keyframes" in dp.scene_embeddings[sid]:
+                            try:
+                                del dp.scene_embeddings[sid]["keyframes"]
+                                logging.debug(f"Freed keyframes for scene {sid} in {dp.video_name}")
+                            except Exception:
+                                logging.warning(f"Could not delete keyframes for scene {sid}")
                     else:
                         logging.warning(f"[SKIP] scene {sid}, caption generation failed.")
                 except Exception as e:
@@ -289,7 +298,7 @@ class MultiModalEncoder:
             # Stage 1: Video Encoding
             self.video_encoder.load_models()
             self._encode_video_stage(video_path, dp)
-            self.unload_models("video")
+            self.unload_model("video")
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 gc.collect()
@@ -301,7 +310,7 @@ class MultiModalEncoder:
             # Stage 2: Audio Encoding
             self.audio_encoder.load_models()
             self._encode_audio_stage(video_path, dp)
-            self.unload_models("audio")
+            self.unload_model("audio")
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 gc.collect()
@@ -309,7 +318,7 @@ class MultiModalEncoder:
             # Stage 3: Caption Generation
             self.captioner.load_models()
             self._encode_caption_stage(dp)
-            self.unload_models("caption")
+            self.unload_model("caption")
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 gc.collect()
@@ -317,7 +326,7 @@ class MultiModalEncoder:
             # Stage 4: Text Encoding
             self.text_encoder.load_models()
             self._encode_text_stage(dp)
-            self.unload_models("text")
+            self.unload_model("text")
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 gc.collect()
