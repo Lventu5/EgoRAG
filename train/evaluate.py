@@ -141,13 +141,17 @@ def evaluate(args):
         device=args.device
     )
     
-    # Initialize hierarchical retriever
-    # Note: This would need to be updated to accept memory_bank parameter
+    # Initialize hierarchical retriever with MemoryBank
     hierarchical_retriever = HierarchicalRetriever(
         video_dataset=dataset.video_dataset,
-        query_dataset=dataset.query_dataset,
-        rewriter=rewriter,
-        device=args.device
+        memory_bank=memory_bank,  # Use memory bank for efficient retrieval
+        fuser=None,  # Will use default RRF fuser
+        device=args.device,
+        text_model_name=cfg.get("encoder", {}).get("text_model", "all-MiniLM-L6-v2"),
+        video_model_name=cfg.get("encoder", {}).get("video_model", "microsoft/xclip-base-patch16"),
+        audio_model_name=cfg.get("encoder", {}).get("audio_model", "laion/clap-htsat-unfused"),
+        caption_model_name=cfg.get("encoder", {}).get("caption_model", "all-MiniLM-L6-v2"),
+        rewriter_name=cfg.get("retrieval", {}).get("rewriter_model", "google/gemma-2-9b")
     )
     
     # Initialize chain retriever

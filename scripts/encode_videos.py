@@ -51,18 +51,18 @@ def main():
     
     # Load dataset
     logger.info(f"Loading dataset: {args.dataset_type}")
-    dataset = DatasetFactory.create(
+    dataset = DatasetFactory.get_dataset(
         dataset_type=args.dataset_type,
         video_path=args.video_path,
         annotation_path=args.annotation_path
     )
     
-    logger.info(f"Loaded {len(dataset.video_datapoints)} videos")
+    logger.info(f"Loaded {len(dataset)} videos")
     
     # Initialize encoder
     logger.info("Initializing MultiModalEncoder...")
     encoder = MultiModalEncoder(
-        video_dataset=dataset.video_dataset,
+        video_dataset=dataset.load_videos(is_pickle=False),
         device=args.device,
         max_frames_per_scene=args.max_frames_per_scene,
         max_temporal_segments=args.max_temporal_segments

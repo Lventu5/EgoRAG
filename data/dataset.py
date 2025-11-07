@@ -31,6 +31,7 @@ class BaseDataset(Dataset):
 class Ego4DDataset(BaseDataset):
     def __init__(self, video_path: str, annotation_path: str):
         super().__init__(video_path, annotation_path)
+        self.video_dataset = None
         self._load_data()
 
     def __len__(self):
@@ -45,14 +46,21 @@ class Ego4DDataset(BaseDataset):
             data = json.load(f)
         self.video_data = data["videos"]
 
+    def get_videos(self) -> VideoDataset:
+        if self.video_dataset is None:
+            self.video_dataset = self.load_videos(is_pickle=False)
+        return self.video_dataset
+
     ## FIXME: implement for various video formats
     def load_videos(self, is_pickle: bool) -> VideoDataset:
+        if self.video_dataset is not None:
+            return self.video_dataset
         if is_pickle:
-            dataset = VideoDataset.load_from_pickle(self.video_path)
+            self.video_dataset = VideoDataset.load_from_pickle(self.video_path)
         else:
             video_ids = glob.glob(os.path.join(self.video_path, "*.mp4"))
-            dataset = VideoDataset(video_ids)
-        return dataset
+            self.video_dataset = VideoDataset(video_ids)
+        return self.video_dataset
 
     def load_annotations(self, video_ids: List[str]) -> Dict[str, List[dict]]:
         annotations = {}
