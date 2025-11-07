@@ -189,6 +189,10 @@ class VideoEncoder(BaseEncoder):
         return np.array(centroid_embeddings, dtype=np.float32)
     
     def encode(self, frames):
+        # Ensure models are loaded (lazy loading via ModelRegistry)
+        if self.video_model is None or self.image_model is None:
+            self.load_models()
+            
         with GPUMemoryGuard():
             try:
                 frame_embs = self._embed_frames_clip(frames)

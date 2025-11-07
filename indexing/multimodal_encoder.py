@@ -99,9 +99,11 @@ class MultiModalEncoder:
     def _detect_scenes(self, video_path: str) -> dict[str, Scene]:
         """Detects content-based scenes and returns Scene objects."""
         try:
+            logging.info(f"Starting scene detection for: {video_path}")
             scene_list = detect(video_path, ContentDetector(threshold=25.0))
             logging.info(
-                f"Scene extraction for video {os.path.basename(video_path)}, found {len(scene_list)} scenes"
+                f"✓ Scene detection successful for {os.path.basename(video_path)}: "
+                f"found {len(scene_list)} scenes"
             )
             return {
                 f"scene_{i}": Scene(
@@ -113,9 +115,15 @@ class MultiModalEncoder:
                 )
                 for i, (start, end) in enumerate(scene_list)
             }
+        except FileNotFoundError:
+            logging.error(f"✗ Scene detection failed - Video file not found: {video_path}")
+            return {}
         except Exception as e:
-            logging.error(f"{'='*100} \n Scene detection failed for {video_path}: {e}")
-            logging.error(traceback.format_exc())
+            logging.error(f"✗ Scene detection failed for {os.path.basename(video_path)}")
+            logging.error(f"  Error type: {type(e).__name__}")
+            logging.error(f"  Error message: {str(e)}")
+            logging.error(f"  Video path: {video_path}")
+            logging.debug(f"Full traceback:\n{traceback.format_exc()}")
             return {}
 
     def _extract_frames(self, vr: VideoReader, start_frame: int, end_frame: int, max_frames: int) -> tuple[np.ndarray, np.ndarray]:
@@ -136,23 +144,34 @@ class MultiModalEncoder:
         Stage 1: Extract frames and encode all scenes with video encoder.
         Stores raw video embeddings and keyframes for later stages.
         """
-        logging.info(f"[Stage 1] Video encoding for {video_path}")
+        logging.info(f"[Stage 1/5] Video encoding for {dp.video_name}")
+        logging.info(f"  Processing {len(dp.scenes)} scenes...")
+        
         futures = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             for sid, scene in dp.scenes.items():
                 futures[executor.submit(self._extract_and_encode_video, scene, vr)] = sid
 
+            success_count = 0
+            fail_count = 0
             for f in tqdm(as_completed(futures), total=len(futures), desc=f"Video Encoding ({dp.video_name})"):
                 sid = futures[f]
                 try:
                     video_data = f.result()
                     if video_data:
                         dp.scene_embeddings[sid] = {"video": video_data["video"], "keyframes": video_data["keyframes"]}
+                        success_count += 1
                     else:
-                        logging.warning(f"[SKIP] scene {sid}, video encoding failed.")
+                        logging.warning(f"  ⚠ Scene {sid} skipped - video encoding returned None")
+                        fail_count += 1
                 except Exception as e:
-                    logging.error(f"[ERROR] scene {sid} video encoding failed: {e}")
-                    logging.error(traceback.format_exc())
+                    logging.error(f"  ✗ Scene {sid} video encoding failed")
+                    logging.error(f"    Error type: {type(e).__name__}")
+                    logging.error(f"    Error message: {str(e)}")
+                    logging.debug(f"    Full traceback:\n{traceback.format_exc()}")
+                    fail_count += 1
+            
+            logging.info(f"  Stage 1 complete: {success_count} succeeded, {fail_count} failed")
 
     def _extract_and_encode_video(self, scene: Scene, vr: VideoReader) -> dict | None:
         """Helper: Extract frames and encode with video encoder."""
@@ -161,8 +180,17 @@ class MultiModalEncoder:
             video_data = self.video_encoder.encode(frames)
             del frames
             return {"video": video_data["video"], "keyframes": video_data["image"]}
+        except AttributeError as e:
+            logging.error(f"  ✗ Video encoding failed for scene {scene.scene_id}")
+            logging.error(f"    Likely cause: Model not loaded properly")
+            logging.error(f"    Error: {str(e)}")
+            return None
         except Exception as e:
-            logging.error(f"Failed to encode video for scene: {e}")
+            logging.error(f"  ✗ Video encoding failed for scene {scene.scene_id}")
+            logging.error(f"    Scene time range: {scene.start_time:.2f}s - {scene.end_time:.2f}s")
+            logging.error(f"    Frame range: {scene.start_frame} - {scene.end_frame}")
+            logging.error(f"    Error type: {type(e).__name__}")
+            logging.error(f"    Error message: {str(e)}")
             return None
 
     def _encode_audio_stage(self, video_path: str, dp: VideoDataPoint) -> None:
@@ -170,12 +198,16 @@ class MultiModalEncoder:
         Stage 2: Encode all scenes with audio encoder.
         Requires video_path and scene timing information.
         """
-        logging.info(f"[Stage 2] Audio encoding for {video_path}")
+        logging.info(f"[Stage 2/5] Audio encoding for {dp.video_name}")
+        logging.info(f"  Processing {len(dp.scenes)} scenes...")
+        
         futures = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             for sid, scene in dp.scenes.items():
                 futures[executor.submit(self.audio_encoder.encode, video_path, scene.start_time, scene.end_time)] = sid
 
+            success_count = 0
+            fail_count = 0
             for f in tqdm(as_completed(futures), total=len(futures), desc=f"Audio Encoding ({dp.video_name})"):
                 sid = futures[f]
                 try:
@@ -183,42 +215,67 @@ class MultiModalEncoder:
                     if audio_data and sid in dp.scene_embeddings:
                         dp.scene_embeddings[sid]["audio"] = audio_data["audio_embedding"]
                         dp.scene_embeddings[sid]["transcript"] = audio_data["transcript"]
+                        success_count += 1
                     else:
-                        logging.warning(f"[SKIP] scene {sid}, audio encoding failed.")
+                        if sid not in dp.scene_embeddings:
+                            logging.warning(f"  ⚠ Scene {sid} skipped - not found in scene_embeddings (video stage failed)")
+                        else:
+                            logging.warning(f"  ⚠ Scene {sid} skipped - audio encoding returned None")
+                        fail_count += 1
                 except Exception as e:
-                    logging.error(f"[ERROR] scene {sid} audio encoding failed: {e}")
-                    logging.error(traceback.format_exc())
+                    logging.error(f"  ✗ Scene {sid} audio encoding failed")
+                    logging.error(f"    Error type: {type(e).__name__}")
+                    logging.error(f"    Error message: {str(e)}")
+                    logging.debug(f"    Full traceback:\n{traceback.format_exc()}")
+                    fail_count += 1
+            
+            logging.info(f"  Stage 2 complete: {success_count} succeeded, {fail_count} failed")
 
     def _encode_caption_stage(self, dp: VideoDataPoint) -> None:
         """
         Stage 3: Generate captions from keyframes for all scenes.
         Requires keyframes from video encoding stage.
         """
-        logging.info(f"[Stage 3] Caption generation for {dp.video_name}")
+        logging.info(f"[Stage 3/5] Caption generation for {dp.video_name}")
+        
+        scenes_with_keyframes = [sid for sid, data in dp.scene_embeddings.items() if "keyframes" in data]
+        logging.info(f"  Processing {len(scenes_with_keyframes)} scenes with keyframes...")
+        
         futures = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             for sid, scene_data in dp.scene_embeddings.items():
                 if "keyframes" in scene_data:
                     futures[executor.submit(self.captioner.encode, scene_data["keyframes"])] = sid
 
+            success_count = 0
+            fail_count = 0
             for f in tqdm(as_completed(futures), total=len(futures), desc=f"Caption Generation ({dp.video_name})"):
                 sid = futures[f]
                 try:
                     caption = f.result()
                     if sid in dp.scene_embeddings:
                         dp.scene_embeddings[sid]["caption_text"] = caption
+                        success_count += 1
                     else:
-                        logging.warning(f"[SKIP] scene {sid}, caption generation failed.")
+                        logging.warning(f"  ⚠ Scene {sid} skipped - not found in scene_embeddings")
+                        fail_count += 1
                 except Exception as e:
-                    logging.error(f"[ERROR] scene {sid} caption generation failed: {e}")
-                    logging.error(traceback.format_exc())
+                    logging.error(f"  ✗ Scene {sid} caption generation failed")
+                    logging.error(f"    Error type: {type(e).__name__}")
+                    logging.error(f"    Error message: {str(e)}")
+                    logging.debug(f"    Full traceback:\n{traceback.format_exc()}")
+                    fail_count += 1
+            
+            logging.info(f"  Stage 3 complete: {success_count} succeeded, {fail_count} failed")
 
     def _encode_text_stage(self, dp: VideoDataPoint) -> None:
         """
         Stage 4: Encode all text (captions + transcripts) with text encoder.
         Requires caption_text and transcript from previous stages.
         """
-        logging.info(f"[Stage 4] Text encoding for {dp.video_name}")
+        logging.info(f"[Stage 4/5] Text encoding for {dp.video_name}")
+        logging.info(f"  Processing {len(dp.scene_embeddings)} scenes...")
+        
         futures = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             for sid, scene_data in dp.scene_embeddings.items():
@@ -227,6 +284,8 @@ class MultiModalEncoder:
                 full_text = f"Transcript: {transcript}. Visuals: {caption}"
                 futures[executor.submit(self._encode_text_pair, full_text, caption)] = sid
 
+            success_count = 0
+            fail_count = 0
             for f in tqdm(as_completed(futures), total=len(futures), desc=f"Text Encoding ({dp.video_name})"):
                 sid = futures[f]
                 try:
@@ -234,11 +293,18 @@ class MultiModalEncoder:
                     if sid in dp.scene_embeddings:
                         dp.scene_embeddings[sid]["text"] = text_emb
                         dp.scene_embeddings[sid]["caption"] = caption_emb
+                        success_count += 1
                     else:
-                        logging.warning(f"[SKIP] scene {sid}, text encoding failed.")
+                        logging.warning(f"  ⚠ Scene {sid} skipped - not found in scene_embeddings")
+                        fail_count += 1
                 except Exception as e:
-                    logging.error(f"[ERROR] scene {sid} text encoding failed: {e}")
-                    logging.error(traceback.format_exc())
+                    logging.error(f"  ✗ Scene {sid} text encoding failed")
+                    logging.error(f"    Error type: {type(e).__name__}")
+                    logging.error(f"    Error message: {str(e)}")
+                    logging.debug(f"    Full traceback:\n{traceback.format_exc()}")
+                    fail_count += 1
+            
+            logging.info(f"  Stage 4 complete: {success_count} succeeded, {fail_count} failed")
 
     def _tag_scenes_stage(self, dp: VideoDataPoint) -> None:
         """
@@ -246,26 +312,48 @@ class MultiModalEncoder:
         Requires caption_text and transcript from previous stages.
         """
         if not self.apply_tagging:
-            logging.info(f"[Stage 5] Skipping scene tagging for {dp.video_name} (disabled)")
+            logging.info(f"[Stage 5/5] Skipping scene tagging for {dp.video_name} (disabled)")
             return
             
-        logging.info(f"[Stage 5] Scene tagging for {dp.video_name}")
+        logging.info(f"[Stage 5/5] Scene tagging for {dp.video_name}")
         
-        # Tag scene types
-        scene_types = tag_scene_types(dp)
-        
-        # Tag dialogue roles
-        dialogue_roles = tag_dialogue_roles(dp)
-        
-        # Store in scene metadata
-        for sid in dp.scene_embeddings.keys():
-            if "meta" not in dp.scene_embeddings[sid]:
-                dp.scene_embeddings[sid]["meta"] = {}
+        try:
+            # Tag scene types
+            scene_types = tag_scene_types(dp)
             
-            dp.scene_embeddings[sid]["meta"]["scene_type"] = scene_types.get(sid, "other")
-            dp.scene_embeddings[sid]["meta"]["speech_type"] = dialogue_roles.get(sid, "no_speech")
-        
-        logging.info(f"[Stage 5] Tagged {len(dp.scene_embeddings)} scenes for {dp.video_name}")
+            # Tag dialogue roles
+            dialogue_roles = tag_dialogue_roles(dp)
+            
+            # Store in scene metadata
+            success_count = 0
+            for sid in dp.scene_embeddings.keys():
+                if "meta" not in dp.scene_embeddings[sid]:
+                    dp.scene_embeddings[sid]["meta"] = {}
+                
+                dp.scene_embeddings[sid]["meta"]["scene_type"] = scene_types.get(sid, "other")
+                dp.scene_embeddings[sid]["meta"]["speech_type"] = dialogue_roles.get(sid, "no_speech")
+                success_count += 1
+            
+            logging.info(f"  ✓ Successfully tagged {success_count} scenes")
+            
+            # Log distribution
+            type_dist = {}
+            speech_dist = {}
+            for sid in dp.scene_embeddings.keys():
+                meta = dp.scene_embeddings[sid].get("meta", {})
+                st = meta.get("scene_type", "unknown")
+                sp = meta.get("speech_type", "unknown")
+                type_dist[st] = type_dist.get(st, 0) + 1
+                speech_dist[sp] = speech_dist.get(sp, 0) + 1
+            
+            logging.info(f"  Scene types: {dict(type_dist)}")
+            logging.info(f"  Speech types: {dict(speech_dist)}")
+            
+        except Exception as e:
+            logging.error(f"  ✗ Scene tagging failed for {dp.video_name}")
+            logging.error(f"    Error type: {type(e).__name__}")
+            logging.error(f"    Error message: {str(e)}")
+            logging.debug(f"    Full traceback:\n{traceback.format_exc()}")
 
 
     def _encode_text_pair(self, full_text: str, caption: str) -> tuple[torch.Tensor, torch.Tensor]:
@@ -304,51 +392,96 @@ class MultiModalEncoder:
         
         Models are managed via ModelRegistry - no manual load/unload needed per stage.
         """
-        for dp in tqdm(self.dataset.video_datapoints, desc="Encoding Videos"):
+        logging.info("="*80)
+        logging.info("Starting multi-modal video encoding pipeline")
+        logging.info(f"Total videos to process: {len(self.dataset.video_datapoints)}")
+        logging.info(f"Device: {self.device}")
+        logging.info(f"Max workers: {self.max_workers}")
+        logging.info(f"Scene tagging: {'enabled' if self.apply_tagging else 'disabled'}")
+        logging.info("="*80)
+        
+        total_videos = len(self.dataset.video_datapoints)
+        successful_videos = 0
+        failed_videos = 0
+        
+        for idx, dp in enumerate(tqdm(self.dataset.video_datapoints, desc="Encoding Videos"), 1):
             video_path = dp.video_path
-            logging.info(f"Processing video: {video_path}")
+            logging.info(f"\n{'='*80}")
+            logging.info(f"Processing video {idx}/{total_videos}: {os.path.basename(video_path)}")
+            logging.info(f"Full path: {video_path}")
+            logging.info(f"{'='*80}")
             
-            # Detect scenes for all videos first
-            dp.scenes = self._detect_scenes(video_path)
-            if not dp.scenes:
-                logging.warning(f"No scenes detected for {video_path}. Skipping.")
-                continue
-            for scene in dp.scenes.values():
-                logging.info(f"Detected scene {scene.scene_id}: frames {scene.start_frame}-{scene.end_frame}, time {scene.start_time:.2f}-{scene.end_time:.2f}s")
-            
-            vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
-            
-            # Stage 1: Video Encoding (ModelRegistry handles model lifecycle)
-            self._encode_video_stage(video_path, dp, vr)
-            
-            if not dp.scene_embeddings:
-                logging.warning(f"No scenes were successfully encoded for {video_path} (video stage).")
+            try:
+                # Detect scenes for all videos first
+                dp.scenes = self._detect_scenes(video_path)
+                if not dp.scenes:
+                    logging.error(f"✗ No scenes detected for {video_path}. Skipping video.")
+                    failed_videos += 1
+                    continue
+                
+                for scene in dp.scenes.values():
+                    logging.debug(f"  Scene {scene.scene_id}: "
+                                f"frames [{scene.start_frame}-{scene.end_frame}], "
+                                f"time [{scene.start_time:.2f}s-{scene.end_time:.2f}s]")
+                
+                vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
+                
+                # Stage 1: Video Encoding (ModelRegistry handles model lifecycle)
+                self._encode_video_stage(video_path, dp, vr)
+                
+                if not dp.scene_embeddings:
+                    logging.error(f"✗ No scenes successfully encoded for {video_path} (video stage failed)")
+                    logging.error(f"  This usually indicates a problem with frame extraction or video model")
+                    del vr
+                    failed_videos += 1
+                    continue
+                
+                # Stage 2: Audio Encoding
+                self._encode_audio_stage(video_path, dp)
+                
+                # Stage 3: Caption Generation
+                self._encode_caption_stage(dp)
+                
+                # Stage 4: Text Encoding
+                self._encode_text_stage(dp)
+                
+                # Stage 5: Scene Tagging
+                self._tag_scenes_stage(dp)
+                
                 del vr
-                continue
-            
-            # Stage 2: Audio Encoding
-            self._encode_audio_stage(video_path, dp)
-            
-            # Stage 3: Caption Generation
-            self._encode_caption_stage(dp)
-            
-            # Stage 4: Text Encoding
-            self._encode_text_stage(dp)
-            
-            # Stage 5: Scene Tagging
-            self._tag_scenes_stage(dp)
-            
-            del vr
-            
-            # Aggregate embeddings
-            dp.global_embeddings = self._aggregate_embeddings(dp.scene_embeddings)
-            
-            # Periodic GPU cleanup (ModelRegistry handles model caching)
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
+                
+                # Aggregate embeddings
+                dp.global_embeddings = self._aggregate_embeddings(dp.scene_embeddings)
+                
+                # Periodic GPU cleanup (ModelRegistry handles model caching)
+                if self.device == "cuda":
+                    torch.cuda.empty_cache()
+                
+                logging.info(f"✓ Successfully encoded video: {os.path.basename(video_path)}")
+                logging.info(f"  Total scenes: {len(dp.scenes)}")
+                logging.info(f"  Successfully encoded scenes: {len(dp.scene_embeddings)}")
+                successful_videos += 1
+                
+            except FileNotFoundError as e:
+                logging.error(f"✗ Video file not found: {video_path}")
+                logging.error(f"  Error: {str(e)}")
+                failed_videos += 1
+            except Exception as e:
+                logging.error(f"✗ Fatal error processing video: {os.path.basename(video_path)}")
+                logging.error(f"  Error type: {type(e).__name__}")
+                logging.error(f"  Error message: {str(e)}")
+                logging.error(f"  Full traceback:\n{traceback.format_exc()}")
+                failed_videos += 1
 
         self.dataset.encoded = True
-        logging.info(f"Encoding complete for {len(self.dataset.video_datapoints)} videos.")
+        
+        logging.info("\n" + "="*80)
+        logging.info("Encoding pipeline complete!")
+        logging.info(f"  Total videos: {total_videos}")
+        logging.info(f"  Successful: {successful_videos}")
+        logging.info(f"  Failed: {failed_videos}")
+        logging.info(f"  Success rate: {100*successful_videos/total_videos:.1f}%")
+        logging.info("="*80)
         
         return self.dataset
     

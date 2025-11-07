@@ -72,6 +72,10 @@ class VisualCaptioner(BaseEncoder):
         Returns:
             A string containing the concatenated captions.
         """
+        # Ensure models are loaded (lazy loading via ModelRegistry)
+        if self.model is None or self.processor is None:
+            self.load_models()
+            
         with GPUMemoryGuard():
             if len(keyframes) == 0:
                 logger.warning("No frames provided to VisualCaptioner.")

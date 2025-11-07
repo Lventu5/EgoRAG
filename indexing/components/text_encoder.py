@@ -43,6 +43,10 @@ class TextEncoder(BaseEncoder):
         Returns:
             A torch.Tensor containing the embedding.
         """
+        # Ensure models are loaded (lazy loading via ModelRegistry)
+        if self.sbert_model is None:
+            self.load_models()
+            
         with GPUMemoryGuard():
             if not text or not isinstance(text, str):
                 logger.warning("No valid text provided to TextEncoder.")
