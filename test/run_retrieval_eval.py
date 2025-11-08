@@ -9,6 +9,8 @@ from data.dataset import Ego4DDataset
 from retrieval.hierarchical_retriever import HierarchicalRetriever
 from evaluation.evaluator import RetrievalEvaluator
 
+from configuration.config import CONFIG
+
 
 def convert_and_evaluate(retrieval_results: dict, queries, evaluator: RetrievalEvaluator):
     """Convert hierarchical retriever output to metric inputs and run evaluator.
@@ -119,11 +121,11 @@ def main(
 
 
 if __name__ == "__main__":
-    video_pickle = "../ego4d_data/v2/noframe_encoded_videos/base_10_videos.pkl"
-    annotations = "../ego4d_data/v2/annotations/nlq_train.json"
-    modalities = ["caption"]
-    topk_videos = 3
-    topk_scenes = 10
-    device = "cuda"
+    video_pickle = CONFIG.data.video_dataset
+    annotations = CONFIG.data.annotation_path
+    modalities = CONFIG.retrieval.modalities
+    topk_videos = CONFIG.retrieval.top_k_videos
+    topk_scenes = CONFIG.retrieval.top_k_scenes
+    device = CONFIG.device
 
     main(video_pickle, annotations, modalities, topk_videos, topk_scenes, device)

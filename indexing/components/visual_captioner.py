@@ -5,6 +5,7 @@ from transformers import BlipProcessor, BlipForConditionalGeneration
 from indexing.utils.clustering import cluster_frames
 
 from .base_encoder import BaseEncoder
+from configuration.config import CONFIG
 
 class VisualCaptioner(BaseEncoder):
     """
@@ -21,7 +22,7 @@ class VisualCaptioner(BaseEncoder):
 
     def load_models(self):
         logging.info(f"[{self.__class__.__name__}] Loading BLIP models...")
-        model_id = "Salesforce/blip-image-captioning-base"
+        model_id = CONFIG.indexing.caption.caption_model_id
         self.processor = BlipProcessor.from_pretrained(model_id)
         self.model = BlipForConditionalGeneration.from_pretrained(model_id).to(self.device)
         logging.info(f"[{self.__class__.__name__}] Models loaded.")

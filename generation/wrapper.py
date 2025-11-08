@@ -160,11 +160,11 @@ class LLaVAVideoWrapper(Wrapper):
 
 def create_wrapper(model_name: str) -> Wrapper:
     model_map = {
-        "InternVideo": InternVideoWrapper,
-        "LLaVAVideo": LLaVAVideoWrapper,
+        "InternVideo": InternVideoWrapper(),
+        "LLaVAVideo": LLaVAVideoWrapper(),
     }
     try:
-        wrapper_class = model_map[model_name]
+        wrapper = model_map[model_name]
     except KeyError:
         raise ValueError(f"Model {model_name} not supported. Available models: {list(model_map.keys())}")
-    return wrapper_class()
+    return wrapper

@@ -14,6 +14,7 @@ from data.query import Query, QueryDataset
 import data.datatypes as types
 from retrieval.rewriter import QueryRewriterLLM
 from .fuser import Fuser
+from configuration.config import CONFIG
 
 class HierarchicalRetriever:
     def __init__(
@@ -21,15 +22,14 @@ class HierarchicalRetriever:
         video_dataset: VideoDataset,
         fuser: Fuser | None = None,
         device: str = "cuda",
-        text_model_name: str = "all-MiniLM-L6-v2",
-        video_model_name: str = "microsoft/xclip-base-patch16",
-        audio_model_name: str = "laion/clap-htsat-unfused",
-        caption_model_name: str = "all-MiniLM-L6-v2",
-        rewriter_name: str = "Qwen/Qwen2.5-7B-Instruct",
     ):
         self.video_dataset = video_dataset
         self.device = device
         logging.info(f"Retriever running on {self.device}")
+        video_model_name = CONFIG.retrieval.video_model_id
+        audio_model_name = CONFIG.retrieval.audio_model_id
+        text_model_name = CONFIG.retrieval.text_model_id
+        caption_model_name = CONFIG.retrieval.caption_model_id
         self.sizes = {
             "video": {
                 "size": 512,
@@ -48,7 +48,7 @@ class HierarchicalRetriever:
                 "model": caption_model_name
             }
         }
-        self.rewriter = rewriter_name
+        self.rewriter = CONFIG.retrieval.rewriter_model_id
         self.current_modality = None
         self.processor = None
         self.embedder = None

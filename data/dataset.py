@@ -6,6 +6,7 @@ import glob
 
 from .video_dataset import VideoDataset
 from .query import QueryDataset, Query
+from configuration.config import CONFIG
 
 class BaseDataset(Dataset):
     def __init__(self, video_path: str, annotation_path: str):
@@ -98,8 +99,8 @@ class DatasetFactory:
 
 def main():
     dataset = Ego4DDataset(
-        video_path="../../ego4d_data/v2/full_scale/",
-        annotation_path="../../ego4d_data/v2/annotations/nlq_train.json"
+        video_path=CONFIG.data.video_path,
+        annotation_path=CONFIG.data.annotation_path
     )
     videos = dataset.load_videos(is_pickle=False)
     for video in videos.video_files: 
@@ -116,7 +117,7 @@ def main():
         qid_set.add(q.qid)
 
     # Test pickle loading
-    dataset.video_path="../../data/video_dataset.pkl"
+    dataset.video_path=CONFIG.data.video_dataset
     videos_pickle = dataset.load_videos(is_pickle=True)
     for video in videos_pickle.video_files: 
         print(video)

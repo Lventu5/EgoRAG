@@ -11,6 +11,7 @@ from transformers import (
 )
 
 from .base_encoder import BaseEncoder
+from configuration.config import CONFIG
 
 class AudioEncoder(BaseEncoder):
     """
@@ -21,12 +22,10 @@ class AudioEncoder(BaseEncoder):
     def __init__(
         self, 
         device: str = "cuda",
-        audio_sr: int = 48000, # Required by CLAP
-        asr_sr: int = 16000     # Required by Whisper
     ):
         super().__init__(device)
-        self.audio_sr = audio_sr
-        self.asr_sr = asr_sr
+        self.audio_sr = CONFIG.indexing.audio.audio_sample_rate
+        self.asr_sr = CONFIG.indexing.audio.asr_sample_rate
         
         # Models to be loaded
         self.audio_embed_model: AutoModel = None
@@ -38,7 +37,7 @@ class AudioEncoder(BaseEncoder):
         logging.info(f"[{self.__class__.__name__}] Loading models...")
         
         # 1. Load Whisper (ASR)
-        asr_model_id = "openai/whisper-base"
+        asr_model_id = CONFIG.indexing.audio.asr_model_id
         self.asr_model = WhisperForConditionalGeneration.from_pretrained(asr_model_id).to(self.device)
         self.asr_processor = WhisperProcessor.from_pretrained(asr_model_id)
 
@@ -50,7 +49,7 @@ class AudioEncoder(BaseEncoder):
         )
         
         # 2. Load CLAP (Audio Embedding)
-        audio_model_id = "laion/clap-htsat-unfused"
+        audio_model_id = CONFIG.indexing.audio.audio_model_id
         self.audio_embed_model = AutoModel.from_pretrained(audio_model_id).to(self.device)
         self.audio_embed_processor = AutoProcessor.from_pretrained(audio_model_id)
         
@@ -95,10 +94,9 @@ class AudioEncoder(BaseEncoder):
     def _embed_audio(self, audio_array_48k: np.ndarray) -> np.ndarray | None:
         """Embeds audio data using CLAP."""
         try:
-            # Trim silence for a more representative CLAP embedding
             audio_trimmed_48k, _ = librosa.effects.trim(audio_array_48k, top_db=20)
             if audio_trimmed_48k.size == 0:
-                logging.warning("Audio clip silent or too short for CLAP.")
+                logging.warning("Audio clip silent or too short for audio model.")
                 return None
 
             inputs_audio = self.audio_embed_processor(
@@ -113,13 +111,12 @@ class AudioEncoder(BaseEncoder):
             return audio_emb.cpu().numpy().squeeze()
         
         except Exception as e:
-            logging.error(f"Error during CLAP audio embedding: {e}")
+            logging.error(f"Error during audio embedding: {e}")
             return None
 
     def _transcribe_audio(self, audio_array_48k: np.ndarray) -> str:
-        """Transcribes audio using Whisper."""
+        """Transcribes audio"""
         try:
-            # 1. Resample for Whisper
             if self.audio_sr != self.asr_sr:
                 audio_array_16k = librosa.resample(
                     audio_array_48k, 
@@ -133,7 +130,6 @@ class AudioEncoder(BaseEncoder):
                 logging.warning("Audio too short for ASR after resampling.")
                 return ""
 
-            # 2. Transcribe IN-MEMORY
             inputs = self.asr_processor(
                 audio_array_16k, 
                 sampling_rate=self.asr_sr, 
@@ -144,7 +140,8 @@ class AudioEncoder(BaseEncoder):
             # input_features = inputs.input_features.to(self.device)    
 
             with torch.inference_mode():
-                predicted_ids = self.asr_model.generate(input_features, language="en", task="transcribe")
+                language = CONFIG.indexing.audio.audio_language
+                predicted_ids = self.asr_model.generate(input_features, language=language, task="transcribe")
 
             transcript_list = self.asr_processor.batch_decode(predicted_ids, skip_special_tokens=True)
             transcript = transcript_list[0].strip() if transcript_list else ""

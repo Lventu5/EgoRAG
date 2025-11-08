@@ -4,49 +4,72 @@ from transformers import (
     XCLIPModel,
     XCLIPProcessor,
     CLIPVisionModel,
-    CLIPImageProcessor
+    CLIPImageProcessor,
+    AutoModel,
+    AutoImageProcessor
 )
 import logging
-from transformers import logging as hf_logging
 from sklearn.cluster import KMeans
 
 from .base_encoder import BaseEncoder
-from indexing.utils.logging import LevelAwareFormatter
 from indexing.utils.clustering import choose_k, cluster_frames
+from configuration.config import CONFIG
 
 class VideoEncoder(BaseEncoder):
     """
     Encodes video frames into two hierarchical representations:
-    1.  Temporal "Bag-of-Actions": Spatiotemporal embeddings (XCLIP) 
-        of contiguous segments.
+    1.  Temporal "Bag-of-Actions": Spatiotemporal embeddings from video model
+        (XCLIP or InternVideo2) of contiguous segments.
     2.  Static "Bag-of-Keyframes": Image embeddings (CLIP) of the
         most representative cluster centroids.
     """
     def __init__(
         self,
         device: str = "cuda",
-        max_frames_per_scene: int = 96,
-        max_temporal_segments: int = 8,
     ):
         super().__init__(device)
-        self.max_frames_per_scene = max_frames_per_scene
-        self.max_temporal_segments = max_temporal_segments
+        self.model_name = CONFIG.indexing.video.model_name
+        max_frames_per_scene = CONFIG.indexing.video.max_frames_per_scene
+        self.max_temporal_segments = CONFIG.indexing.video.max_temporal_segments
         
+        # Set default max_frames_per_scene based on model
+        if max_frames_per_scene is None:
+            self.max_frames_per_scene = 8 if self.model_name == "xclip" else None
+        else:
+            self.max_frames_per_scene = max_frames_per_scene
+                    
         # Models to be loaded
-        self.video_model: XCLIPModel = None
-        self.video_processor: XCLIPProcessor = None
+        self.video_model = None
+        self.video_processor = None
         self.image_model: CLIPVisionModel = None
         self.image_processor: CLIPImageProcessor = None
 
     def load_models(self):
-        logging.info(f"[{self.__class__.__name__}] Loading models...")
-        # Load XCLIP (Temporal)
-        self.video_model = XCLIPModel.from_pretrained("microsoft/xclip-base-patch16").to(self.device).eval()
-        self.video_processor = XCLIPProcessor.from_pretrained("microsoft/xclip-base-patch16")
+        logging.info(f"[{self.__class__.__name__}] Loading models with {self.model_name}...")
         
-        # Load CLIP-Vision (Static)
-        self.image_model = CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch32").to(self.device).eval()
-        self.image_processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-base-patch32")
+        # Load video model based on model_name
+        if self.model_name == "xclip":
+            self.model_id = CONFIG.indexing.video.xclip_id
+            self.video_model = XCLIPModel.from_pretrained(self.model_path).to(self.device).eval()
+            self.video_processor = XCLIPProcessor.from_pretrained(self.model_path)
+        elif self.model_name == "internvideo2":
+            # InternVideo2-1B model
+            self.model_id = CONFIG.indexing.video.internvideo2_id
+            self.video_model = AutoModel.from_pretrained(
+                self.model_path,
+                trust_remote_code=True
+            ).to(self.device).eval()
+            self.video_processor = AutoImageProcessor.from_pretrained(
+                self.model_path,
+                trust_remote_code=True
+            )
+        else:
+            raise ValueError(f"Unsupported model_name: {self.model_name}. Choose 'xclip' or 'internvideo2'.")
+        
+        # Load CLIP-Vision (Static) - same for all models
+        self.image_model_id = CONFIG.indexing.video.clip_id
+        self.image_model = CLIPVisionModel.from_pretrained(self.image_model_path).to(self.device).eval()
+        self.image_processor = CLIPImageProcessor.from_pretrained(self.image_model_path)
         logging.info(f"[{self.__class__.__name__}] Models loaded.")
 
     def _embed_frames_clip(self, frames: np.ndarray) -> np.ndarray:
@@ -77,51 +100,62 @@ class VideoEncoder(BaseEncoder):
     
     def _embed_temporal_segments(self, temporal_chunks: list[np.ndarray]) -> np.ndarray:
         """
-        Embeds a list of temporally contiguous frame chunks using XCLIP.
+        Embeds a list of temporally contiguous frame chunks using the video model.
         Each chunk is treated as a mini-clip and its embedding is calculated.
         The final embedding is the mean of all mini-clip embeddings.
         """
         segment_embeddings = []
         
-        # The loop logic is now simpler and conceptually correct
         for segment_frames in temporal_chunks:
-            
             if len(segment_frames) == 0:
                 continue
             
             n = len(segment_frames)
 
-            # Subsample this TEMPORAL chunk to 8 frames for XCLIP
-            if n > 8:
-                # Evenly sample across the temporal segment
-                idxs = np.linspace(0, n - 1, 8, dtype=int)
-                segment_frames_subsampled = segment_frames[idxs]
-            elif n < 8:
-                # Pad with the last frame
-                padding = [segment_frames[-1]] * (8 - n)
-                segment_frames_subsampled = np.concatenate((segment_frames, padding), axis=0)
+            # If max_frames_per_scene is None, use all frames in the segment
+            if self.max_frames_per_scene is None:
+                segment_frames_processed = segment_frames
             else:
-                segment_frames_subsampled = segment_frames
+                # Subsample or pad to max_frames_per_scene
+                if n > self.max_frames_per_scene:
+                    idxs = np.linspace(0, n - 1, self.max_frames_per_scene, dtype=int)
+                    segment_frames_processed = segment_frames[idxs]
+                elif n < self.max_frames_per_scene:
+                    padding = [segment_frames[-1]] * (self.max_frames_per_scene - n)
+                    segment_frames_processed = np.concatenate((segment_frames, padding), axis=0)
+                else:
+                    segment_frames_processed = segment_frames
 
-            video_inputs = self.video_processor(images=list(segment_frames_subsampled), return_tensors="pt").to(self.device)
-
-            with torch.inference_mode():
-                text_inputs = self.video_processor(text = "", return_tensors="pt").to(self.device)
-                outputs = self.video_model(
-                    pixel_values=video_inputs["pixel_values"],
-                    input_ids=text_inputs["input_ids"],
-                    attention_mask=text_inputs["attention_mask"],
-                )
-                video_embedding = outputs.video_embeds.squeeze(0).detach().cpu()
-                segment_embeddings.append(video_embedding)
-                del video_inputs
-                del text_inputs
-                del outputs
-                torch.cuda.empty_cache()
+            # Process based on model type
+            if self.model_name == "xclip":
+                video_inputs = self.video_processor(images=list(segment_frames_processed), return_tensors="pt").to(self.device)
+                with torch.inference_mode():
+                    text_inputs = self.video_processor(text="", return_tensors="pt").to(self.device)
+                    outputs = self.video_model(
+                        pixel_values=video_inputs["pixel_values"],
+                        input_ids=text_inputs["input_ids"],
+                        attention_mask=text_inputs["attention_mask"],
+                    )
+                    video_embedding = outputs.video_embeds.squeeze(0).detach().cpu()
+                    segment_embeddings.append(video_embedding)
+                    del video_inputs, text_inputs, outputs
+                    
+            elif self.model_name == "internvideo2":
+                # InternVideo2 expects frames in shape (T, H, W, C)
+                video_inputs = self.video_processor(images=list(segment_frames_processed), return_tensors="pt").to(self.device)
+                with torch.inference_mode():
+                    outputs = self.video_model(video_inputs["pixel_values"])
+                    # InternVideo2 outputs last_hidden_state, take mean pooling
+                    video_embedding = outputs.last_hidden_state.mean(dim=1).squeeze(0).detach().cpu()
+                    segment_embeddings.append(video_embedding)
+                    del video_inputs, outputs
+                    
+            torch.cuda.empty_cache()
 
         if not segment_embeddings:
-            # Use the dimension of your XCLIP model, e.g., 768
-            return np.zeros(768, dtype=np.float32) 
+            # Default embedding size (adjust based on model)
+            embed_dim = 768 if self.model_name == "xclip" else 1024
+            return np.zeros(embed_dim, dtype=np.float32) 
 
         video_emb = torch.stack(segment_embeddings).mean(dim=0)
         return video_emb.cpu().numpy()
@@ -169,10 +203,11 @@ class VideoEncoder(BaseEncoder):
             keyframe_embedding = self._embed_image_clusters(frame_embs, km)
 
             k = choose_k(len(frames), self.max_temporal_segments)
-            if k <= 1 or len(frames) < 8: # If scene is too short, treat as one chunk
+            # If max_frames_per_scene is set and scene is too short, treat as one chunk
+            min_frames_required = self.max_frames_per_scene if self.max_frames_per_scene else 1
+            if k <= 1 or len(frames) < min_frames_required:
                 temporal_chunks = [frames] 
             else:
-                # This splits the frames into k *temporally contiguous* groups
                 temporal_chunks = np.array_split(frames, k, axis=0)
             
             temporal_embedding = self._embed_temporal_segments(temporal_chunks)

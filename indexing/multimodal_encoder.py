@@ -37,10 +37,6 @@ class MultiModalEncoder:
         self,
         video_dataset: VideoDataset,
         device: str = "cuda",
-        max_frames_per_scene: int = 96,
-        max_temporal_segments: int = 8,
-        audio_sr: int = 48000, 
-        asr_sr: int = 16000,
         max_workers: int = 2,
     ):
         if video_dataset is None or len(video_dataset) == 0:
@@ -49,21 +45,21 @@ class MultiModalEncoder:
         self.dataset = video_dataset
         self.device = device if torch.cuda.is_available() else "cpu"
         self.max_workers = max_workers
-        self.video_reader_lock = Lock()  # Serialize VideoReader access
+        self.video_reader_lock = Lock()
 
         # 1. Instantiate Atomic Components
         self.video_encoder = VideoEncoder(
             device=self.device,
-            max_frames_per_scene=max_frames_per_scene,
-            max_temporal_segments=max_temporal_segments
         )
-        self.audio_encoder = AudioEncoder( # <-- UPDATED
+        self.audio_encoder = AudioEncoder( 
             device=self.device,
-            audio_sr=audio_sr,
-            asr_sr=asr_sr
         )
-        self.text_encoder = TextEncoder(device=self.device)
-        self.captioner = VisualCaptioner(device=self.device)
+        self.text_encoder = TextEncoder(
+            device=self.device
+        )
+        self.captioner = VisualCaptioner(
+            device=self.device
+        )
         
         logging.info(f"MultiModalEncoder initialized with {max_workers} workers.")
 

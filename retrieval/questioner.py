@@ -11,6 +11,7 @@ from data.query import Query, QueryDataset
 from data.video_dataset import VideoDataset, VideoDataPoint
 from indexing.multimodal_encoder import MultiModalEncoder
 from retrieval.hierarchical_retriever import HierarchicalRetriever
+from configuration.config import CONFIG
 
 logging.basicConfig(
     level=logging.INFO,
@@ -338,8 +339,8 @@ if __name__ == "__main__":
     logging.info("Starting Ego4D NLQ Runner...")
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    data_directory = "../../ego4d_data/v2/full_scale"
-    pickle_file: str = "../../ego4d_data/video_dataset.pkl"
+    data_directory = CONFIG.data.video_path
+    pickle_file: str = CONFIG.data.video_dataset
 
     if os.path.exists(pickle_file):
         logging.info(f"Loading video dataset from pickle file: {pickle_file}")
@@ -372,7 +373,7 @@ if __name__ == "__main__":
     print(f"Loaded {len(video_dataset)} videos into the dataset.")
     print("Sample video datapoint:", video_dataset.video_datapoints[0] if video_dataset.video_datapoints else "No datapoints found.")
 
-    nlq_annotations_path = "../../ego4d_data/v2/annotations/nlq_train.json"
+    nlq_annotations_path = CONFIG.data.annotation_path
     logging.info(f"Loading NLQ annotations from: {nlq_annotations_path}")
 
     # encoder = MultiModalEncoder(video_dataset=video_dataset, device=device, max_workers=1)
@@ -404,7 +405,7 @@ if __name__ == "__main__":
     modalities = ["text", "caption", "video", "audio"]
     results = runner.run_retrieval(
         modalities=modalities,
-        top_k_videos=3,
-        top_k_scenes=2
+        top_k_videos=CONFIG.retrieval.top_k_videos,
+        top_k_scenes=CONFIG.retrieval.top_k_scenes
     )
     runner.pretty_print_retrieval(results, max_videos=3, max_scenes=2)

@@ -1,0 +1,33 @@
+device: "cuda"
+data:
+  video_path: "../ego4d_data/v2/full_scale/"
+  annotation_path: "../ego4d_data/v2/annotations/nlq_train.json"
+  video_dataset: "../ego4d_data/v2/noframe_encoded_videos/base_10_videos.pkl"
+indexing:
+  video:
+    model_name: "xclip"
+    max_frames_per_scene:  None # None for auto (8 for xclip, variable for internvideo)
+    max_temporal_segments: 8 
+    xclip_id: "microsoft/xclip-base-patch16"
+    internvideo2_id: "OpenGVLab/InternVideo2-stage2_1b-224p-f4"
+    clip_id: "openai/clip-vit-base-patch32"
+  audio:
+    audio_sample_rate: 48000
+    asr_sample_rate: 16000
+    asr_model_id: "openai/whisper-base"
+    audio_model_id: "laion/clap-htsat-unfused"
+    audio_language: "en" # for transcription
+  text:
+    text_model_id: "all-MiniLM-L6-v2"
+  caption:
+    caption_model_id: "Salesforce/blip-image-captioning-base"
+retrieval:
+  text_model_id: "all-MiniLM-L6-v2"
+  video_model_id: "microsoft/xclip-base-patch16"
+  audio_model_id: "laion/clap-htsat-unfused"
+  caption_model_id: "all-MiniLM-L6-v2"
+  rewriter_model_id: "Qwen/Qwen2.5-7B-Instruct"
+  top_k_videos: 3
+  top_k_scenes: 10
+  modalities: ["video", "caption"]
+

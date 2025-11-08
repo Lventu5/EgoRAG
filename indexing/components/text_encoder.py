@@ -2,6 +2,7 @@ import torch
 import logging
 from sentence_transformers import SentenceTransformer
 from .base_encoder import BaseEncoder
+from configuration.config import CONFIG
 
 class TextEncoder(BaseEncoder):
     """
@@ -10,9 +11,8 @@ class TextEncoder(BaseEncoder):
     """
     def __init__(self, device: str = "cuda"):
         super().__init__(device)
-        self.model_name = "all-MiniLM-L6-v2"
-        # Model to be loaded
         self.sbert_model: SentenceTransformer = None
+        self.model_name = CONFIG.indexing.text.text_model_id
 
     def load_models(self):
         logging.info(f"[{self.__class__.__name__}] Loading {self.model_name}...")
