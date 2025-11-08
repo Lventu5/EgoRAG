@@ -4,7 +4,7 @@ import os
 import json
 import glob
 
-from .video_dataset import VideoDataset
+from .video_dataset import VideoDataset, Scene
 from .query import QueryDataset, Query
 from configuration.config import CONFIG
 
@@ -52,8 +52,47 @@ class Ego4DDataset(BaseDataset):
             dataset = VideoDataset.load_from_pickle(self.video_path)
         else:
             video_ids = glob.glob(os.path.join(self.video_path, "*.mp4"))
-            dataset = VideoDataset(video_ids)
+            # Extract pre-existing clips from annotations for each video
+            clips_per_video = self._extract_clips_from_annotations(video_ids)
+            dataset = VideoDataset(video_ids, scenes_per_video=clips_per_video)
         return dataset
+
+    def _extract_clips_from_annotations(self, video_paths: List[str]) -> Dict[str, Dict[str, Scene]]:
+        """
+        Extract clip information from Ego4D annotations to use as pre-existing scenes.
+        Returns a dict mapping video_path -> {scene_id: Scene object}
+        """
+        
+        clips_per_video = {}
+        
+        # Create a mapping from video_uid to video_path
+        video_uid_to_path = {}
+        for path in video_paths:
+            uid = os.path.splitext(os.path.basename(path))[0]
+            video_uid_to_path[uid] = path
+        
+        for video_entry in self.video_data:
+            video_uid = video_entry.get("video_uid")
+            if video_uid not in video_uid_to_path:
+                continue
+            
+            video_path = video_uid_to_path[video_uid]
+            clips = video_entry.get("clips", [])
+            
+            if clips:
+                scenes = {}
+                for i, clip in enumerate(clips):
+                    scene_id = f"scene_{i}"
+                    scenes[scene_id] = Scene(
+                        scene_id=scene_id,
+                        start_time=float(clip.get("video_start_sec", 0.0)),
+                        end_time=float(clip.get("video_end_sec", 0.0)),
+                        start_frame=int(clip.get("video_start_frame", 0)),
+                        end_frame=int(clip.get("video_end_frame", 0)),
+                    )
+                clips_per_video[video_path] = scenes
+        
+        return clips_per_video
 
     def load_annotations(self, video_ids: List[str]) -> Dict[str, List[dict]]:
         annotations = {}
