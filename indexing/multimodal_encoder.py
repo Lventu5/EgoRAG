@@ -46,6 +46,7 @@ class MultiModalEncoder:
         asr_sr: int = 16000,
         max_workers: int = 2,
         apply_tagging: bool = True,
+        use_video_captioning: bool = True,
     ):
         if video_dataset is None or len(video_dataset) == 0:
             raise ValueError("Video dataset is empty or not provided.")
@@ -79,9 +80,14 @@ class MultiModalEncoder:
             asr_sr=asr_sr
         )
         self.text_encoder = TextEncoder(device=self.device)
-        self.captioner = VisualCaptioner(device=self.device)
+        self.captioner = VisualCaptioner(
+            device=self.device,
+            use_video_model=use_video_captioning
+        )
         
+        caption_mode = "video-aware (BLIP-2)" if use_video_captioning else "legacy (BLIP)"
         logging.info(f"MultiModalEncoder initialized with {max_workers} workers and ModelRegistry.")
+        logging.info(f"  Caption mode: {caption_mode}")
 
     def load_models(self):
         """
@@ -142,7 +148,8 @@ class MultiModalEncoder:
     def _encode_video_stage(self, video_path: str, dp: VideoDataPoint, vr: VideoReader) -> None:
         """
         Stage 1: Extract frames and encode all scenes with video encoder.
-        Stores raw video embeddings and keyframes for later stages.
+        Stores raw video embeddings. Keyframes are temporarily stored for caption generation
+        but will be cleaned up immediately after.
         """
         logging.info(f"[Stage 1/5] Video encoding for {dp.video_name}")
         logging.info(f"  Processing {len(dp.scenes)} scenes...")
@@ -159,7 +166,11 @@ class MultiModalEncoder:
                 try:
                     video_data = f.result()
                     if video_data:
-                        dp.scene_embeddings[sid] = {"video": video_data["video"], "keyframes": video_data["keyframes"]}
+                        # Store embeddings and keyframes (keyframes will be cleaned after caption stage)
+                        dp.scene_embeddings[sid] = {
+                            "video": video_data["video"],
+                            "keyframes": video_data["keyframes"]  # Temporary - will be deleted after captioning
+                        }
                         success_count += 1
                     else:
                         logging.warning(f"  ⚠ Scene {sid} skipped - video encoding returned None")
@@ -174,12 +185,18 @@ class MultiModalEncoder:
             logging.info(f"  Stage 1 complete: {success_count} succeeded, {fail_count} failed")
 
     def _extract_and_encode_video(self, scene: Scene, vr: VideoReader) -> dict | None:
-        """Helper: Extract frames and encode with video encoder."""
+        """
+        Helper: Extract frames and encode with video encoder.
+        
+        Returns both video embeddings and representative keyframes.
+        Note: Keyframes are raw frame arrays needed for caption generation,
+        but they will be deleted after captions are created to save memory.
+        """
         try:
             frames = self._extract_frames(vr, scene.start_frame, scene.end_frame, self.video_encoder.max_frames_per_scene)
             video_data = self.video_encoder.encode(frames)
-            del frames
-            return {"video": video_data["video"], "keyframes": video_data["image"]}
+            del frames  # Clean up full frame set immediately
+            return {"video": video_data["video"], "keyframes": video_data["keyframes"]}
         except AttributeError as e:
             logging.error(f"  ✗ Video encoding failed for scene {scene.scene_id}")
             logging.error(f"    Likely cause: Model not loaded properly")
@@ -267,6 +284,33 @@ class MultiModalEncoder:
                     fail_count += 1
             
             logging.info(f"  Stage 3 complete: {success_count} succeeded, {fail_count} failed")
+        
+        # Clean up keyframes from memory to prevent bloat in pickle files
+        self._cleanup_keyframes(dp)
+
+    def _cleanup_keyframes(self, dp: VideoDataPoint) -> None:
+        """
+        Remove raw keyframe arrays from scene_embeddings after captions are generated.
+        This prevents massive memory overhead and bloated pickle files.
+        Keyframes are only needed for caption generation and should not persist.
+        """
+        logging.info(f"[Cleanup] Removing keyframes from memory for {dp.video_name}")
+        keyframes_cleaned = 0
+        total_memory_freed = 0
+        
+        for sid, scene_data in dp.scene_embeddings.items():
+            if "keyframes" in scene_data:
+                # Calculate memory size before deletion (approximate)
+                keyframes = scene_data["keyframes"]
+                if isinstance(keyframes, np.ndarray):
+                    memory_size = keyframes.nbytes / (1024 * 1024)  # Convert to MB
+                    total_memory_freed += memory_size
+                
+                # Delete the keyframes
+                del scene_data["keyframes"]
+                keyframes_cleaned += 1
+        
+        logging.info(f"  ✓ Cleaned {keyframes_cleaned} keyframe arrays, freed ~{total_memory_freed:.2f} MB")
 
     def _encode_text_stage(self, dp: VideoDataPoint) -> None:
         """

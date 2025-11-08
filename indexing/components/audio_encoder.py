@@ -199,8 +199,8 @@ class AudioEncoder(BaseEncoder):
         Returns:
             A dictionary containing 'audio_embedding' and 'transcript'.
         """
-        # Ensure models are loaded (lazy loading via ModelRegistry)
-        if self.audio_model is None or self.asr_model is None:
+        # Ensure models are loaded
+        if self.audio_embed_model is None or self.asr_model is None:
             self.load_models()
             
         with GPUMemoryGuard():
