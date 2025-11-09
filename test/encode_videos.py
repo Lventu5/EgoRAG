@@ -14,7 +14,7 @@ def encode(video_dir, save_dir):
     video_ids = glob.glob(os.path.join(video_dir, "*.mp4"))
     print(f"Found {len(video_ids)} videos")
 
-    for video in tqdm(video_ids[4:]):
+    for video in tqdm(video_ids):
         print("-"*50)
         print(f"Encoding video {video}")
         print("-"*50)
