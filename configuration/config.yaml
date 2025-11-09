@@ -5,11 +5,11 @@ data:
   video_dataset: "../ego4d_data/v2/noframe_encoded_videos/base_10_videos.pkl"
 indexing:
   video:
-    model_name: "xclip"
-    max_frames_per_scene:  None # None for auto (8 for xclip, variable for internvideo)
-    max_temporal_segments: 8 
+    model_name: "llava-video" # Options: "xclip", "llava-video"
+    max_frames_per_scene: null # null for auto (8 for xclip, 16 for llava-video)
+    max_temporal_segments: 8
     xclip_id: "microsoft/xclip-base-patch16"
-    internvideo2_id: "OpenGVLab/InternVideo2-stage2_1b-224p-f4"
+    llava_video_id: "llava-hf/LLaVA-NeXT-Video-7B-hf" 
     clip_id: "openai/clip-vit-base-patch32"
   audio:
     audio_sample_rate: 48000
@@ -30,4 +30,3 @@ retrieval:
   top_k_videos: 3
   top_k_scenes: 10
   modalities: ["video", "caption"]
-

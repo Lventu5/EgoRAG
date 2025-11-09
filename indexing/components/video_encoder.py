@@ -1,3 +1,6 @@
+import os
+import logging
+
 import numpy as np
 import torch
 from transformers import (
@@ -5,10 +8,10 @@ from transformers import (
     XCLIPProcessor,
     CLIPVisionModel,
     CLIPImageProcessor,
-    AutoModel,
-    AutoImageProcessor
+    AutoProcessor,
+    LlavaNextVideoForConditionalGeneration,
 )
-import logging
+from PIL import Image
 from sklearn.cluster import KMeans
 
 from .base_encoder import BaseEncoder
@@ -19,7 +22,7 @@ class VideoEncoder(BaseEncoder):
     """
     Encodes video frames into two hierarchical representations:
     1.  Temporal "Bag-of-Actions": Spatiotemporal embeddings from video model
-        (XCLIP or InternVideo2) of contiguous segments.
+        (XCLIP or LLaVA Video) of contiguous segments.
     2.  Static "Bag-of-Keyframes": Image embeddings (CLIP) of the
         most representative cluster centroids.
     """
@@ -34,7 +37,12 @@ class VideoEncoder(BaseEncoder):
         
         # Set default max_frames_per_scene based on model
         if max_frames_per_scene is None:
-            self.max_frames_per_scene = 8 if self.model_name == "xclip" else None
+            if self.model_name == "xclip":
+                self.max_frames_per_scene = 8
+            elif self.model_name == "llava-video":
+                self.max_frames_per_scene = 16
+            else:
+                self.max_frames_per_scene = 8
         else:
             self.max_frames_per_scene = max_frames_per_scene
                     
@@ -50,26 +58,36 @@ class VideoEncoder(BaseEncoder):
         # Load video model based on model_name
         if self.model_name == "xclip":
             self.model_id = CONFIG.indexing.video.xclip_id
-            self.video_model = XCLIPModel.from_pretrained(self.model_path).to(self.device).eval()
-            self.video_processor = XCLIPProcessor.from_pretrained(self.model_path)
-        elif self.model_name == "internvideo2":
-            # InternVideo2-1B model
-            self.model_id = CONFIG.indexing.video.internvideo2_id
-            self.video_model = AutoModel.from_pretrained(
-                self.model_path,
-                trust_remote_code=True
-            ).to(self.device).eval()
-            self.video_processor = AutoImageProcessor.from_pretrained(
-                self.model_path,
-                trust_remote_code=True
+            self.video_model = XCLIPModel.from_pretrained(self.model_id).to(self.device).eval()
+            self.video_processor = XCLIPProcessor.from_pretrained(self.model_id)
+            
+        elif self.model_name == "llava-video":
+            # LLaVA Video model
+            self.model_id = CONFIG.indexing.video.llava_video_id
+            
+            logging.info(f"Loading LLaVA Video model: {self.model_id}...")
+            
+            # Load processor
+            self.video_processor = AutoProcessor.from_pretrained(self.model_id)
+            
+            # Load model with automatic device mapping
+            self.video_model = LlavaNextVideoForConditionalGeneration.from_pretrained(
+                self.model_id,
+                torch_dtype=torch.float16,
+                device_map=self.device,
+                low_cpu_mem_usage=True,
             )
+            self.video_model.eval()
+            
+            logging.info(f"LLaVA Video model loaded successfully")
+            
         else:
-            raise ValueError(f"Unsupported model_name: {self.model_name}. Choose 'xclip' or 'internvideo2'.")
+            raise ValueError(f"Unsupported model_name: {self.model_name}. Choose 'xclip' or 'llava-video'.")
         
         # Load CLIP-Vision (Static) - same for all models
         self.image_model_id = CONFIG.indexing.video.clip_id
-        self.image_model = CLIPVisionModel.from_pretrained(self.image_model_path).to(self.device).eval()
-        self.image_processor = CLIPImageProcessor.from_pretrained(self.image_model_path)
+        self.image_model = CLIPVisionModel.from_pretrained(self.image_model_id).to(self.device).eval()
+        self.image_processor = CLIPImageProcessor.from_pretrained(self.image_model_id)
         logging.info(f"[{self.__class__.__name__}] Models loaded.")
 
     def _embed_frames_clip(self, frames: np.ndarray) -> np.ndarray:
@@ -140,21 +158,87 @@ class VideoEncoder(BaseEncoder):
                     segment_embeddings.append(video_embedding)
                     del video_inputs, text_inputs, outputs
                     
-            elif self.model_name == "internvideo2":
-                # InternVideo2 expects frames in shape (T, H, W, C)
-                video_inputs = self.video_processor(images=list(segment_frames_processed), return_tensors="pt").to(self.device)
+            elif self.model_name == "llava-video":
+                # LLaVA Video - extract vision features
                 with torch.inference_mode():
-                    outputs = self.video_model(video_inputs["pixel_values"])
-                    # InternVideo2 outputs last_hidden_state, take mean pooling
-                    video_embedding = outputs.last_hidden_state.mean(dim=1).squeeze(0).detach().cpu()
-                    segment_embeddings.append(video_embedding)
-                    del video_inputs, outputs
+                    # Convert numpy frames to PIL Images
+                    pil_frames = [Image.fromarray(frame.astype(np.uint8)) for frame in segment_frames_processed]
+                    
+                    # Create a simple prompt for the processor
+                    conversation = [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "video"},
+                                {"type": "text", "text": "Describe this video."},
+                            ],
+                        },
+                    ]
+                    
+                    # Apply chat template
+                    prompt = self.video_processor.apply_chat_template(conversation, add_generation_prompt=True)
+                    
+                    # Process frames
+                    inputs = self.video_processor(
+                        text=prompt,
+                        videos=[pil_frames],
+                        return_tensors="pt",
+                        padding=True,
+                    ).to(self.device, torch.float16)
+                    
+                    # Extract vision embeddings from the vision tower
+                    # Use the correct autocast API based on PyTorch version
+                    try:
+                        autocast_context = torch.amp.autocast('cuda', dtype=torch.float16)
+                    except (AttributeError, TypeError):
+                        # Fallback for older PyTorch versions
+                        autocast_context = torch.cuda.amp.autocast(dtype=torch.float16)
+                    
+                    with autocast_context:
+                        # pixel_values_videos has shape (batch, num_frames, channels, height, width)
+                        # We need to reshape it to process all frames through the vision tower
+                        pixel_values = inputs["pixel_values_videos"]
+                        batch_size, num_frames, channels, height, width = pixel_values.shape
+                        
+                        # Reshape to (batch * num_frames, channels, height, width)
+                        pixel_values_flat = pixel_values.reshape(-1, channels, height, width)
+                        
+                        # Process through vision tower
+                        vision_outputs = self.video_model.vision_tower(
+                            pixel_values_flat,
+                            output_hidden_states=True
+                        )
+                        
+                        # Get the vision features and reshape back
+                        # vision_features shape: (batch * num_frames, seq_len, hidden_dim)
+                        vision_features = vision_outputs.last_hidden_state
+                        
+                        # Pool over spatial dimensions (seq_len)
+                        pooled_per_frame = vision_features.mean(dim=1)  # (batch * num_frames, hidden_dim)
+                        
+                        # Reshape back to (batch, num_frames, hidden_dim)
+                        pooled_per_frame = pooled_per_frame.reshape(batch_size, num_frames, -1)
+                        
+                        # Pool over temporal dimension (num_frames)
+                        pooled_features = pooled_per_frame.mean(dim=1)  # (batch, hidden_dim)
+                        
+                        video_embedding = pooled_features.squeeze(0).detach().cpu()
+                        segment_embeddings.append(video_embedding)
+                    
+                    del inputs, vision_outputs, pixel_values, pixel_values_flat, vision_features
+            else:
+                raise ValueError(f"Unknown model {self.model_name}")
                     
             torch.cuda.empty_cache()
 
         if not segment_embeddings:
             # Default embedding size (adjust based on model)
-            embed_dim = 768 if self.model_name == "xclip" else 1024
+            if self.model_name == "xclip":
+                embed_dim = 768
+            elif self.model_name == "llava-video":
+                embed_dim = 1024  # LLaVA Video vision tower hidden size
+            else:
+                embed_dim = 768
             return np.zeros(embed_dim, dtype=np.float32) 
 
         video_emb = torch.stack(segment_embeddings).mean(dim=0)
@@ -170,7 +254,7 @@ class VideoEncoder(BaseEncoder):
         centroid_embeddings = []
         
         if frame_embs.shape[0] == 0:
-            return np.zeros((0, self.static_model.config.hidden_size), dtype=np.float32)
+            return np.zeros((0, self.image_model.config.hidden_size), dtype=np.float32)
 
         for i in range(clusters.n_clusters):
             # 1. Get the true centroid from the KMeans object
