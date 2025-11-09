@@ -5,6 +5,8 @@ from indexing.multimodal_encoder import MultiModalEncoder
 from data.video_dataset import VideoDataset
 import glob
 import os
+import numpy as np
+
 import torch
 from tqdm import tqdm
 
@@ -17,12 +19,14 @@ def encode(video_dir, save_dir):
         print(f"Encoding video {video}")
         print("-"*50)
         dataset = VideoDataset([video])
-        encoder = MultiModalEncoder(dataset, max_workers=4)
+        encoder = MultiModalEncoder(dataset, max_workers=1)
+        # encoder.load_models()
         video_dataset = encoder.encode_videos()
         # Remove the original extension (e.g. .mp4) from the video basename
         base = os.path.splitext(os.path.basename(video))[0]
         pickle_path = f"{save_dir}/{base}_encoded.pkl"
         video_dataset.save_to_pickle(pickle_path)
+        # encoder.unload_models()
         torch.cuda.empty_cache()
 
 if __name__ == "__main__":

@@ -1,0 +1,103 @@
+"""
+Scene detection and manipulation utilities.
+
+This module provides scene detection strategies for video processing in RAG systems.
+Keeps the Scene class definition in data.video_dataset for backward compatibility.
+"""
+
+import os
+import logging
+import traceback
+from typing import Dict, List, Tuple
+
+
+class SceneDetector:
+    """
+    Utility class for detecting scenes in videos using various strategies.
+    """
+    
+    @staticmethod
+    def detect_scenes(
+        video_path: str,
+        method: str = "pyscenedetect",
+        existing_scenes: Dict = None,
+        **kwargs
+    ) -> Dict:
+        """
+        Detect scenes in a video using the specified method.
+        
+        Args:
+            video_path: Path to the video file
+            method: Detection method - currently supports "pyscenedetect"
+            existing_scenes: Pre-existing scenes to use (highest priority)
+            **kwargs: Additional method-specific parameters
+            
+        Returns:
+            Dictionary mapping scene_id to Scene objects
+        """
+        # Import Scene here to avoid circular imports
+        from data.video_dataset import Scene
+        
+        # Use pre-existing scenes if available
+        if existing_scenes:
+            logging.info(
+                f"Using {len(existing_scenes)} pre-existing scenes for video {os.path.basename(video_path)}"
+            )
+            return existing_scenes
+        
+        # Method: Content-based detection using pyscenedetect
+        if method == "pyscenedetect":
+            return SceneDetector._pyscenedetect(video_path, Scene, **kwargs)
+        else:
+            logging.error(f"Unknown scene detection method: {method}")
+            return {}
+    
+    @staticmethod
+    def _pyscenedetect(video_path: str, Scene, threshold: float = 25.0) -> Dict:
+        """
+        Content-based scene detection using pyscenedetect.
+        
+        Args:
+            video_path: Path to the video file
+            Scene: Scene class (passed to avoid circular import)
+            threshold: Detection threshold for ContentDetector
+            
+        Returns:
+            Dictionary of scene_id -> Scene objects
+            
+        Note: This can produce scenes of very variable length, which may not
+        be ideal for RAG systems that require consistent granularity.
+        """
+        try:
+            from scenedetect import detect, ContentDetector
+            
+            scene_list = detect(video_path, ContentDetector(threshold=threshold))
+            logging.info(
+                f"Scene detection (pyscenedetect) for video {os.path.basename(video_path)}, "
+                f"found {len(scene_list)} scenes"
+            )
+            
+            scenes = {
+                f"scene_{i}": Scene(
+                    scene_id=f"scene_{i}",
+                    start_time=start.get_seconds(),
+                    end_time=end.get_seconds(),
+                    start_frame=start.get_frames(),
+                    end_frame=end.get_frames(),
+                )
+                for i, (start, end) in enumerate(scene_list)
+            }
+            
+            return scenes
+            
+        except ImportError:
+            logging.error(
+                "pyscenedetect not installed. Install with: pip install scenedetect"
+            )
+            return {}
+        except Exception as e:
+            logging.error(f"{'='*100} \n Scene detection failed for {video_path}: {e}")
+            logging.error(traceback.format_exc())
+            return {}
+
+

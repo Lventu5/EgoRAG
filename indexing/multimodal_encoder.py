@@ -7,13 +7,13 @@ import numpy as np
 from threading import Lock
 from tqdm import tqdm
 from decord import VideoReader, cpu
-from scenedetect import detect, ContentDetector
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data.video_dataset import VideoDataset, VideoDataPoint, Scene
+from utils.scene_utils import SceneDetector
 from indexing.utils.logging import LevelAwareFormatter
 from indexing.components.video_encoder import VideoEncoder
-from indexing.components.audio_encoder import AudioEncoder # <--- UPDATED
+from indexing.components.audio_encoder import AudioEncoder
 from indexing.components.text_encoder import TextEncoder
 from indexing.components.visual_captioner import VisualCaptioner
 
@@ -75,28 +75,6 @@ class MultiModalEncoder:
         self.text_encoder.load_models()
         self.captioner.load_models()
         logging.info("All models loaded successfully.")
-
-    def _detect_scenes(self, video_path: str) -> dict[str, Scene]:
-        """Detects content-based scenes and returns Scene objects."""
-        try:
-            scene_list = detect(video_path, ContentDetector(threshold=25.0))
-            logging.info(
-                f"Scene extraction for video {os.path.basename(video_path)}, found {len(scene_list)} scenes"
-            )
-            return {
-                f"scene_{i}": Scene(
-                    scene_id=f"scene_{i}",
-                    start_time=start.get_seconds(),
-                    end_time=end.get_seconds(),
-                    start_frame=start.get_frames(),
-                    end_frame=end.get_frames(),
-                )
-                for i, (start, end) in enumerate(scene_list)
-            }
-        except Exception as e:
-            logging.error(f"{'='*100} \n Scene detection failed for {video_path}: {e}")
-            logging.error(traceback.format_exc())
-            return {}
 
     def _extract_frames(self, vr: VideoReader, start_frame: int, end_frame: int, max_frames: int) -> tuple[np.ndarray, np.ndarray]:
         """Extracts frames for a given scene."""
@@ -291,8 +269,18 @@ class MultiModalEncoder:
             video_path = dp.video_path
             logging.info(f"Processing video: {video_path}")
             
-            # Detect scenes for all videos first
-            dp.scenes = self._detect_scenes(video_path)
+            # Use pre-existing scenes if available, otherwise detect them
+            if dp.scenes:
+                logging.info(f"Video {os.path.basename(video_path)} has {len(dp.scenes)} pre-existing scenes")
+                # Scenes already set from dataset, no need to detect
+            else:
+                logging.info(f"No pre-existing scenes found for {os.path.basename(video_path)}, using pyscenedetect")
+                dp.scenes = SceneDetector.detect_scenes(
+                    video_path=video_path,
+                    method="pyscenedetect",
+                    existing_scenes=None
+                )
+            
             if not dp.scenes:
                 logging.warning(f"No scenes detected for {video_path}. Skipping.")
                 continue
