@@ -167,16 +167,25 @@ class HierarchicalRetriever:
         
         video_names = []
         db_embeddings_list = []
+        videos_without_modality = []
         
         for dp in self.video_dataset.video_datapoints:
             emb = dp.global_embeddings.get(modality, None)
             if emb is not None:
                 video_names.append(dp.video_name)
                 db_embeddings_list.append(emb)
+            else:
+                videos_without_modality.append(dp.video_name)
         
         if not db_embeddings_list:
             logging.warning(f"No embeddings available for modality '{modality}'")
             return [[] for _ in range(query_embeddings.shape[0])]
+        
+        # Log information about videos without this modality
+        if videos_without_modality and modality == "audio":
+            logging.info(f"{len(videos_without_modality)} video(s) have no audio track and will be excluded from audio-based retrieval")
+        elif videos_without_modality:
+            logging.warning(f"{len(videos_without_modality)} video(s) missing '{modality}' embeddings")
 
         db_embeddings = torch.stack(db_embeddings_list).to(self.device)
         
@@ -239,7 +248,11 @@ class HierarchicalRetriever:
                 scene_embeddings_list.append(emb.to(self.device))
         
         if not scene_embeddings_list:
-            logging.error(f"No scene embeddings found for video '{video_name}' and modality '{modality}'")
+            # Check if this is expected (e.g., video without audio)
+            if modality == "audio" and hasattr(target_dp, 'has_audio') and not target_dp.has_audio:
+                logging.debug(f"Video '{video_name}' has no audio track - skipping audio scene retrieval")
+            else:
+                logging.error(f"No scene embeddings found for video '{video_name}' and modality '{modality}'")
             return []
 
         scene_embeddings = torch.stack(scene_embeddings_list)

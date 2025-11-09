@@ -59,16 +59,22 @@ class AudioEncoder(BaseEncoder):
         """
         Extracts an audio segment as a numpy array IN-MEMORY.
         Uses the iter_frames workaround for moviepy bug.
+        Returns None if video has no audio track.
         """
         try:
             with VideoFileClip(video_path) as vid:
+                # Check if video has audio at all
+                if vid.audio is None:
+                    logging.info(f"Video {video_path} has no audio track (silent video)")
+                    return None
+                
                 if start_t >= vid.duration or start_t >= end_t:
                     logging.warning(f"Invalid time range {start_t}-{end_t} for video {video_path}")
                     return None
                 
                 clip = vid.subclip(start_t, end_t)
                 if clip.audio is None:
-                    logging.warning(f"No audio found in subclip {start_t}-{end_t} for {video_path}")
+                    logging.info(f"No audio found in subclip {start_t}-{end_t} for {video_path}")
                     return None
 
                 # Moviepy workaround: iter_frames() instead of to_soundarray()
@@ -163,16 +169,24 @@ class AudioEncoder(BaseEncoder):
             end_time: End time of the scene in seconds.
             
         Returns:
-            A dictionary containing 'audio_embedding' and 'transcript'.
+            A dictionary containing 'audio_embedding', 'transcript', and 'has_audio' flag.
+            If video has no audio: returns None for audio_embedding, empty string for transcript,
+            and has_audio=False.
         """
         audio_array_48k = self._extract_audio_array(video_path, start_time, end_time)
         
         if audio_array_48k is None:
-            return {"audio_embedding": None, "transcript": ""}
+            # Video has no audio track - return None values with flag
+            return {
+                "audio_embedding": None, 
+                "transcript": "",
+                "has_audio": False
+            }
 
         # 1. Get CLAP embedding
         audio_embedding = self._embed_audio(audio_array_48k)
         if audio_embedding is None:
+            # Audio exists but CLAP failed (e.g., silent segment)
             # Create a zero vector if CLAP fails
             zero_emb = np.zeros(self.audio_embed_model.config.hidden_size, dtype=np.float32)
             audio_embedding = torch.tensor(zero_emb, dtype=torch.float32)
@@ -185,5 +199,6 @@ class AudioEncoder(BaseEncoder):
         
         return {
             "audio_embedding": audio_embedding,
-            "transcript": transcript
+            "transcript": transcript,
+            "has_audio": True
         }

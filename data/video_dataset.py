@@ -49,6 +49,9 @@ class VideoDataPoint:
         self.video_name = os.path.splitext(os.path.basename(video_path))[0]
         self.video_uid = os.path.splitext(self.video_name)[0]
         self.scenes = scenes or {}
+        
+        # Flag to indicate if this video has an audio track
+        self.has_audio = True  # Assume True until proven otherwise during encoding
 
         # Embeddings globali (media sulle scene)
         self.global_embeddings: Dict[str, Optional[torch.Tensor | str]] = {

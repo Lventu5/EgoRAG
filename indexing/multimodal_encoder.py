@@ -148,8 +148,14 @@ class MultiModalEncoder:
         """
         Stage 2: Encode all scenes with audio encoder.
         Requires video_path and scene timing information.
+        Gracefully handles videos without audio tracks.
         """
         logging.info(f"[Stage 2] Audio encoding for {video_path}")
+        
+        # Track if this video has audio at all
+        video_has_audio = None  # Unknown until we try first scene
+        scenes_with_audio = 0
+        
         futures = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             for sid, scene in dp.scenes.items():
@@ -159,14 +165,36 @@ class MultiModalEncoder:
                 sid = futures[f]
                 try:
                     audio_data = f.result()
+                    
+                    # Check if this is a video without audio
+                    if video_has_audio is None:
+                        video_has_audio = audio_data.get("has_audio", True)
+                        if not video_has_audio:
+                            logging.info(f"Video {dp.video_name} has no audio track - skipping audio encoding")
+                    
                     if audio_data and sid in dp.scene_embeddings:
-                        dp.scene_embeddings[sid]["audio"] = audio_data["audio_embedding"]
-                        dp.scene_embeddings[sid]["transcript"] = audio_data["transcript"]
+                        if audio_data.get("has_audio", True):
+                            dp.scene_embeddings[sid]["audio"] = audio_data["audio_embedding"]
+                            dp.scene_embeddings[sid]["transcript"] = audio_data["transcript"]
+                            scenes_with_audio += 1
+                        else:
+                            # No audio - set to None explicitly
+                            dp.scene_embeddings[sid]["audio"] = None
+                            dp.scene_embeddings[sid]["transcript"] = ""
                     else:
                         logging.warning(f"[SKIP] scene {sid}, audio encoding failed.")
                 except Exception as e:
                     logging.error(f"[ERROR] scene {sid} audio encoding failed: {e}")
                     logging.error(traceback.format_exc())
+        
+        # Log summary
+        if video_has_audio:
+            logging.info(f"Audio encoding complete: {scenes_with_audio}/{len(dp.scenes)} scenes have audio")
+        else:
+            logging.info(f"Video {dp.video_name} has no audio track - all audio embeddings set to None")
+        
+        # Store metadata about audio availability
+        dp.has_audio = video_has_audio if video_has_audio is not None else False
 
     def _encode_caption_stage(self, dp: VideoDataPoint) -> None:
         """
