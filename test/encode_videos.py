@@ -14,7 +14,7 @@ def encode(video_dir, save_dir):
     video_ids = glob.glob(os.path.join(video_dir, "*.mp4"))
     print(f"Found {len(video_ids)} videos")
 
-    for video in tqdm(video_ids):
+    for video in tqdm(video_ids[1:2]):
         print("-"*50)
         print(f"Encoding video {video}")
         print("-"*50)
@@ -31,5 +31,5 @@ def encode(video_dir, save_dir):
 
 if __name__ == "__main__":
     video_dir = "../ego4d_data/v2/full_scale"
-    save_dir = "../ego4d_data/v2/llava_encoded_videos"
+    save_dir = "../ego4d_data/v2/double_llava_encoded_videos"
     encode(video_dir, save_dir)

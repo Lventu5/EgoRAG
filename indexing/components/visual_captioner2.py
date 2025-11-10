@@ -7,6 +7,7 @@ from indexing.utils.clustering import cluster_frames
 import subprocess, tempfile, uuid, os, shutil
 import os
 import torchvision
+from configuration.config import CONFIG
 
 os.environ.setdefault("TORCHVISION_DISABLE_TORCHCODEC", "1")
 try:
@@ -21,10 +22,10 @@ class VisualCaptioner(BaseEncoder):
     Generates textual captions from video frames using BLIP.
     It clusters frames to find key visual moments and captions them.
     """
-    def __init__(self, device: str = "cuda", max_k_clusters: int = 5, model_id: str = "llava-hf/LLaVA-NeXT-Video-7B-hf"):
+    def __init__(self, device: str = "cuda", max_k_clusters: int = 5):
         super().__init__(device)
         self.max_k_clusters = max_k_clusters
-        self.model_id = model_id
+        self.model_id = CONFIG.indexing.caption.caption2_model_id
         
         # Models to be loaded
         self.processor: LlavaNextVideoProcessor = None

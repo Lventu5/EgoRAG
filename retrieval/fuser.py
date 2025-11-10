@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import logging
+from configuration.config import CONFIG
 
 class BaseFuser(ABC):
     """Interfaccia base per tutte le tecniche di fusion ranking."""
@@ -244,7 +245,7 @@ class Fuser:
     """
     
     def __init__(self, method: str = "rrf", **kwargs):
-        self.method_name = method.lower()
+        self.method_name = CONFIG.retrieval.fusion.lower()
 
         if self.method_name == "rrf":
             self.method = FuserRRF(**kwargs)

@@ -1,10 +1,15 @@
 import torch
 import logging
+import numpy as np
 from transformers import (
     XCLIPProcessor,
     XCLIPModel,
     ClapProcessor,
-    ClapModel
+    ClapModel,
+    AutoProcessor,
+    LlavaNextVideoForConditionalGeneration,
+    CLIPProcessor,
+    CLIPTextModel
 )
 from sentence_transformers import SentenceTransformer
 from torch.nn.functional import normalize
@@ -30,9 +35,13 @@ class HierarchicalRetriever:
         audio_model_name = CONFIG.retrieval.audio_model_id
         text_model_name = CONFIG.retrieval.text_model_id
         caption_model_name = CONFIG.retrieval.caption_model_id
+        
+        # Determine video model type from indexing config
+        self.video_model_type = CONFIG.indexing.video.model_name  # "xclip" or "llava-video"
+        
         self.sizes = {
             "video": {
-                "size": 512,
+                "size": 1024,  # CLIP ViT-H/14 projection dimension
                 "model": video_model_name
             },
             "audio": {
@@ -52,6 +61,11 @@ class HierarchicalRetriever:
         self.current_modality = None
         self.processor = None
         self.embedder = None
+        
+        # Cache for CLIP text encoder when using LLaVA-Video
+        self.clip_text_processor = None
+        self.clip_text_model = None
+        
         if fuser is None:
             logging.warning("Fuser not specified, using a RRF fuser")
             self.fuser = Fuser()
@@ -72,12 +86,28 @@ class HierarchicalRetriever:
             )
         
         elif target_modality == "video":
-            model_name = self.sizes["video"]["model"]
-            self.processor = XCLIPProcessor.from_pretrained(model_name)
-            self.embedder = XCLIPModel.from_pretrained(model_name).to(self.device) # type: ignore
+            if self.video_model_type == "llava-video":
+                # For LLaVA-Video: use CLIP text encoder (same variant as LLaVA's vision tower)
+                # Both produce 1024-d embeddings (projection_dim) - no projection needed!
+                if self.clip_text_processor is None or self.clip_text_model is None:
+                    # Use the CLIP model specified for retrieval in config (should match LLaVA's vision tower)
+                    clip_model_id = CONFIG.retrieval.video_model_id
+                    logging.info(f"Loading CLIP text encoder for query embedding: {clip_model_id}")
+                    self.clip_text_processor = CLIPProcessor.from_pretrained(clip_model_id)
+                    self.clip_text_model = CLIPTextModel.from_pretrained(clip_model_id).to(self.device).eval()
+                    
+                # Set embedder to CLIP for consistency check
+                self.embedder = self.clip_text_model
+                    
+            else:  # xclip
+                model_name = self.sizes["video"]["model"]
+                logging.info(f"Loading XCLIP model for retrieval: {model_name}")
+                self.processor = XCLIPProcessor.from_pretrained(model_name)
+                self.embedder = XCLIPModel.from_pretrained(model_name).to(self.device) # type: ignore
 
         elif target_modality == "audio":
             model_name = self.sizes["audio"]["model"]
+            logging.info(f"Loading CLAP model for audio retrieval: {model_name}")
             self.processor = ClapProcessor.from_pretrained(model_name)
             self.embedder = ClapModel.from_pretrained(model_name).to(self.device) # type: ignore
     
@@ -109,11 +139,27 @@ class HierarchicalRetriever:
                 mod_queries, convert_to_tensor=True, device=self.device
             ) # type: ignore
         elif self.current_modality == "video":
-            inputs = self.processor(
-                text=mod_queries, return_tensors="pt", padding=True # type: ignore
-            ).to(self.device)
-            with torch.no_grad():
-                embeddings = self.embedder.get_text_features(**inputs) # type: ignore
+            if self.video_model_type == "llava-video":
+                if self.clip_text_processor is None or self.clip_text_model is None:
+                    raise RuntimeError("CLIP text models not loaded. This should not happen.")
+
+                inputs = self.clip_text_processor(
+                    text=mod_queries, return_tensors="pt", padding=True
+                ).to(self.device)
+                
+                with torch.no_grad():
+                    text_outputs = self.clip_text_model(**inputs)
+                    embeddings = text_outputs.pooler_output  # (batch, 768) - same as LLaVA vision tower output
+                    
+            elif self.video_model_type == "xclip":
+                inputs = self.processor(
+                    text=mod_queries, return_tensors="pt", padding=True # type: ignore
+                ).to(self.device)
+                with torch.no_grad():
+                    embeddings = self.embedder.get_text_features(**inputs) # type: ignore
+            else:
+                raise ValueError(f"Model type not supported: {self.video_model_type}")        
+            
         elif self.current_modality == "audio":
             inputs = self.processor(
                 text=mod_queries, return_tensors="pt", padding=True # type: ignore

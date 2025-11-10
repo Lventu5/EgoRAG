@@ -1,5 +1,9 @@
 import os
 import logging
+import subprocess
+import tempfile
+import uuid
+import shutil
 
 import numpy as np
 import torch
@@ -13,6 +17,7 @@ from transformers import (
 )
 from PIL import Image
 from sklearn.cluster import KMeans
+from decord import VideoReader, cpu
 
 from .base_encoder import BaseEncoder
 from indexing.utils.clustering import choose_k, cluster_frames
@@ -34,19 +39,35 @@ class VideoEncoder(BaseEncoder):
         self.model_name = CONFIG.indexing.video.model_name
         max_frames_per_scene = CONFIG.indexing.video.max_frames_per_scene
         self.max_temporal_segments = CONFIG.indexing.video.max_temporal_segments
+        self.use_video_clips = CONFIG.indexing.video.use_video_clips
         
-        # Set default max_frames_per_scene based on model
+        # Logic for max_frames_per_scene and use_video_clips:
+        # - If max_frames_per_scene is None:
+        #   - llava-video: use video clips (use_video_clips will be overridden to True)
+        #   - xclip: use 8 frames
+        # - If max_frames_per_scene is a number: use that many frames (no clips)
+        
         if max_frames_per_scene is None:
             if self.model_name == "xclip":
                 self.max_frames_per_scene = 8
+                self.use_video_clips = False
             elif self.model_name == "llava-video":
-                self.max_frames_per_scene = 16
+                self.max_frames_per_scene = 16  # Default for frame mode
+                # use_video_clips stays as configured (can be True or False)
             else:
                 self.max_frames_per_scene = 8
+                self.use_video_clips = False
         else:
-            self.max_frames_per_scene = max_frames_per_scene
+            # If user specifies a number, always use frame extraction (no clips)
+            if self.model_name == "xclip":
+                self.max_frames_per_scene = 8 # for xclip always 8
+                self.use_video_clips = False
+            elif self.model_name == "llava-video":
+                self.max_frames_per_scene = max_frames_per_scene
+                self.use_video_clips = False
+        
+        logging.info(f"VideoEncoder: model={self.model_name}, max_frames={self.max_frames_per_scene}, use_clips={self.use_video_clips}")
                     
-        # Models to be loaded
         self.video_model = None
         self.video_processor = None
         self.image_model: CLIPVisionModel = None
@@ -55,7 +76,6 @@ class VideoEncoder(BaseEncoder):
     def load_models(self):
         logging.info(f"[{self.__class__.__name__}] Loading models with {self.model_name}...")
         
-        # Load video model based on model_name
         if self.model_name == "xclip":
             self.model_id = CONFIG.indexing.video.xclip_id
             self.video_model = XCLIPModel.from_pretrained(self.model_id).to(self.device).eval()
@@ -67,10 +87,7 @@ class VideoEncoder(BaseEncoder):
             
             logging.info(f"Loading LLaVA Video model: {self.model_id}...")
             
-            # Load processor
             self.video_processor = AutoProcessor.from_pretrained(self.model_id)
-            
-            # Load model with automatic device mapping
             self.video_model = LlavaNextVideoForConditionalGeneration.from_pretrained(
                 self.model_id,
                 torch_dtype=torch.float16,
@@ -161,10 +178,7 @@ class VideoEncoder(BaseEncoder):
             elif self.model_name == "llava-video":
                 # LLaVA Video - extract vision features
                 with torch.inference_mode():
-                    # Convert numpy frames to PIL Images
                     pil_frames = [Image.fromarray(frame.astype(np.uint8)) for frame in segment_frames_processed]
-                    
-                    # Create a simple prompt for the processor
                     conversation = [
                         {
                             "role": "user",
@@ -175,10 +189,7 @@ class VideoEncoder(BaseEncoder):
                         },
                     ]
                     
-                    # Apply chat template
                     prompt = self.video_processor.apply_chat_template(conversation, add_generation_prompt=True)
-                    
-                    # Process frames
                     inputs = self.video_processor(
                         text=prompt,
                         videos=[pil_frames],
@@ -187,45 +198,34 @@ class VideoEncoder(BaseEncoder):
                     ).to(self.device, torch.float16)
                     
                     # Extract vision embeddings from the vision tower
-                    # Use the correct autocast API based on PyTorch version
-                    try:
-                        autocast_context = torch.amp.autocast('cuda', dtype=torch.float16)
-                    except (AttributeError, TypeError):
-                        # Fallback for older PyTorch versions
-                        autocast_context = torch.cuda.amp.autocast(dtype=torch.float16)
-                    
-                    with autocast_context:
-                        # pixel_values_videos has shape (batch, num_frames, channels, height, width)
-                        # We need to reshape it to process all frames through the vision tower
+                    with torch.amp.autocast("cuda", dtype=torch.float16):
+                        # pixel_values_videos shape: (batch, num_frames, channels, height, width)
+                        # Reshape to (batch * num_frames, channels, height, width) for vision tower
                         pixel_values = inputs["pixel_values_videos"]
                         batch_size, num_frames, channels, height, width = pixel_values.shape
+                        pixel_values_flat = pixel_values.reshape(batch_size * num_frames, channels, height, width)
                         
-                        # Reshape to (batch * num_frames, channels, height, width)
-                        pixel_values_flat = pixel_values.reshape(-1, channels, height, width)
-                        
-                        # Process through vision tower
                         vision_outputs = self.video_model.vision_tower(
                             pixel_values_flat,
                             output_hidden_states=True
                         )
                         
-                        # Get the vision features and reshape back
-                        # vision_features shape: (batch * num_frames, seq_len, hidden_dim)
+                        # Pool the vision features
+                        # last_hidden_state: (batch*num_frames, num_patches, hidden_dim)
                         vision_features = vision_outputs.last_hidden_state
                         
-                        # Pool over spatial dimensions (seq_len)
-                        pooled_per_frame = vision_features.mean(dim=1)  # (batch * num_frames, hidden_dim)
+                        # Reshape back: (batch*num_frames, num_patches, hidden_dim) → (batch, num_frames, num_patches, hidden_dim)
+                        num_patches = vision_features.shape[1]
+                        hidden_dim = vision_features.shape[2]
+                        vision_features = vision_features.reshape(batch_size, num_frames, num_patches, hidden_dim)
                         
-                        # Reshape back to (batch, num_frames, hidden_dim)
-                        pooled_per_frame = pooled_per_frame.reshape(batch_size, num_frames, -1)
-                        
-                        # Pool over temporal dimension (num_frames)
-                        pooled_features = pooled_per_frame.mean(dim=1)  # (batch, hidden_dim)
+                        # Pool over patches and frames: mean over num_patches and num_frames
+                        pooled_features = vision_features.mean(dim=(1, 2))  # (batch, hidden_dim)
                         
                         video_embedding = pooled_features.squeeze(0).detach().cpu()
                         segment_embeddings.append(video_embedding)
                     
-                    del inputs, vision_outputs, pixel_values, pixel_values_flat, vision_features
+                    del inputs, vision_outputs
             else:
                 raise ValueError(f"Unknown model {self.model_name}")
                     
@@ -280,22 +280,131 @@ class VideoEncoder(BaseEncoder):
             
         return np.array(centroid_embeddings, dtype=np.float32)
     
-    def encode(self, frames):
+    def _extract_scene_clip(self, video_path: str, start_time: float, end_time: float, tmp_dir: str) -> str:
+        """
+        Taglia [start_time, end_time] in un file mp4 temporaneo.
+        Ritorna il path della mini-clip.
+        """
+        os.makedirs(tmp_dir, exist_ok=True)
+        out_path = os.path.join(tmp_dir, f"{uuid.uuid4().hex}.mp4")
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", f"{start_time:.3f}",
+            "-to", f"{end_time:.3f}",
+            "-i", video_path,
+            "-c", "copy",
+            out_path
+        ]
         try:
-            frame_embs = self._embed_frames_clip(frames)
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except subprocess.CalledProcessError:
+            # Fallback: re-encode if copy fails
+            cmd = [
+                "ffmpeg", "-y",
+                "-ss", f"{start_time:.3f}",
+                "-to", f"{end_time:.3f}",
+                "-i", video_path,
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-ac", "2", "-b:a", "128k",
+                out_path
+            ]
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        return out_path
+
+    def _extract_frames_from_clip(self, clip_path: str, max_frames: int) -> np.ndarray:
+        """
+        Estrae frames da una clip video usando Decord.
+        """
+        vr = VideoReader(clip_path, ctx=cpu(0))
+        total_frames = len(vr)
+        
+        if total_frames == 0:
+            return np.array([])
+        
+        if max_frames is None or total_frames <= max_frames:
+            indices = np.arange(total_frames)
+        else:
+            indices = np.linspace(0, total_frames - 1, max_frames, dtype=int)
+        
+        frames = vr.get_batch(indices).asnumpy()
+        return frames
+
+    def _extract_frames_direct(self, video_path: str, start_frame: int, end_frame: int, max_frames: int) -> np.ndarray:
+        """
+        Estrae frames direttamente dal video senza creare clip intermedia.
+        Più efficiente quando non serve la clip completa.
+        """
+        vr = VideoReader(video_path, ctx=cpu(0))
+        num_frames_in_scene = end_frame - start_frame
+        
+        if num_frames_in_scene == 0:
+            return np.array([])
+        
+        if max_frames is None or num_frames_in_scene <= max_frames:
+            indices = np.arange(start_frame, end_frame)
+        else:
+            indices = np.linspace(start_frame, end_frame - 1, max_frames, dtype=int)
+        
+        frames = vr.get_batch(indices).asnumpy()
+        return frames
+
+    def encode(self, frames=None, video_path=None, scene=None):
+        """
+        Encode frames in three modes:
+        1. Direct frames: encode(frames=np.ndarray) - when frames are pre-extracted
+        2. Video clip mode: encode(video_path=str, scene=Scene) with use_video_clips=True
+           - Extracts video clip first, then processes entire clip
+        3. Frame extraction mode: encode(video_path=str, scene=Scene) with use_video_clips=False
+           - Directly extracts specific frames without intermediate clip
+        
+        Args:
+            frames: Pre-extracted numpy array of frames (H, W, C)
+            video_path: Path to video file (alternative to frames)
+            scene: Scene object with start_time/end_time (required if video_path is provided)
+        """
+        tmp_root = None
+        clip_path = None
+        
+        try:
+            # Mode 1: Direct frames (existing behavior)
+            if frames is not None:
+                input_frames = frames
+            
+            # Mode 2 & 3: Extract from video
+            elif video_path is not None and scene is not None:
+                if self.use_video_clips:
+                    # Mode 2: Extract video clip first, then frames
+                    tmp_root = tempfile.mkdtemp(prefix="videnc_")
+                    clip_path = self._extract_scene_clip(video_path, scene.start_time, scene.end_time, tmp_root)
+                    input_frames = self._extract_frames_from_clip(clip_path, self.max_frames_per_scene * self.max_temporal_segments)
+                else:
+                    # Mode 3: Direct frame extraction (more efficient, no intermediate clip)
+                    input_frames = self._extract_frames_direct(video_path, scene.start_frame, scene.end_frame, 
+                                                               self.max_frames_per_scene * self.max_temporal_segments)
+                
+                if len(input_frames) == 0:
+                    logging.warning(f"No frames extracted from {video_path} [{scene.start_time}s - {scene.end_time}s]")
+                    return None
+            else:
+                raise ValueError("Must provide either 'frames' OR both 'video_path' and 'scene'")
+            
+            # Standard encoding pipeline
+            frame_embs = self._embed_frames_clip(input_frames)
             km = cluster_frames(frame_embs, self.max_temporal_segments)
             keyframe_embedding = self._embed_image_clusters(frame_embs, km)
 
-            k = choose_k(len(frames), self.max_temporal_segments)
+            k = choose_k(len(input_frames), self.max_temporal_segments)
             # If max_frames_per_scene is set and scene is too short, treat as one chunk
             min_frames_required = self.max_frames_per_scene if self.max_frames_per_scene else 1
-            if k <= 1 or len(frames) < min_frames_required:
-                temporal_chunks = [frames] 
+            if k <= 1 or len(input_frames) < min_frames_required:
+                temporal_chunks = [input_frames] 
             else:
-                temporal_chunks = np.array_split(frames, k, axis=0)
+                temporal_chunks = np.array_split(input_frames, k, axis=0)
             
             temporal_embedding = self._embed_temporal_segments(temporal_chunks)
-            representative_frames = self._get_representative_frames(frames, frame_embs, km)
+            representative_frames = self._get_representative_frames(input_frames, frame_embs, km)
 
             return {
                 "image": torch.tensor(keyframe_embedding, device="cpu", dtype=torch.float32) if isinstance(keyframe_embedding, np.ndarray) else keyframe_embedding,
@@ -303,5 +412,12 @@ class VideoEncoder(BaseEncoder):
                 "keyframes": representative_frames,
             }
         finally:
+            # Cleanup temporary files
+            if tmp_root is not None:
+                try:
+                    shutil.rmtree(tmp_root, ignore_errors=True)
+                except Exception as e:
+                    logging.warning(f"Failed to cleanup temp directory {tmp_root}: {e}")
+            
             if self.device == "cuda":
                 torch.cuda.empty_cache()

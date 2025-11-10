@@ -2,14 +2,15 @@ device: "cuda"
 data:
   video_path: "../ego4d_data/v2/full_scale/"
   annotation_path: "../ego4d_data/v2/annotations/nlq_train.json"
-  video_dataset: "../ego4d_data/v2/noframe_encoded_videos/base_10_videos.pkl"
+  video_dataset: "../ego4d_data/v2/llava_encoded_videos/llava_10_videos.pkl"
 indexing:
   video:
     model_name: "llava-video" # Options: "xclip", "llava-video"
-    max_frames_per_scene: null # null for auto (8 for xclip, 16 for llava-video)
+    max_frames_per_scene: null # null for auto: clips for llava-video, 8 for xclip; number: use that many frames
+    use_video_clips: false # If true, extract video clips instead of frames (requires ffmpeg, slower but more accurate)
     max_temporal_segments: 8
     xclip_id: "microsoft/xclip-base-patch16"
-    llava_video_id: "llava-hf/LLaVA-NeXT-Video-7B-hf" 
+    llava_video_id: "llava-hf/LLaVA-NeXT-Video-7B-hf"
     clip_id: "openai/clip-vit-base-patch32"
   audio:
     audio_sample_rate: 48000
@@ -20,13 +21,16 @@ indexing:
   text:
     text_model_id: "all-MiniLM-L6-v2"
   caption:
+    use_captioner: "captioner2" # Options: "captioner1" (BLIP), "captioner2" (LLaVA)
     caption_model_id: "Salesforce/blip-image-captioning-base"
+    caption2_model_id: "llava-hf/LLaVA-NeXT-Video-7B-hf"
 retrieval:
   text_model_id: "all-MiniLM-L6-v2"
-  video_model_id: "microsoft/xclip-base-patch16"
+  video_model_id: "laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
   audio_model_id: "laion/clap-htsat-unfused"
   caption_model_id: "all-MiniLM-L6-v2"
   rewriter_model_id: "Qwen/Qwen2.5-7B-Instruct"
   top_k_videos: 3
   top_k_scenes: 10
-  modalities: ["video", "caption"]
+  modalities: ["video", "text"]
+  fusion: "rrf"

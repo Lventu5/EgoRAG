@@ -102,7 +102,7 @@ class AudioEncoder(BaseEncoder):
         try:
             audio_trimmed_48k, _ = librosa.effects.trim(audio_array_48k, top_db=20)
             if audio_trimmed_48k.size == 0:
-                logging.warning("Audio clip silent or too short for audio model.")
+                logging.warning("Audio clip silent or too short for CLAP.")
                 return None
 
             inputs_audio = self.audio_embed_processor(
@@ -187,8 +187,8 @@ class AudioEncoder(BaseEncoder):
         audio_embedding = self._embed_audio(audio_array_48k)
         if audio_embedding is None:
             # Audio exists but CLAP failed (e.g., silent segment)
-            # Create a zero vector if CLAP fails
-            zero_emb = np.zeros(self.audio_embed_model.config.hidden_size, dtype=np.float32)
+            # Create a zero vector (512-d for CLAP) if embedding fails
+            zero_emb = np.zeros(512, dtype=np.float32)
             audio_embedding = torch.tensor(zero_emb, dtype=torch.float32)
         else:
             audio_embedding = torch.tensor(audio_embedding, dtype=torch.float32)
