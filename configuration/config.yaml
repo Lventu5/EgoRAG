@@ -15,9 +15,14 @@ indexing:
   audio:
     audio_sample_rate: 48000
     asr_sample_rate: 16000
-    asr_model_id: "openai/whisper-base"
+    asr_model_id: "openai/whisper-large-v3" # Upgraded from whisper-base
     audio_model_id: "laion/clap-htsat-unfused"
     audio_language: "en" # for transcription
+    use_faster_whisper: true # Use faster-whisper for speed (requires: pip install faster-whisper)
+    use_audio_events: true # Enable audio event detection
+    use_diarization: false # Enable speaker diarization (requires: pip install pyannote.audio)
+    audio_event_model_id: "MIT/ast-finetuned-audioset-10-10-0.4593" # Audio Spectrogram Transformer for event detection
+    diarization_model_id: "pyannote/speaker-diarization-3.1" # Speaker diarization model
   text:
     text_model_id: "all-MiniLM-L6-v2"
   caption:
