@@ -18,6 +18,8 @@ from indexing.components.text_encoder import TextEncoder
 from indexing.components.visual_captioner import VisualCaptioner as VisualCaptioner1
 from indexing.components.visual_captioner2 import VisualCaptioner as VisualCaptioner2
 from configuration.config import CONFIG
+from transformers import AutoProcessor
+
 
 # --- Setup logging (can be moved to a main file) ---
 handler = logging.StreamHandler()
@@ -70,122 +72,50 @@ class MultiModalEncoder:
             raise ValueError(f"Unknown captioner: {self.use_captioner}. Use 'captioner1' or 'captioner2'")
         
         logging.info(f"MultiModalEncoder initialized with {max_workers} workers.")
-
-    def load_models(self):
-        """
-        Loads all component models in parallel.
-        This is a heavy operation.
-        """
-        logging.info("Loading all models...")
-        # (In a real scenario, you might parallelize this)
-        self.video_encoder.load_models()
-        self.audio_encoder.load_models()
-        self.text_encoder.load_models()
-        self.captioner.load_models()
-        logging.info("All models loaded successfully.")
-
-    def _extract_frames(self, vr: VideoReader, start_frame: int, end_frame: int, max_frames: int) -> tuple[np.ndarray, np.ndarray]:
-        """Extracts frames for a given scene."""
-        # vr = VideoReader(video_path, ctx=cpu(0))
-        num_frames_in_scene = end_frame - start_frame
         
-        if num_frames_in_scene > max_frames:
-            indices = np.linspace(start_frame, end_frame - 1, max_frames, dtype=int)
-        else:
-            indices = np.arange(start_frame, end_frame)
-            
-        frames = vr.get_batch(indices).asnumpy()
-        return frames
 
     def _encode_video_stage(self, video_path: str, dp: VideoDataPoint) -> None:
         """
-        Stage 1: Extract frames and encode all scenes with video encoder.
-        Two modes:
-        1. Frame extraction mode (use_video_clips=False): Pre-extract frames using VideoReader
-        2. Video clip mode (use_video_clips=True): Pass video_path to encoder, which creates clips
+        Stage 1: Encode all scenes with video encoder.
+        Each encoder handles frame/clip extraction internally:
+        
+        - XCLIP: Extracts all frames, clusters to 8 representative frames, encodes
+        - Qwen2-VL: Creates temporary clip of scene, loads ALL frames, extracts 
+                    single embedding (first token from vision tower, no pooling)
         """
-        logging.info(f"[Stage 1] Video encoding for {video_path} (use_clips={self.video_encoder.use_video_clips})")
+        logging.info(f"[Stage 1] Video encoding for {video_path}")
         
         # Temporary storage for keyframes (needed for captioner1)
         dp._temp_keyframes = {}
         
-        if self.video_encoder.use_video_clips:
-            # Mode 2: Video clip mode - encoder handles everything
-            futures = {}
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                for sid, scene in dp.scenes.items():
-                    futures[executor.submit(self._encode_video_from_clip, video_path, scene)] = sid
+        futures = {}
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            for sid, scene in dp.scenes.items():
+                futures[executor.submit(self.video_encoder.encode, video_path, scene)] = sid
 
-                for f in tqdm(as_completed(futures), total=len(futures), desc=f"Video Encoding ({dp.video_name})"):
-                    sid = futures[f]
-                    try:
-                        video_data = f.result()
-                        if video_data:
-                            dp.scene_embeddings[sid] = {"video": video_data["video"]}
-                            dp._temp_keyframes[sid] = video_data["keyframes"]
-                        else:
-                            logging.warning(f"[SKIP] scene {sid}, video encoding failed.")
-                    except Exception as e:
-                        logging.error(f"[ERROR] scene {sid} video encoding failed: {e}")
-                        logging.error(traceback.format_exc())
-        else:
-            # Mode 1: Frame extraction mode - use VideoReader with lock
-            vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
-            
-            futures = {}
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                for sid, scene in dp.scenes.items():
-                    futures[executor.submit(self._extract_and_encode_video, scene, vr)] = sid
-
-                for f in tqdm(as_completed(futures), total=len(futures), desc=f"Video Encoding ({dp.video_name})"):
-                    sid = futures[f]
-                    try:
-                        video_data = f.result()
-                        if video_data:
-                            dp.scene_embeddings[sid] = {"video": video_data["video"]}
-                            dp._temp_keyframes[sid] = video_data["keyframes"]
-                        else:
-                            logging.warning(f"[SKIP] scene {sid}, video encoding failed.")
-                    except Exception as e:
-                        logging.error(f"[ERROR] scene {sid} video encoding failed: {e}")
-                        logging.error(traceback.format_exc())
-            
-            del vr
-
-    def _extract_and_encode_video(self, scene: Scene, vr: VideoReader) -> dict | None:
-        """
-        Helper: Extract frames and encode with video encoder (frame extraction mode).
-        Frame extraction is serialized via lock, but encoding is parallel.
-        """
-        try:
-            # Serialize frame extraction to avoid Decord segfaults
-            with self.video_reader_lock:
-                frames = self._extract_frames(vr, scene.start_frame, scene.end_frame, self.video_encoder.max_frames_per_scene)
-            
-            # Encoding happens in parallel (no lock needed)
-            video_data = self.video_encoder.encode(frames=frames)
-            del frames
-            # video_data["image"] holds embedding(s); video_data["keyframes"] holds the actual raw frames
-            return {"video": video_data["video"], "keyframes": video_data["keyframes"]}
-        except Exception as e:
-            logging.error(f"Failed to encode video for scene: {e}")
-            logging.error(traceback.format_exc())
-            return None
-
-    def _encode_video_from_clip(self, video_path: str, scene: Scene) -> dict | None:
-        """
-        Helper: Encode video using clip extraction mode.
-        The encoder handles clip extraction internally.
-        """
-        try:
-            video_data = self.video_encoder.encode(video_path=video_path, scene=scene)
-            if video_data is None:
-                return None
-            return {"video": video_data["video"], "keyframes": video_data["keyframes"]}
-        except Exception as e:
-            logging.error(f"Failed to encode video clip for scene {scene.scene_id}: {e}")
-            logging.error(traceback.format_exc())
-            return None
+            for f in tqdm(as_completed(futures), total=len(futures), desc=f"Video ({dp.video_name})", disable=False):
+                sid = futures[f]
+                try:
+                    video_data = f.result()
+                    if video_data:
+                        dp.scene_embeddings[sid] = {"video": video_data["video"]}
+                        dp._temp_keyframes[sid] = video_data["keyframes"]
+                    else:
+                        logging.warning(f"[SKIP] scene {sid}, video encoding failed.")
+                except Exception as e:
+                    logging.error(f"[ERROR] scene {sid} video encoding failed: {e}")
+                    logging.error(traceback.format_exc())
+                    raise ValueError("Failed")
+        
+        # Generate global video embedding for the entire video (except XCLIP)
+        if self.video_encoder.model_name == "qwen2-vl":
+            logging.info(f"[Stage 1] Encoding global video embedding for entire video ({dp.video_name})...")
+            video_data = self.video_encoder.encode_full_video(video_path)
+            if video_data:
+                dp.global_embeddings["video"] = video_data["video"]
+                logging.info(f"[Stage 1] Global video embedding generated for {dp.video_name}")
+        elif self.video_encoder.model_name == "xclip":
+            logging.info(f"[Stage 1] Using mean pooling for global video embedding (XCLIP)")
 
     def _encode_audio_stage(self, video_path: str, dp: VideoDataPoint) -> None:
         """
@@ -204,7 +134,7 @@ class MultiModalEncoder:
             for sid, scene in dp.scenes.items():
                 futures[executor.submit(self.audio_encoder.encode, video_path, scene.start_time, scene.end_time)] = sid
 
-            for f in tqdm(as_completed(futures), total=len(futures), desc=f"Audio Encoding ({dp.video_name})"):
+            for f in tqdm(as_completed(futures), total=len(futures), desc=f"Audio ({dp.video_name})", disable=False):
                 sid = futures[f]
                 try:
                     audio_data = f.result()
@@ -238,11 +168,30 @@ class MultiModalEncoder:
         
         # Store metadata about audio availability
         dp.has_audio = video_has_audio if video_has_audio is not None else False
+        
+        # Generate global audio embedding for the entire video
+        if video_has_audio:
+            logging.info(f"[Stage 2] Encoding global audio embedding for entire video ({dp.video_name})...")
+            start_time, end_time = self._get_video_time_bounds(dp, video_path)
+            if end_time > start_time:
+                duration = end_time - start_time
+                logging.info(f"[Stage 2] Processing {duration:.1f}s of audio...")
+                global_audio = self.audio_encoder.encode(video_path, start_time, end_time)
+                if global_audio:
+                    dp.global_embeddings["audio"] = global_audio.get("audio_embedding")
+                    dp.global_embeddings["transcript"] = global_audio.get("transcript", "")
+                    dp.global_embeddings["transcript_words"] = global_audio.get("transcript_words", [])
+                    dp.global_embeddings["audio_events"] = global_audio.get("audio_events", [])
+                    dp.global_embeddings["speaker_segments"] = global_audio.get("speaker_segments", [])
+                    logging.info(f"[Stage 2] Global audio embedding generated for {dp.video_name}")
 
     def _encode_caption_stage(self, video_path: str, dp: VideoDataPoint) -> None:
         """
         Stage 3: Generate captions from keyframes (captioner1) or video scenes (captioner2).
-        Requires keyframes from temporary storage (deleted after this stage for captioner1).
+        
+        Captioner1 (BLIP): Uses pre-extracted keyframes from video stage
+        Captioner2 (Qwen2-VL): Creates temporary video clip of entire scene, 
+                               loads all frames, generates caption, then deletes clip
         """
         logging.info(f"[Stage 3] Caption generation for {dp.video_name} using {self.use_captioner}")
         futures = {}
@@ -255,20 +204,18 @@ class MultiModalEncoder:
                         futures[executor.submit(self.captioner.encode, dp._temp_keyframes[sid])] = sid
             
             elif self.use_captioner == "captioner2":
-                # LLaVA captioner: uses video path + scene timing
+                # Qwen2-VL captioner: uses video path + scene timing
+                # Internally creates temp clip, loads all frames, generates caption
                 for sid, scene in dp.scenes.items():
                     if sid in dp.scene_embeddings:
                         futures[executor.submit(self.captioner.encode, video_path, scene)] = sid
 
-            for f in tqdm(as_completed(futures), total=len(futures), desc=f"Caption Generation ({dp.video_name})"):
+            for f in tqdm(as_completed(futures), total=len(futures), desc=f"Caption ({dp.video_name})", disable=False):
                 sid = futures[f]
                 try:
                     caption = f.result()
                     if sid in dp.scene_embeddings:
                         dp.scene_embeddings[sid]["caption_text"] = caption
-                        # Free keyframes after caption generation to avoid storing large
-                        # raw frames inside the VideoDataPoint (we only needed them for
-                        # captioning). This keeps the pickled dataset small.
                         if "keyframes" in dp.scene_embeddings[sid]:
                             try:
                                 del dp.scene_embeddings[sid]["keyframes"]
@@ -281,11 +228,17 @@ class MultiModalEncoder:
                     logging.error(f"[ERROR] scene {sid} caption generation failed: {e}")
                     logging.error(traceback.format_exc())
         
-        # Delete keyframes immediately after caption generation (only for captioner1)
-        if self.use_captioner == "captioner1":
+        # Generate global caption for the entire video
+        logging.info(f"[Stage 3] Generating global caption for entire video ({dp.video_name})...")
+        global_caption = self._generate_full_video_caption(video_path, dp)
+        dp.global_embeddings["caption_text"] = global_caption
+        logging.info(f"[Stage 3] Global caption generated for {dp.video_name}")
+        
+        # Delete keyframes immediately after caption generation
+        # (needed for both captioner1 and captioner2 to keep pickle size small)
+        if hasattr(dp, "_temp_keyframes"):
             del dp._temp_keyframes
             logging.info(f"[Stage 3] Keyframes cleaned up for {dp.video_name}")
-
 
     def _encode_text_stage(self, dp: VideoDataPoint) -> None:
         """
@@ -301,7 +254,7 @@ class MultiModalEncoder:
                 full_text = f"Transcript: {transcript}. Visuals: {caption}"
                 futures[executor.submit(self._encode_text_pair, full_text, caption)] = sid
 
-            for f in tqdm(as_completed(futures), total=len(futures), desc=f"Text Encoding ({dp.video_name})"):
+            for f in tqdm(as_completed(futures), total=len(futures), desc=f"Text ({dp.video_name})", disable=False):
                 sid = futures[f]
                 try:
                     text_emb, caption_emb = f.result()
@@ -313,6 +266,15 @@ class MultiModalEncoder:
                 except Exception as e:
                     logging.error(f"[ERROR] scene {sid} text encoding failed: {e}")
                     logging.error(traceback.format_exc())
+        
+        # Generate global text embeddings for the entire video
+        global_caption = dp.global_embeddings.get("caption_text", "")
+        global_transcript = dp.global_embeddings.get("transcript", "")
+        combined_text = f"Transcript: {global_transcript}. Visuals: {global_caption}".strip()
+        text_emb, caption_emb = self._encode_text_pair(combined_text, global_caption)
+        dp.global_embeddings["text"] = text_emb
+        dp.global_embeddings["caption"] = caption_emb
+        logging.info(f"[Stage 4] Global text embeddings generated for {dp.video_name}")
 
     def _encode_text_pair(self, full_text: str, caption: str) -> tuple[torch.Tensor, torch.Tensor]:
         """Helper: Encode both full text and caption separately."""
@@ -337,16 +299,100 @@ class MultiModalEncoder:
                 
         return aggregated
 
+    def _get_video_time_bounds(self, dp: VideoDataPoint, video_path: str) -> tuple[float, float]:
+        """Return the start and end time for the full video."""
+        if dp.scenes:
+            starts = [scene.start_time for scene in dp.scenes.values() if scene is not None]
+            ends = [scene.end_time for scene in dp.scenes.values() if scene is not None]
+            if starts and ends:
+                return max(0.0, min(starts)), max(0.01, max(ends))
+        
+        try:
+            vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
+            total_frames = len(vr)
+            fps = vr.get_avg_fps()
+            del vr
+            duration = (total_frames / fps) if fps and fps > 0 else 0.0
+            return 0.0, max(0.01, duration)
+        except Exception as exc:
+            logging.error(f"[Duration] Failed to estimate video duration for {video_path}: {exc}")
+            return 0.0, 0.01
+
+    def _generate_full_video_caption(self, video_path: str, dp: VideoDataPoint) -> str:
+        """Generate a single caption describing the full video."""
+        if self.use_captioner == "captioner1":
+            # For BLIP: collect keyframes from all scenes
+            keyframes = self._collect_keyframes_from_scenes(dp)
+            if keyframes.size == 0:
+                logging.warning(f"[Caption] No keyframes for full video {dp.video_name}")
+                return ""
+            return self.captioner.encode(keyframes)
+        
+        if self.use_captioner == "captioner2":
+            # For Qwen2-VL: create a scene covering the full video
+            start_time, end_time = self._get_video_time_bounds(dp, video_path)
+            if end_time - start_time <= 0.01:
+                logging.warning(f"[Caption] Invalid time range for full caption on {dp.video_name}")
+                return ""
+            full_scene = Scene(scene_id="full_video", start_time=start_time, end_time=end_time)
+            # Compute adaptive fps via video_encoder and pass it to captioner (simple single-flag behavior)
+            fps_adaptive = None
+            if hasattr(self.video_encoder, "_compute_adaptive_fps"):
+                fps_adaptive = self.video_encoder._compute_adaptive_fps(video_path, max_frames_allowed=1024, margin=32)
+            return self.captioner.encode(video_path, full_scene, fps=fps_adaptive)
+        
+        logging.error(f"[Caption] Unknown captioner: {self.use_captioner}")
+        return ""
+
+    def _collect_keyframes_from_scenes(self, dp: VideoDataPoint, max_frames: int = 32) -> np.ndarray:
+        """Concatenate keyframes from all scenes for global captioning."""
+        if not hasattr(dp, "_temp_keyframes"):
+            return np.array([])
+        
+        collected = []
+        for frames in dp._temp_keyframes.values():
+            if isinstance(frames, np.ndarray) and frames.size > 0:
+                collected.append(frames)
+        
+        if not collected:
+            return np.array([])
+        
+        stacked = np.concatenate(collected, axis=0)
+        if len(stacked) > max_frames:
+            indices = np.linspace(0, len(stacked) - 1, max_frames, dtype=int)
+            stacked = stacked[indices]
+        return stacked
+
     def encode_videos(self) -> VideoDataset:
         """
         Orchestrates encoding in stages to load/unload models one at a time.
         
         Stages:
-        1. Video encoding + Caption generation (if both use LLaVA, share the model)
-        2. Audio encoding
-        3. Text encoding (captions + transcripts)
+        1. Video encoding:
+           - XCLIP: Extracts all frames → clustering → selects 8 frames → encoding (768-dim)
+           - Qwen2-VL: Creates temp clip → loads all frames → single embedding (1536-dim, first token)
+        
+        2. Caption generation (if both video & caption use Qwen2-VL, share the model):
+           - Captioner1 (BLIP): Uses keyframes from stage 1
+           - Captioner2 (Qwen2-VL): Creates temp clip → loads all frames → generates caption
+        
+        3. Audio encoding:
+           - Extracts audio from scene
+           - Whisper transcription + CLAP embedding
+        
+        4. Text encoding:
+           - Encodes transcript + caption with Sentence Transformers
         """
-        for dp in tqdm(self.dataset.video_datapoints, desc="Encoding Videos"):
+        for dp in tqdm(self.dataset.video_datapoints, desc="Encoding Videos", disable=False):
+            # GPU monitor semplice dopo ogni video
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    mem = torch.cuda.memory_allocated() / 1024**3
+                    mem_free = torch.cuda.get_device_properties(0).total_memory / 1024**3 - mem
+                    print(f"[GPU] Allocated: {mem:.2f} GB, Free: {mem_free:.2f} GB")
+            except Exception:
+                pass
             video_path = dp.video_path
             logging.info(f"Processing video: {video_path}")
             
@@ -365,13 +411,9 @@ class MultiModalEncoder:
             if not dp.scenes:
                 logging.warning(f"No scenes detected for {video_path}. Skipping.")
                 continue
-            # for scene in dp.scenes.values():
-            #     logging.info(f"Detected scene {scene.scene_id}: frames {scene.start_frame}-{scene.end_frame}, time {scene.start_time:.2f}-{scene.end_time:.2f}s")
-            
-            # Stage 1: Video Encoding + Caption Generation
-            # If both use LLaVA (video model is llava-video and captioner is captioner2), keep model loaded
+
             video_model_name = CONFIG.indexing.video.model_name
-            both_use_llava = (video_model_name == "llava-video" and self.use_captioner == "captioner2")
+            both_use_qwen2vl = (video_model_name == "qwen2-vl" and self.use_captioner == "captioner2")
             
             self.video_encoder.load_models()
             self._encode_video_stage(video_path, dp)
@@ -385,12 +427,30 @@ class MultiModalEncoder:
                 continue
             
             # Stage 1b: Caption Generation immediately after video
-            # (keyframes are deleted inside this stage for captioner1)
-            if both_use_llava:
-                logging.info(f"[Optimization] Video and Caption both use LLaVA - keeping model loaded")
-                # Share the LLaVA model between video encoder and captioner
-                self.captioner.model = self.video_encoder.model
-                self.captioner.processor = self.video_encoder.processor
+            if both_use_qwen2vl:
+                logging.info(f"[Optimization] Video and Caption both use Qwen2-VL - sharing model")
+                
+                # Log cache location for debugging
+                cache_dir = os.environ.get("HF_HOME", os.environ.get("TRANSFORMERS_CACHE"))
+                if cache_dir:
+                    logging.info(f"Loading captioner processor from cache: {cache_dir}")
+                
+                # Verify video encoder model is loaded
+                if self.video_encoder.video_model is None:
+                    raise RuntimeError("Video encoder model not loaded before caption stage")
+                
+                self.captioner.processor = AutoProcessor.from_pretrained(
+                    self.captioner.model_id,
+                    min_pixels=256*28*28,
+                    max_pixels=1280*28*28
+                )
+                
+                self.captioner.model = self.video_encoder.video_model
+                if self.captioner.model is None:
+                    logging.error("[ERROR] captioner.model is still None after assignment!")
+                    raise RuntimeError("Model sharing failed - captioner.model is None")
+                
+                logging.info(f"[Optimization] Model sharing complete - captioner.model: {type(self.captioner.model)}")
             else:
                 # Load captioner models separately
                 self.captioner.load_models()
@@ -398,10 +458,9 @@ class MultiModalEncoder:
             self._encode_caption_stage(video_path, dp)
             
             # Unload models after both video and caption are done
-            if both_use_llava:
-                # Unload shared LLaVA model
+            if both_use_qwen2vl:
+                # Unload shared Qwen2-VL model and captioner processor
                 self.unload_model("video")
-                # Don't unload captioner separately since it shares the model
                 if hasattr(self.captioner, 'model'):
                     del self.captioner.model
                 if hasattr(self.captioner, 'processor'):
@@ -431,13 +490,20 @@ class MultiModalEncoder:
                 torch.cuda.empty_cache()
                 gc.collect()
             
-            # Aggregate embeddings
-            dp.global_embeddings = self._aggregate_embeddings(dp.scene_embeddings)
+            # For XCLIP video: use mean pooling since we don't call the model on full video
+            if CONFIG.indexing.video.model_name == "xclip":
+                aggregated = self._aggregate_embeddings(dp.scene_embeddings)
+                # Only override video embedding, keep the rest (audio, text, caption were computed globally)
+                if aggregated.get("video") is not None:
+                    dp.global_embeddings["video"] = aggregated["video"]
+                    logging.info(f"[Aggregate] Used mean pooling for global video embedding (XCLIP)")
 
-        self.dataset.encoded = True
+            # Ora posso scaricare il modello video
+            self.unload_model("video")
+            self.dataset.encoded = True
         
         return self.dataset
-    
+
     def unload_model(self, modality: str) -> None:
         """Free heavy encoder models from GPU."""
         if modality == "text" and hasattr(self, "text_encoder"):

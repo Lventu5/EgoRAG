@@ -1,26 +1,18 @@
 import torch
+from decord import VideoReader, cpu
+import gc
 import numpy as np
 import logging
-from transformers import BlipProcessor, BlipForConditionalGeneration
-from transformers import LlavaNextVideoProcessor, LlavaNextVideoForConditionalGeneration
-from indexing.utils.clustering import cluster_frames
+from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
+from qwen_vl_utils import process_vision_info
 import subprocess, tempfile, uuid, os, shutil
-import os
-import torchvision
 from configuration.config import CONFIG
-
-os.environ.setdefault("TORCHVISION_DISABLE_TORCHCODEC", "1")
-try:
-    torchvision.set_video_backend("video_reader")
-except Exception:
-    pass
 
 from .base_encoder import BaseEncoder
 
 class VisualCaptioner(BaseEncoder):
     """
-    Generates textual captions from video frames using BLIP.
-    It clusters frames to find key visual moments and captions them.
+    Generates textual captions from video scenes using Qwen2-VL.
     """
     def __init__(self, device: str = "cuda", max_k_clusters: int = 5):
         super().__init__(device)
@@ -28,111 +20,170 @@ class VisualCaptioner(BaseEncoder):
         self.model_id = CONFIG.indexing.caption.caption2_model_id
         
         # Models to be loaded
-        self.processor: LlavaNextVideoProcessor = None
-        self.model: LlavaNextVideoForConditionalGeneration = None
+        self.processor = None
+        self.model = None
 
     def load_models(self):
-        logging.info(f"[{self.__class__.__name__}] Loading LLaVA models...")
-        self.processor = LlavaNextVideoProcessor.from_pretrained(self.model_id)
-        self.model = LlavaNextVideoForConditionalGeneration.from_pretrained(self.model_id, torch_dtype=torch.float16 if self.device=="cuda" else torch.float32).to(self.device)
-        try:
-            self.processor.tokenizer.padding_side = "left"
-        except Exception:
-            pass
+        logging.info(f"[{self.__class__.__name__}] Loading Qwen2-VL models...")
+        
+        # HuggingFace automatically uses HF_HOME/TRANSFORMERS_CACHE if set
+        cache_dir = os.environ.get("HF_HOME", os.environ.get("TRANSFORMERS_CACHE"))
+        if cache_dir:
+            logging.info(f"Using cache directory: {cache_dir}")
+        
+        self.processor = AutoProcessor.from_pretrained(
+            self.model_id,
+            min_pixels=256*28*28,
+            max_pixels=1280*28*28
+        )
+        self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+            self.model_id,
+            torch_dtype=torch.bfloat16,
+            device_map=self.device,
+            attn_implementation="flash_attention_2",
+        )
+        self.model.eval()
         logging.info(f"[{self.__class__.__name__}] Models loaded.")
 
-    # def _cluster_frames_for_captioning(self, frames: np.ndarray) -> np.ndarray:
-    #     """
-    #     Selects representative frames for captioning.
-    #     This uses a simplified clustering (or just subsampling)
-    #     to pick keyframes.
-    #     """
-    #     num_frames = len(frames)
-    #     if num_frames == 0:
-    #         return np.array([])
-        
-    #     # Select k indices evenly spaced
-    #     k = min(self.max_k_clusters, num_frames)
-    #     indices = np.linspace(0, num_frames - 1, k, dtype=int)
-        
-    #     return frames[indices]
 
     def _extract_scene_clip(self, video_path: str, start_time: float, end_time: float, tmp_dir: str) -> str:
         """
-        Taglia [start_time, end_time] in un file mp4 temporaneo.
-        Ritorna il path della mini-clip.
+        Crea una clip temporanea della scena usando ffmpeg di imageio-ffmpeg (ha libx264!)
         """
+        import imageio_ffmpeg
         os.makedirs(tmp_dir, exist_ok=True)
         out_path = os.path.join(tmp_dir, f"{uuid.uuid4().hex}.mp4")
 
+        # Get ffmpeg binary from imageio-ffmpeg (has libx264 enabled!)
+        ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+        
+        # Calculate duration instead of end_time to avoid seeking issues
+        duration = end_time - start_time
+        
+        # Validate times
+        if end_time <= start_time or duration <= 0.01:
+            logging.error(f"Invalid scene times: start={start_time}, end={end_time}, duration={duration}")
+            raise ValueError("Invalid scene times for clip extraction")
+
+        # Use libx264 re-encoding for clean clips with timestamp fixes
         cmd = [
-            "ffmpeg", "-y",
+            ffmpeg_bin, "-y",
             "-ss", f"{start_time:.3f}",
-            "-to", f"{end_time:.3f}",
             "-i", video_path,
-            "-c", "copy",
+            "-t", f"{duration:.3f}",  # Use duration instead of -to
+            "-c:v", "libx264",
+            "-preset", "ultrafast",  # Faster encoding
+            "-crf", "28",  # Lower quality for speed
+            "-avoid_negative_ts", "make_zero",  # Fix timestamp issues
+            "-fflags", "+genpts",  # Generate timestamps
+            "-an",
             out_path
         ]
-        try:
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except subprocess.CalledProcessError:
-            cmd = [
-                "ffmpeg", "-y",
-                "-ss", f"{start_time:.3f}",
-                "-to", f"{end_time:.3f}",
-                "-i", video_path,
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-c:a", "aac", "-ac", "2", "-b:a", "128k",
-                out_path
-            ]
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        proc = subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        if proc.returncode != 0:
+            stderr = proc.stderr.decode(errors="ignore") if proc.stderr is not None else ""
+            logging.error(f"ffmpeg failed when creating caption clip: {stderr}")
+            raise subprocess.CalledProcessError(proc.returncode, cmd, output=None, stderr=proc.stderr)
 
         return out_path
 
-    def encode(self, video_path: str, scene, prompt: str = "Describe this scene briefly.") -> str:
+    def encode(self, video_path: str, scene, prompt: str = "Describe this scene briefly.", fps: float | None = None) -> str:
         """
-        Genera una caption per una singola scena partendo dal video path.
+        Genera una caption per una singola scena partendo dal video path usando Qwen2-VL.
         'scene' è un oggetto Scene con start_time/end_time (in secondi).
         """
+        # Verify model and processor are loaded
+        if self.model is None:
+            error_msg = f"[Caption][{scene.scene_id if scene else 'unknown'}] Model is None! Call load_models() or share model first."
+            logging.error(error_msg)
+            return ""
+        
+        if self.processor is None:
+            error_msg = f"[Caption][{scene.scene_id if scene else 'unknown'}] Processor is None! Call load_models() first."
+            logging.error(error_msg)
+            return ""
+        
         if scene is None:
             logging.warning("encode_scene: scena None.")
             return ""
 
-        tmp_root = tempfile.mkdtemp(prefix="vidcap_")
-        clip_path = None
+        tmp_dir = tempfile.mkdtemp(prefix="qwen2vl_caption_")
         try:
-            clip_path = self._extract_scene_clip(video_path, scene.start_time, scene.end_time, tmp_root)
+            # Crea clip temporanea dell'intera scena
+            clip_path = self._extract_scene_clip(video_path, scene.start_time, scene.end_time, tmp_dir)
+            
+            # Decide fps: use provided fps (from caller) or default to 1.0 for scene captioning
+            fps_to_use = fps if fps is not None else 1.0
 
-            messages = [{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "video", "path": clip_path},
-                ],
-            }]
+            # Minimal approach: let processor load the video directly with chosen fps
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "video", "video": clip_path, "max_pixels": 360 * 420, "fps": fps_to_use},
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ]
 
             with torch.inference_mode():
-                proc_inputs = self.processor.apply_chat_template(
-                    messages,
-                    add_generation_prompt=True,
-                    tokenize=True,
-                    return_dict=True,
-                    return_tensors="pt",
-                    num_frames=16,
+                # Apply chat template
+                text = self.processor.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True
                 )
-                proc_inputs = {k: (v.to(self.device) if hasattr(v, "to") else v) for k, v in proc_inputs.items()}
-                out = self.model.generate(**proc_inputs, max_new_tokens=64)
-                text = self.processor.batch_decode(out, skip_special_tokens=True, clean_up_tokenization_spaces=True)[0].strip()
+                
+                # Let process_vision_info load and process the video efficiently
+                image_inputs, video_inputs = process_vision_info(messages)
+                
+                inputs = self.processor(
+                    text=[text],
+                    images=image_inputs,
+                    videos=video_inputs,
+                    padding=True,
+                    return_tensors="pt",
+                )
+                inputs = inputs.to(self.device)
+                
+                # Generate caption
+                try:
+                    with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+                        generated_ids = self.model.generate(**inputs, max_new_tokens=64)
 
-            return text
+                    # Trim input tokens from generated output
+                    generated_ids_trimmed = [
+                        out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+                    ]
+
+                    caption = self.processor.batch_decode(
+                        generated_ids_trimmed, 
+                        skip_special_tokens=True, 
+                        clean_up_tokenization_spaces=False
+                    )[0].strip()
+                except TypeError as e:
+                    # Known potential mismatch in underlying visual forward signature
+                    # (e.g. missing hidden_states). Log full error and return empty caption.
+                    logging.error(f"Model.generate failed with TypeError: {e}")
+                    import traceback
+                    logging.error(traceback.format_exc())
+                    return ""
+                
+                # Explicit cleanup to free memory
+                del inputs, generated_ids, generated_ids_trimmed, image_inputs, video_inputs
+                if self.device == "cuda":
+                    torch.cuda.empty_cache()
+
+            return caption
+            
         except Exception as e:
             logging.error(f"[Caption][{scene.scene_id}] failed: {e}")
+            import traceback
+            logging.error(traceback.format_exc())
             return ""
         finally:
-            try:
-                shutil.rmtree(tmp_root, ignore_errors=True)
-            except Exception:
-                pass
+            # Cleanup temp directory
+            if os.path.exists(tmp_dir):
+                shutil.rmtree(tmp_dir)
 
 ## --- TEMPORARY TEST --- ##
 

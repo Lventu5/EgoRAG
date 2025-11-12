@@ -1,3 +1,4 @@
+import os
 import torch
 import logging
 from sentence_transformers import SentenceTransformer
@@ -16,6 +17,7 @@ class TextEncoder(BaseEncoder):
 
     def load_models(self):
         logging.info(f"[{self.__class__.__name__}] Loading {self.model_name}...")
+        # SentenceTransformer automatically uses SENTENCE_TRANSFORMERS_HOME or HF_HOME
         self.sbert_model = SentenceTransformer(self.model_name, device=self.device)
         logging.info(f"[{self.__class__.__name__}] Model loaded.")
 

@@ -173,7 +173,53 @@ def inspect_dataset(path: str) -> None:
             print(f"  {name}: {human(size)}")
 
 
+def check_for_keyframes(path: str) -> None:
+    """Check if pickle contains keyframes data that should have been deleted"""
+    with open(path, "rb") as f:
+        data = pickle.load(f)
+    
+    vds = getattr(data, "video_datapoints", None)
+    if not vds:
+        print("No video_datapoints found")
+        return
+    
+    for idx, dp in enumerate(vds):
+        print(f"\n=== VideoDataPoint {idx} ===")
+        
+        # Check for _temp_keyframes attribute
+        if hasattr(dp, "_temp_keyframes"):
+            print(f"⚠️  WARNING: dp._temp_keyframes still exists!")
+            print(f"   Size: {human(sizeof(dp._temp_keyframes, set()))}")
+        
+        # Check scene_embeddings for keyframes
+        scenes = getattr(dp, "scene_embeddings", {})
+        keyframe_scenes = []
+        for scene_id, scene_dict in scenes.items():
+            if isinstance(scene_dict, dict) and "keyframes" in scene_dict:
+                kf = scene_dict["keyframes"]
+                kf_size = sizeof(kf, set())
+                keyframe_scenes.append((scene_id, kf_size))
+        
+        if keyframe_scenes:
+            print(f"⚠️  WARNING: Found keyframes in scene_embeddings:")
+            for sid, size in keyframe_scenes:
+                print(f"   {sid}: {human(size)}")
+            total_kf = sum(s for _, s in keyframe_scenes)
+            print(f"   TOTAL keyframes: {human(total_kf)}")
+        else:
+            print("✅ No keyframes found in scene_embeddings")
+
+
 if __name__ == "__main__":
     # Load and inspect the specific pickle the user asked for
-    path = "../ego4d_data/v2/noframe_encoded_videos/245cde61-d0a0-49c8-840d-e484b5f71a04_encoded.pkl"
+    path = "../ego4d_data/v2/double_llava_encoded_videos/2b5569df-5deb-4ebd-8a45-dd6524330eb8_encoded.pkl"
+    
+    print("=" * 80)
+    print("CHECKING FOR KEYFRAMES")
+    print("=" * 80)
+    check_for_keyframes(path)
+    
+    print("\n" + "=" * 80)
+    print("FULL MEMORY BREAKDOWN")
+    print("=" * 80)
     inspect_dataset(path)

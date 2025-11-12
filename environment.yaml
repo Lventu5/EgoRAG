@@ -27,6 +27,7 @@ dependencies:
   - kiwisolver=1.4.8=py313h6a678d5_0
   - lame=3.100=h7f98852_1001
   - lcms2=2.16=h92b89f2_1
+  - ffmpeg=7.0
   - ld_impl_linux-64=2.44=h153f514_2
   - lerc=4.0.0=h6a678d5_0
   - libcups=2.4.2=h252cb56_2
@@ -201,11 +202,13 @@ dependencies:
       - portalocker==3.2.0
       - proglog==0.1.12
       - protobuf==6.33.0
+      - psutil==6.1.1
       - pyasn1==0.6.1
       - pycparser==2.23
       - python-dotenv==1.1.1
       - pytz==2025.2
       - pyyaml==6.0.3
+      - qwen-vl-utils==0.0.8
       - rank-bm25==0.2.2
       - regex==2025.9.18
       - requests==2.32.5

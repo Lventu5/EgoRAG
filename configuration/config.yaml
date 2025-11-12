@@ -5,13 +5,10 @@ data:
   video_dataset: "../ego4d_data/v2/llava_encoded_videos/llava_10_videos.pkl"
 indexing:
   video:
-    model_name: "llava-video" # Options: "xclip", "llava-video"
-    max_frames_per_scene: null # null for auto: clips for llava-video, 8 for xclip; number: use that many frames
-    use_video_clips: false # If true, extract video clips instead of frames (requires ffmpeg, slower but more accurate)
-    max_temporal_segments: 8
+    model_name: "qwen2-vl" # Options: "xclip", "qwen2-vl"
     xclip_id: "microsoft/xclip-base-patch16"
-    llava_video_id: "llava-hf/LLaVA-NeXT-Video-7B-hf"
-    clip_id: "openai/clip-vit-base-patch32"
+    qwen2_vl_id: "Qwen/Qwen2-VL-7B-Instruct"
+    clip_id: "openai/clip-vit-base-patch32"  # For XCLIP clustering only
   audio:
     audio_sample_rate: 48000
     asr_sample_rate: 16000
@@ -26,9 +23,9 @@ indexing:
   text:
     text_model_id: "all-MiniLM-L6-v2"
   caption:
-    use_captioner: "captioner2" # Options: "captioner1" (BLIP), "captioner2" (LLaVA)
+    use_captioner: "captioner2" # Options: "captioner1" (BLIP), "captioner2" (Qwen2-VL)
     caption_model_id: "Salesforce/blip-image-captioning-base"
-    caption2_model_id: "llava-hf/LLaVA-NeXT-Video-7B-hf"
+    caption2_model_id: "Qwen/Qwen2-VL-7B-Instruct"
 retrieval:
   text_model_id: "all-MiniLM-L6-v2"
   video_model_id: "laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
