@@ -234,6 +234,37 @@ class VideoEncoder(BaseEncoder):
                     return_tensors="pt",
                 )
                 inputs = inputs.to(self.device)
+
+                # DEBUG: log keys and shapes of tensors passed to the visual encoder
+                try:
+                    shapes = []
+                    for k, v in inputs.items():
+                        try:
+                            if isinstance(v, torch.Tensor):
+                                shapes.append(f"{k}:{tuple(v.shape)}")
+                            elif isinstance(v, (list, tuple)):
+                                shapes.append(f"{k}:list(len={len(v)})")
+                            else:
+                                shapes.append(f"{k}:{type(v).__name__}")
+                        except Exception:
+                            shapes.append(f"{k}:<uninspectable>")
+
+                    token_est = None
+                    grid_info = None
+                    if "video_grid_thw" in inputs:
+                        try:
+                            vg = inputs["video_grid_thw"].detach().cpu().tolist()
+                            # vg is typically [[T, H_grid, W_grid]]
+                            if isinstance(vg, list) and len(vg) > 0 and len(vg[0]) >= 3:
+                                t, h_grid, w_grid = int(vg[0][0]), int(vg[0][1]), int(vg[0][2])
+                                token_est = t * h_grid * w_grid
+                                grid_info = f"video_grid_thw={vg[0]}"
+                        except Exception:
+                            pass
+
+                    logging.info(f"[VideoEncoder][DEBUG] processed inputs: {', '.join(shapes)}{' ' + grid_info if grid_info else ''}{' estimated_visual_tokens=' + str(token_est) if token_est is not None else ''}")
+                except Exception:
+                    logging.exception("[VideoEncoder][DEBUG] failed to log processed input shapes")
                 
                 # Verify pixel_values were created
                 assert "pixel_values_videos" in inputs or "pixel_values" in inputs, \
@@ -468,7 +499,9 @@ class VideoEncoder(BaseEncoder):
         if self.model_name != "qwen2-vl":
             raise ValueError("encode_full_video is only supported for Qwen2-VL")
         # Compute adaptive fps for the full-video path to limit frames sent to the model
-        fps_adaptive = self._compute_adaptive_fps(video_path, max_frames_allowed=1024, margin=32)
+        # Use a conservative temporal target (42) so visual-token counts stay small
+        fps_adaptive = self._compute_adaptive_fps(video_path, max_frames_allowed=42, margin=0)
+        logging.info(f"[VideoEncoder] adaptive fps (full video) for {video_path}: {fps_adaptive:.3f}")
         video_emb = self._embed_frames(video_path=video_path, adaptive_fps=fps_adaptive)
         return {
             "video": torch.from_numpy(video_emb),

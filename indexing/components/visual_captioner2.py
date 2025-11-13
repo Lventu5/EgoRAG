@@ -144,6 +144,38 @@ class VisualCaptioner(BaseEncoder):
                     return_tensors="pt",
                 )
                 inputs = inputs.to(self.device)
+
+                # DEBUG: log keys and shapes of tensors passed to the model to diagnose large allocations
+                try:
+                    shapes = []
+                    for k, v in inputs.items():
+                        try:
+                            if isinstance(v, torch.Tensor):
+                                shapes.append(f"{k}:{tuple(v.shape)}")
+                            elif isinstance(v, (list, tuple)):
+                                shapes.append(f"{k}:list(len={len(v)})")
+                            else:
+                                shapes.append(f"{k}:{type(v).__name__}")
+                        except Exception:
+                            shapes.append(f"{k}:<uninspectable>")
+
+                    # Also log grid tensors if present (useful for Qwen2-VL)
+                    extra = []
+                    if hasattr(inputs, "get"):
+                        try:
+                            if "video_grid_thw" in inputs:
+                                extra.append(f"video_grid_thw:{inputs['video_grid_thw']}")
+                        except Exception:
+                            pass
+                        try:
+                            if "image_grid_thw" in inputs:
+                                extra.append(f"image_grid_thw:{inputs['image_grid_thw']}")
+                        except Exception:
+                            pass
+
+                    logging.info(f"[Caption][DEBUG] processed inputs: {', '.join(shapes + extra)}")
+                except Exception:
+                    logging.exception("[Caption][DEBUG] failed to log processed input shapes")
                 
                 # Generate caption
                 try:

@@ -11,6 +11,7 @@
 #SBATCH --error=logs/%x_%j.err
 
 conda activate video_encoding
+module load cudnn
 
 echo "=== GPU STATUS ==="
 nvidia-smi
