@@ -204,11 +204,10 @@ class MultiModalEncoder:
                         futures[executor.submit(self.captioner.encode, dp._temp_keyframes[sid])] = sid
             
             elif self.use_captioner == "captioner2":
-                # Qwen2-VL captioner: uses video path + scene timing
-                # Internally creates temp clip, loads all frames, generates caption
+                # Qwen2-VL captioner: use precomputed video embedding when available
                 for sid, scene in dp.scenes.items():
                     if sid in dp.scene_embeddings:
-                        futures[executor.submit(self.captioner.encode, video_path, scene)] = sid
+                        futures[executor.submit(self.captioner.encode, video_path, scene, "Describe this scene briefly.", None)] = sid
 
             for f in tqdm(as_completed(futures), total=len(futures), desc=f"Caption ({dp.video_name})", disable=False):
                 sid = futures[f]
@@ -217,11 +216,8 @@ class MultiModalEncoder:
                     if sid in dp.scene_embeddings:
                         dp.scene_embeddings[sid]["caption_text"] = caption
                         if "keyframes" in dp.scene_embeddings[sid]:
-                            try:
-                                del dp.scene_embeddings[sid]["keyframes"]
-                                logging.debug(f"Freed keyframes for scene {sid} in {dp.video_name}")
-                            except Exception:
-                                logging.warning(f"Could not delete keyframes for scene {sid}")
+                            del dp.scene_embeddings[sid]["keyframes"]
+                            logging.debug(f"Freed keyframes for scene {sid} in {dp.video_name}")
                     else:
                         logging.warning(f"[SKIP] scene {sid}, caption generation failed.")
                 except Exception as e:
@@ -234,8 +230,6 @@ class MultiModalEncoder:
         dp.global_embeddings["caption_text"] = global_caption
         logging.info(f"[Stage 3] Global caption generated for {dp.video_name}")
         
-        # Delete keyframes immediately after caption generation
-        # (needed for both captioner1 and captioner2 to keep pickle size small)
         if hasattr(dp, "_temp_keyframes"):
             del dp._temp_keyframes
             logging.info(f"[Stage 3] Keyframes cleaned up for {dp.video_name}")
@@ -387,14 +381,11 @@ class MultiModalEncoder:
         """
         for dp in tqdm(self.dataset.video_datapoints, desc="Encoding Videos", disable=False):
             # GPU monitor semplice dopo ogni video
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    mem = torch.cuda.memory_allocated() / 1024**3
-                    mem_free = torch.cuda.get_device_properties(0).total_memory / 1024**3 - mem
-                    print(f"[GPU] Allocated: {mem:.2f} GB, Free: {mem_free:.2f} GB")
-            except Exception:
-                pass
+            if torch.cuda.is_available():
+                mem = torch.cuda.memory_allocated() / 1024**3
+                mem_free = torch.cuda.get_device_properties(0).total_memory / 1024**3 - mem
+                print(f"[GPU] Allocated: {mem:.2f} GB, Free: {mem_free:.2f} GB")
+
             video_path = dp.video_path
             logging.info(f"Processing video: {video_path}")
             
@@ -415,7 +406,7 @@ class MultiModalEncoder:
                 continue
 
             video_model_name = CONFIG.indexing.video.model_name
-            both_use_qwen2vl = (video_model_name == "qwen2-vl" and self.use_captioner == "captioner2")
+            self.both_use_qwen2vl = (video_model_name == "qwen2-vl" and self.use_captioner == "captioner2")
             
             self.video_encoder.load_models()
             self._encode_video_stage(video_path, dp)
@@ -429,7 +420,7 @@ class MultiModalEncoder:
                 continue
             
             # Stage 1b: Caption Generation immediately after video
-            if both_use_qwen2vl:
+            if self.both_use_qwen2vl:
                 logging.info(f"[Optimization] Video and Caption both use Qwen2-VL - sharing model")
                 
                 # Log cache location for debugging
@@ -460,7 +451,7 @@ class MultiModalEncoder:
             self._encode_caption_stage(video_path, dp)
             
             # Unload models after both video and caption are done
-            if both_use_qwen2vl:
+            if self.both_use_qwen2vl:
                 # Unload shared Qwen2-VL model and captioner processor
                 self.unload_model("video")
                 if hasattr(self.captioner, 'model'):

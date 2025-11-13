@@ -88,7 +88,13 @@ class VisualCaptioner(BaseEncoder):
 
         return out_path
 
-    def encode(self, video_path: str, scene, prompt: str = "Describe this scene briefly.", fps: float | None = None) -> str:
+    def encode(
+        self, 
+        video_path: str, 
+        scene, 
+        prompt: str = "Describe what is happening in this clip briefly. Just reply with the exhaustive caption", 
+        fps: float | None = None,
+    ) -> str:
         """
         Genera una caption per una singola scena partendo dal video path usando Qwen2-VL.
         'scene' è un oggetto Scene con start_time/end_time (in secondi).
@@ -114,14 +120,17 @@ class VisualCaptioner(BaseEncoder):
             clip_path = self._extract_scene_clip(video_path, scene.start_time, scene.end_time, tmp_dir)
             
             # Decide fps: use provided fps (from caller) or default to 1.0 for scene captioning
-            fps_to_use = fps if fps is not None else 1.0
+            duration_seconds = scene.end_time - scene.start_time
+            fps_to_use = min(1.0, 30.0 / duration_seconds)
+            fps_to_use = max(0.1, fps_to_use) 
+            logging.info(f"[Caption] Scene duration: {duration_seconds:.1f}s, using FPS: {fps_to_use:.2f}")
 
             # Minimal approach: let processor load the video directly with chosen fps
             messages = [
                 {
                     "role": "user",
                     "content": [
-                        {"type": "video", "video": clip_path, "max_pixels": 360 * 420, "fps": fps_to_use},
+                        {"type": "video", "video": clip_path, "fps": fps_to_use},
                         {"type": "text", "text": prompt},
                     ],
                 }
@@ -143,6 +152,8 @@ class VisualCaptioner(BaseEncoder):
                     padding=True,
                     return_tensors="pt",
                 )
+        
+                # Move tensors to device only after the above reductions
                 inputs = inputs.to(self.device)
 
                 # DEBUG: log keys and shapes of tensors passed to the model to diagnose large allocations
@@ -159,52 +170,44 @@ class VisualCaptioner(BaseEncoder):
                         except Exception:
                             shapes.append(f"{k}:<uninspectable>")
 
-                    # Also log grid tensors if present (useful for Qwen2-VL)
                     extra = []
                     if hasattr(inputs, "get"):
-                        try:
-                            if "video_grid_thw" in inputs:
-                                extra.append(f"video_grid_thw:{inputs['video_grid_thw']}")
-                        except Exception:
-                            pass
-                        try:
-                            if "image_grid_thw" in inputs:
-                                extra.append(f"image_grid_thw:{inputs['image_grid_thw']}")
-                        except Exception:
-                            pass
+                        if "video_grid_thw" in inputs:
+                            extra.append(f"video_grid_thw:{inputs['video_grid_thw']}")
+                        if "image_grid_thw" in inputs:
+                            extra.append(f"image_grid_thw:{inputs['image_grid_thw']}")
 
                     logging.info(f"[Caption][DEBUG] processed inputs: {', '.join(shapes + extra)}")
                 except Exception:
                     logging.exception("[Caption][DEBUG] failed to log processed input shapes")
-                
-                # Generate caption
-                try:
-                    with torch.amp.autocast("cuda", dtype=torch.bfloat16):
-                        generated_ids = self.model.generate(**inputs, max_new_tokens=64)
+                if torch.cuda.is_available():
+                            allocated = torch.cuda.memory_allocated()
+                            reserved = torch.cuda.memory_reserved()
+                            max_alloc = torch.cuda.max_memory_allocated()
+                            logging.info(f"[Caption][GPU] before generation allocated={allocated / (1024**3):.3f}GB reserved={reserved / (1024**3):.3f}GB max_alloc={max_alloc / (1024**3):.3f}GB")
+                            logging.debug(torch.cuda.memory_summary()[:2000])
+                with torch.cuda.amp.autocast(enabled=True, dtype=torch.bfloat16):
+                    generated_ids = self.model.generate(**inputs, max_new_tokens=64)
 
-                    # Trim input tokens from generated output
-                    generated_ids_trimmed = [
-                        out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-                    ]
+                # Trim input tokens from generated output
+                generated_ids_trimmed = [
+                    out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+                ]
 
-                    caption = self.processor.batch_decode(
-                        generated_ids_trimmed, 
-                        skip_special_tokens=True, 
-                        clean_up_tokenization_spaces=False
-                    )[0].strip()
-                except TypeError as e:
-                    # Known potential mismatch in underlying visual forward signature
-                    # (e.g. missing hidden_states). Log full error and return empty caption.
-                    logging.error(f"Model.generate failed with TypeError: {e}")
-                    import traceback
-                    logging.error(traceback.format_exc())
-                    return ""
+                caption = self.processor.batch_decode(
+                    generated_ids_trimmed, 
+                    skip_special_tokens=True, 
+                    clean_up_tokenization_spaces=False
+                )[0].strip()
                 
                 # Explicit cleanup to free memory
                 del inputs, generated_ids, generated_ids_trimmed, image_inputs, video_inputs
                 if self.device == "cuda":
                     torch.cuda.empty_cache()
 
+            print("-"*80)
+            print(caption)
+            print("-"*80)
             return caption
             
         except Exception as e:

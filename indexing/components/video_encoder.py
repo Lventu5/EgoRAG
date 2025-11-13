@@ -498,8 +498,7 @@ class VideoEncoder(BaseEncoder):
         """
         if self.model_name != "qwen2-vl":
             raise ValueError("encode_full_video is only supported for Qwen2-VL")
-        # Compute adaptive fps for the full-video path to limit frames sent to the model
-        # Use a conservative temporal target (42) so visual-token counts stay small
+
         fps_adaptive = self._compute_adaptive_fps(video_path, max_frames_allowed=42, margin=0)
         logging.info(f"[VideoEncoder] adaptive fps (full video) for {video_path}: {fps_adaptive:.3f}")
         video_emb = self._embed_frames(video_path=video_path, adaptive_fps=fps_adaptive)
