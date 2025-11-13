@@ -338,7 +338,9 @@ class MultiModalEncoder:
             # Compute adaptive fps via video_encoder and pass it to captioner (simple single-flag behavior)
             fps_adaptive = None
             if hasattr(self.video_encoder, "_compute_adaptive_fps"):
-                fps_adaptive = self.video_encoder._compute_adaptive_fps(video_path, max_frames_allowed=1024, margin=32)
+                # Use a conservative target of 42 temporal tokens for full-video captions
+                fps_adaptive = self.video_encoder._compute_adaptive_fps(video_path, max_frames_allowed=42, margin=0)
+                logging.info(f"[Caption] adaptive fps for full video: {fps_adaptive:.3f}")
             return self.captioner.encode(video_path, full_scene, fps=fps_adaptive)
         
         logging.error(f"[Caption] Unknown captioner: {self.use_captioner}")

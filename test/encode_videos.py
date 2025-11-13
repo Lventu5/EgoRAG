@@ -38,7 +38,7 @@ def encode(video_dir, save_dir):
     MemoryMonitor.log_memory("[INITIAL STATE] ")
     print("="*80)
 
-    for video in tqdm(video_ids[1:]):
+    for video in tqdm(video_ids):
         print("-"*50)
         print(f"Encoding video {video}")
         print("-"*50)
