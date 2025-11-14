@@ -68,6 +68,9 @@ class VisualCaptioner(BaseEncoder):
                 
                 # Post-process to remove the prompt
                 caption = caption.replace(prompt, "").strip()
+                print("-"*80)
+                print(caption)
+                print("-"*80)
                 if caption:
                     captions.append(caption)
         

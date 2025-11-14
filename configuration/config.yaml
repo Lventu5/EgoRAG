@@ -23,7 +23,7 @@ indexing:
   text:
     text_model_id: "all-MiniLM-L6-v2"
   caption:
-    use_captioner: "captioner2" # Options: "captioner1" (BLIP), "captioner2" (Qwen2-VL)
+    use_captioner: "captioner1" # Options: "captioner1" (BLIP), "captioner2" (Qwen2-VL)
     caption_model_id: "Salesforce/blip-image-captioning-base"
     caption2_model_id: "Qwen/Qwen2-VL-7B-Instruct"
 retrieval:
