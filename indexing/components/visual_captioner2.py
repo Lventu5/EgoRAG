@@ -7,12 +7,29 @@ from indexing.utils.clustering import cluster_frames
 import subprocess, tempfile, uuid, os, shutil
 import os
 import torchvision
+import av
 
 os.environ.setdefault("TORCHVISION_DISABLE_TORCHCODEC", "1")
 try:
-    torchvision.set_video_backend("video_reader")
+    torchvision.set_video_backend("pyav")
 except Exception:
     pass
+
+def read_video_pyav(path, num_frames=16):
+    container = av.open(path)
+    stream = container.streams.video[0]
+
+    frames = []
+    indices = set(np.linspace(0, max(stream.frames-1, 0), num_frames, dtype=int))
+
+    for i, frame in enumerate(container.decode(video=0)):
+        if i in indices:
+            frames.append(frame.to_ndarray(format="rgb24"))
+        if len(frames) == num_frames:
+            break
+
+    container.close()
+    return np.stack(frames)
 
 from .base_encoder import BaseEncoder
 
@@ -102,22 +119,26 @@ class VisualCaptioner(BaseEncoder):
         try:
             clip_path = self._extract_scene_clip(video_path, scene.start_time, scene.end_time, tmp_root)
 
+            video_np = read_video_pyav(clip_path, num_frames=16)
+
             messages = [{
                 "role": "user",
                 "content": [
                     {"type": "text", "text": prompt},
-                    {"type": "video", "path": clip_path},
+                    {"type": "video"},   # ← NOTE: no path here
                 ],
             }]
 
             with torch.inference_mode():
-                proc_inputs = self.processor.apply_chat_template(
+                prompt_text = self.processor.apply_chat_template(
                     messages,
                     add_generation_prompt=True,
-                    tokenize=True,
-                    return_dict=True,
+                )
+
+                proc_inputs = self.processor(
+                    text=prompt_text,
+                    videos=video_np,
                     return_tensors="pt",
-                    num_frames=16,
                 )
                 proc_inputs = {k: (v.to(self.device) if hasattr(v, "to") else v) for k, v in proc_inputs.items()}
                 out = self.model.generate(**proc_inputs, max_new_tokens=64)
