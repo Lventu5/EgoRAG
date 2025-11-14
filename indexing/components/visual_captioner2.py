@@ -139,11 +139,11 @@ class VisualCaptioner(BaseEncoder):
                     text=prompt_text,
                     videos=video_np,
                     return_tensors="pt",
+                    num_frames=16,
                 )
                 proc_inputs = {k: (v.to(self.device) if hasattr(v, "to") else v) for k, v in proc_inputs.items()}
                 out = self.model.generate(**proc_inputs, max_new_tokens=64)
                 text = self.processor.batch_decode(out, skip_special_tokens=True, clean_up_tokenization_spaces=True)[0].strip()
-
             return text
         except Exception as e:
             logging.error(f"[Caption][{scene.scene_id}] failed: {e}")
@@ -171,7 +171,7 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     prompt = "Describe this scene briefly."
 
-    for video in tqdm(video_ids[9:]):
+    for video in tqdm(video_ids[6:7]):
         print("-" * 50)
         print(f"Encoding video {video}")
         print("-" * 50)

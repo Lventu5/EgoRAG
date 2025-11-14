@@ -116,6 +116,8 @@ class MultiModalEncoder:
                 logging.info(f"[Stage 1] Global video embedding generated for {dp.video_name}")
         elif self.video_encoder.model_name == "xclip":
             logging.info(f"[Stage 1] Using mean pooling for global video embedding (XCLIP)")
+        else:
+            raise ValueError(f"Unknown model {self.video_encoder.model_name}")
 
     def _encode_audio_stage(self, video_path: str, dp: VideoDataPoint) -> None:
         """
@@ -207,7 +209,7 @@ class MultiModalEncoder:
                 # Qwen2-VL captioner: use precomputed video embedding when available
                 for sid, scene in dp.scenes.items():
                     if sid in dp.scene_embeddings:
-                        futures[executor.submit(self.captioner.encode, video_path, scene, "Describe this scene briefly.", None)] = sid
+                        futures[executor.submit(self.captioner.encode, video_path, scene)] = sid
 
             for f in tqdm(as_completed(futures), total=len(futures), desc=f"Caption ({dp.video_name})", disable=False):
                 sid = futures[f]
@@ -323,19 +325,46 @@ class MultiModalEncoder:
             return self.captioner.encode(keyframes)
         
         if self.use_captioner == "captioner2":
-            # For Qwen2-VL: create a scene covering the full video
-            start_time, end_time = self._get_video_time_bounds(dp, video_path)
-            if end_time - start_time <= 0.01:
-                logging.warning(f"[Caption] Invalid time range for full caption on {dp.video_name}")
+            # For LLaVA captioner: summarize all per-scene captions by asking the captioner (LLM)
+            captions = []
+            for sid in sorted(dp.scene_embeddings.keys()):
+                c = dp.scene_embeddings[sid].get("caption_text", "")
+                if c:
+                    captions.append(f"Scene {sid}: {c}")
+
+            if not captions:
+                logging.warning(f"[Caption] No scene captions available for full video {dp.video_name}")
                 return ""
-            full_scene = Scene(scene_id="full_video", start_time=start_time, end_time=end_time)
-            # Compute adaptive fps via video_encoder and pass it to captioner (simple single-flag behavior)
-            fps_adaptive = None
-            if hasattr(self.video_encoder, "_compute_adaptive_fps"):
-                # Use a conservative target of 42 temporal tokens for full-video captions
-                fps_adaptive = self.video_encoder._compute_adaptive_fps(video_path, max_frames_allowed=42, margin=0)
-                logging.info(f"[Caption] adaptive fps for full video: {fps_adaptive:.3f}")
-            return self.captioner.encode(video_path, full_scene, fps=fps_adaptive)
+
+            # Build summarization prompt
+            prompt_lines = [
+                "You are a helpful assistant. Summarize the following scene captions into a concise, coherent paragraph describing the whole video. Keep it short (1-3 sentences).",
+                "\nCaptions:\n"
+            ]
+            prompt_lines.extend(captions)
+            full_prompt = "\n".join(prompt_lines)
+
+            try:
+                # Use captioner.processor to tokenize the prompt and captioner.model to generate summary
+                messages = [{"role": "user", "content": [{"type": "text", "text": full_prompt}]}]
+                proc_inputs = self.captioner.processor.apply_chat_template(messages, tokenize=True, return_tensors="pt")
+                proc_inputs = {k: (v.to(self.device) if hasattr(v, "to") else v) for k, v in proc_inputs.items()}
+
+                with torch.inference_mode():
+                    with torch.amp.autocast("cuda", enabled=True, dtype=torch.bfloat16):
+                        gen_ids = self.captioner.model.generate(**proc_inputs, max_new_tokens=128)
+
+                summary = self.captioner.processor.batch_decode(gen_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)[0].strip()
+                # Cleanup
+                del proc_inputs, gen_ids
+                if self.device == "cuda":
+                    torch.cuda.empty_cache()
+
+                return summary
+            except Exception as e:
+                logging.error(f"[Caption][full_video] summarization failed: {e}")
+                logging.error(traceback.format_exc())
+                return ""
         
         logging.error(f"[Caption] Unknown captioner: {self.use_captioner}")
         return ""
@@ -406,8 +435,7 @@ class MultiModalEncoder:
                 continue
 
             video_model_name = CONFIG.indexing.video.model_name
-            self.both_use_qwen2vl = (video_model_name == "qwen2-vl" and self.use_captioner == "captioner2")
-            
+
             self.video_encoder.load_models()
             self._encode_video_stage(video_path, dp)
             
@@ -418,50 +446,21 @@ class MultiModalEncoder:
                     torch.cuda.empty_cache()
                     gc.collect()
                 continue
+            self.unload_model("video")
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+                gc.collect()
             
-            # Stage 1b: Caption Generation immediately after video
-            if self.both_use_qwen2vl:
-                logging.info(f"[Optimization] Video and Caption both use Qwen2-VL - sharing model")
-                
-                # Log cache location for debugging
-                cache_dir = os.environ.get("HF_HOME", os.environ.get("TRANSFORMERS_CACHE"))
-                if cache_dir:
-                    logging.info(f"Loading captioner processor from cache: {cache_dir}")
-                
-                # Verify video encoder model is loaded
-                if self.video_encoder.video_model is None:
-                    raise RuntimeError("Video encoder model not loaded before caption stage")
-                
-                self.captioner.processor = AutoProcessor.from_pretrained(
-                    self.captioner.model_id,
-                    min_pixels=256*28*28,
-                    max_pixels=1280*28*28
-                )
-                
-                self.captioner.model = self.video_encoder.video_model
-                if self.captioner.model is None:
-                    logging.error("[ERROR] captioner.model is still None after assignment!")
-                    raise RuntimeError("Model sharing failed - captioner.model is None")
-                
-                logging.info(f"[Optimization] Model sharing complete - captioner.model: {type(self.captioner.model)}")
-            else:
-                # Load captioner models separately
-                self.captioner.load_models()
+            # Load captioner models separately (no sharing between video encoder and captioner).
+            self.captioner.load_models()
             
             self._encode_caption_stage(video_path, dp)
+
+            self.unload_model("caption")
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+                gc.collect()
             
-            # Unload models after both video and caption are done
-            if self.both_use_qwen2vl:
-                # Unload shared Qwen2-VL model and captioner processor
-                self.unload_model("video")
-                if hasattr(self.captioner, 'model'):
-                    del self.captioner.model
-                if hasattr(self.captioner, 'processor'):
-                    del self.captioner.processor
-            else:
-                # Unload video and caption separately
-                self.unload_model("video")
-                self.unload_model("caption")
             
             if self.device == "cuda":
                 torch.cuda.empty_cache()

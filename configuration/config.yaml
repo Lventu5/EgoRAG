@@ -8,6 +8,7 @@ indexing:
     model_name: "qwen2-vl" # Options: "xclip", "qwen2-vl"
     xclip_id: "microsoft/xclip-base-patch16"
     qwen2_vl_id: "Qwen/Qwen2-VL-7B-Instruct"
+    llava_id: "llava-hf/LLaVA-NeXT-Video-7B-hf"
     clip_id: "openai/clip-vit-base-patch32"  # For XCLIP clustering only
   audio:
     audio_sample_rate: 48000
@@ -23,9 +24,9 @@ indexing:
   text:
     text_model_id: "all-MiniLM-L6-v2"
   caption:
-    use_captioner: "captioner1" # Options: "captioner1" (BLIP), "captioner2" (Qwen2-VL)
+    use_captioner: "captioner2" # Options: "captioner1" (BLIP), "captioner2" (LLaVA)
     caption_model_id: "Salesforce/blip-image-captioning-base"
-    caption2_model_id: "Qwen/Qwen2-VL-7B-Instruct"
+    caption2_model_id: "llava-hf/LLaVA-NeXT-Video-7B-hf"
 retrieval:
   text_model_id: "all-MiniLM-L6-v2"
   video_model_id: "laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
