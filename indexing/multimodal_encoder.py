@@ -126,7 +126,7 @@ class MultiModalEncoder:
         Requires video_path and scene timing information.
         Gracefully handles videos without audio tracks.
         """
-        logging.info(f"[Stage 2] Audio encoding for {video_path}")
+        logging.info(f"[Caption Stage] Audio encoding for {video_path}")
         
         # Track if this video has audio at all
         video_has_audio = None  # Unknown until we try first scene
@@ -174,11 +174,11 @@ class MultiModalEncoder:
         
         # Generate global audio embedding for the entire video
         if video_has_audio:
-            logging.info(f"[Stage 2] Encoding global audio embedding for entire video ({dp.video_name})...")
+            logging.info(f"[Caption Stage] Encoding global audio embedding for entire video ({dp.video_name})...")
             start_time, end_time = self._get_video_time_bounds(dp, video_path)
             if end_time > start_time:
                 duration = end_time - start_time
-                logging.info(f"[Stage 2] Processing {duration:.1f}s of audio...")
+                logging.info(f"[Caption Stage] Processing {duration:.1f}s of audio...")
                 global_audio = self.audio_encoder.encode(video_path, start_time, end_time)
                 if global_audio:
                     dp.global_embeddings["audio"] = global_audio.get("audio_embedding")
@@ -186,7 +186,7 @@ class MultiModalEncoder:
                     dp.global_embeddings["transcript_words"] = global_audio.get("transcript_words", [])
                     dp.global_embeddings["audio_events"] = global_audio.get("audio_events", [])
                     dp.global_embeddings["speaker_segments"] = global_audio.get("speaker_segments", [])
-                    logging.info(f"[Stage 2] Global audio embedding generated for {dp.video_name}")
+                    logging.info(f"[Caption Stage] Global audio embedding generated for {dp.video_name}")
 
     def _encode_caption_stage(self, video_path: str, dp: VideoDataPoint) -> None:
         """
@@ -196,7 +196,7 @@ class MultiModalEncoder:
         Captioner2 (Qwen2-VL): Creates temporary video clip of entire scene, 
                                loads all frames, generates caption, then deletes clip
         """
-        logging.info(f"[Stage 3] Caption generation for {dp.video_name} using {self.use_captioner}")
+        logging.info(f"[Audio Stage] Caption generation for {dp.video_name} using {self.use_captioner}")
         futures = {}
         
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
@@ -228,21 +228,21 @@ class MultiModalEncoder:
                     logging.error(traceback.format_exc())
         
         # Generate global caption for the entire video
-        logging.info(f"[Stage 3] Generating global caption for entire video ({dp.video_name})...")
+        logging.info(f"[Audio Stage] Generating global caption for entire video ({dp.video_name})...")
         global_caption = self._generate_full_video_caption(video_path, dp)
         dp.global_embeddings["caption_text"] = global_caption
-        logging.info(f"[Stage 3] Global caption generated for {dp.video_name}")
+        logging.info(f"[Audio Stage] Global caption generated for {dp.video_name}")
         
         if hasattr(dp, "_temp_keyframes"):
             del dp._temp_keyframes
-            logging.info(f"[Stage 3] Keyframes cleaned up for {dp.video_name}")
+            logging.info(f"[Audio Stage] Keyframes cleaned up for {dp.video_name}")
 
     def _encode_text_stage(self, dp: VideoDataPoint) -> None:
         """
         Stage 4: Encode all text (captions + transcripts) with text encoder.
         Requires caption_text and transcript from previous stages.
         """
-        logging.info(f"[Stage 4] Text encoding for {dp.video_name}")
+        logging.info(f"[Text Stage] Text encoding for {dp.video_name}")
         futures = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             for sid, scene_data in dp.scene_embeddings.items():
@@ -271,7 +271,7 @@ class MultiModalEncoder:
         text_emb, caption_emb = self._encode_text_pair(combined_text, global_caption)
         dp.global_embeddings["text"] = text_emb
         dp.global_embeddings["caption"] = caption_emb
-        logging.info(f"[Stage 4] Global text embeddings generated for {dp.video_name}")
+        logging.info(f"[Text Stage] Global text embeddings generated for {dp.video_name}")
 
     def _encode_text_pair(self, full_text: str, caption: str) -> tuple[torch.Tensor, torch.Tensor]:
         """Helper: Encode both full text and caption separately."""

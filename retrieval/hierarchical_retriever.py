@@ -62,10 +62,6 @@ class HierarchicalRetriever:
         self.processor = None
         self.embedder = None
         
-        # Cache for CLIP text encoder when using LLaVA-Video
-        self.clip_text_processor = None
-        self.clip_text_model = None
-        
         if fuser is None:
             logging.warning("Fuser not specified, using a RRF fuser")
             self.fuser = Fuser()
@@ -86,19 +82,17 @@ class HierarchicalRetriever:
             )
         
         elif target_modality == "video":
-            if self.video_model_type == "llava-video":
-                # For LLaVA-Video: use CLIP text encoder (same variant as LLaVA's vision tower)
-                # Both produce 1024-d embeddings (projection_dim) - no projection needed!
-                if self.clip_text_processor is None or self.clip_text_model is None:
-                    # Use the CLIP model specified for retrieval in config (should match LLaVA's vision tower)
-                    clip_model_id = CONFIG.retrieval.video_model_id
-                    logging.info(f"Loading CLIP text encoder for query embedding: {clip_model_id}")
-                    self.clip_text_processor = CLIPProcessor.from_pretrained(clip_model_id)
-                    self.clip_text_model = CLIPTextModel.from_pretrained(clip_model_id).to(self.device).eval()
-                    
-                # Set embedder to CLIP for consistency check
-                self.embedder = self.clip_text_model
-                    
+            if self.video_model_type == "qwen2-vl":
+                qwen_id = CONFIG.retrieval.video_model_id
+                logging.info(f"Loading Qwen2-VL encoder: {qwen_id}")
+                from transformers import AutoProcessor, AutoModel
+                self.processor = AutoProcessor.from_pretrained(qwen_id)
+                self.embedder = AutoModel.from_pretrained(
+                    qwen_id,
+                    dtype=torch.float16,
+                    device_map=self.device
+                ).eval()
+
             else:  # xclip
                 model_name = self.sizes["video"]["model"]
                 logging.info(f"Loading XCLIP model for retrieval: {model_name}")
@@ -139,17 +133,29 @@ class HierarchicalRetriever:
                 mod_queries, convert_to_tensor=True, device=self.device
             ) # type: ignore
         elif self.current_modality == "video":
-            if self.video_model_type == "llava-video":
-                if self.clip_text_processor is None or self.clip_text_model is None:
-                    raise RuntimeError("CLIP text models not loaded. This should not happen.")
+            if self.video_model_type == "qwen2-vl":
+                if not hasattr(self, "tokenizer") or self.embedder is None:
+                    raise RuntimeError("Qwen tokenizer/model not loaded. Call _load_models_for_modality first.")
 
-                inputs = self.clip_text_processor(
-                    text=mod_queries, return_tensors="pt", padding=True
-                ).to(self.device)
-                
+                inputs = self.tokenizer(
+                    mod_queries, return_tensors="pt", padding=True, truncation=True
+                )
+                inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
                 with torch.no_grad():
-                    text_outputs = self.clip_text_model(**inputs)
-                    embeddings = text_outputs.pooler_output  # (batch, 768) - same as LLaVA vision tower output
+                    out = self.embedder(**inputs)
+
+                # Prefer pooler_output if provided, otherwise mean-pool last_hidden_state
+                if hasattr(out, "pooler_output") and out.pooler_output is not None:
+                    embeddings = out.pooler_output
+                else:
+                    last_hidden = out.last_hidden_state
+                    attention_mask = inputs.get("attention_mask", None)
+                    if attention_mask is not None:
+                        mask = attention_mask.unsqueeze(-1)
+                        embeddings = (last_hidden * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
+                    else:
+                        embeddings = last_hidden[:, 0, :]
                     
             elif self.video_model_type == "xclip":
                 inputs = self.processor(
