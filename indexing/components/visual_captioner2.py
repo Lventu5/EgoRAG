@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import logging
+import re
 from transformers import BlipProcessor, BlipForConditionalGeneration
 from transformers import LlavaNextVideoProcessor, LlavaNextVideoForConditionalGeneration
 from indexing.utils.clustering import cluster_frames
@@ -105,7 +106,7 @@ class VisualCaptioner(BaseEncoder):
 
         return out_path
 
-    def encode(self, video_path: str, scene, prompt: str = "Describe this scene briefly.") -> str:
+    def encode(self, video_path: str, scene, prompt: str = "Describe this video clip briefly.") -> str:
         """
         Genera una caption per una singola scena partendo dal video path.
         'scene' è un oggetto Scene con start_time/end_time (in secondi).
@@ -141,10 +142,29 @@ class VisualCaptioner(BaseEncoder):
                     return_tensors="pt",
                     num_frames=16,
                 )
+
                 proc_inputs = {k: (v.to(self.device) if hasattr(v, "to") else v) for k, v in proc_inputs.items()}
-                out = self.model.generate(**proc_inputs, max_new_tokens=64)
+
+                out = self.model.generate(**proc_inputs, max_new_tokens=512)
                 text = self.processor.batch_decode(out, skip_special_tokens=True, clean_up_tokenization_spaces=True)[0].strip()
-            return text
+
+                # Extract only the assistant reply if the processor/model returns a
+                # chat-style string containing USER: ... ASSISTANT: ...
+                assistant_text = text
+                m = re.search(r"assistant:\s*(.*)$", text, flags=re.IGNORECASE | re.DOTALL)
+                if m:
+                    assistant_text = m.group(1).strip()
+                else:
+                    # fallback: split on assistant marker and take last chunk
+                    parts = re.split(r"assistant:\s*", text, flags=re.IGNORECASE)
+                    if parts and len(parts) > 1:
+                        assistant_text = parts[-1].strip()
+
+                # Remove trailing visual separators (lines of dashes) if present
+                assistant_text = re.sub(r"\n[-]{3,}.*$", "", assistant_text, flags=re.DOTALL).strip()
+
+                print(f"{'-'*80}\n caption \n {assistant_text} \n {'-'*80}")
+                return assistant_text
         except Exception as e:
             logging.error(f"[Caption][{scene.scene_id}] failed: {e}")
             return ""

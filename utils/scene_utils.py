@@ -108,7 +108,7 @@ class SceneDetector:
             return {}
     
     @staticmethod
-    def _temporal_window(video_path: str, Scene, window_size: float = 30.0) -> Dict:
+    def _temporal_window(video_path: str, Scene, window_size: float = 60.0) -> Dict:
         """
         Split video into fixed temporal windows (scenes of equal duration).
         

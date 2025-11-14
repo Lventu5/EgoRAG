@@ -236,36 +236,24 @@ class VideoEncoder(BaseEncoder):
                 inputs = inputs.to(self.device)
 
                 # DEBUG: log keys and shapes of tensors passed to the visual encoder
-                try:
-                    shapes = []
-                    for k, v in inputs.items():
-                        try:
-                            if isinstance(v, torch.Tensor):
-                                shapes.append(f"{k}:{tuple(v.shape)}")
-                            elif isinstance(v, (list, tuple)):
-                                shapes.append(f"{k}:list(len={len(v)})")
-                            else:
-                                shapes.append(f"{k}:{type(v).__name__}")
-                        except Exception:
-                            shapes.append(f"{k}:<uninspectable>")
+                shapes = []
+                for k, v in inputs.items():
+                    try:
+                        if isinstance(v, torch.Tensor):
+                            shapes.append(f"{k}:{tuple(v.shape)}")
+                        elif isinstance(v, (list, tuple)):
+                            shapes.append(f"{k}:list(len={len(v)})")
+                        else:
+                            shapes.append(f"{k}:{type(v).__name__}")
+                    except Exception:
+                        shapes.append(f"{k}:<uninspectable>")
 
-                    token_est = None
-                    grid_info = None
-                    if "video_grid_thw" in inputs:
-                        try:
-                            vg = inputs["video_grid_thw"].detach().cpu().tolist()
-                            # vg is typically [[T, H_grid, W_grid]]
-                            if isinstance(vg, list) and len(vg) > 0 and len(vg[0]) >= 3:
-                                t, h_grid, w_grid = int(vg[0][0]), int(vg[0][1]), int(vg[0][2])
-                                token_est = t * h_grid * w_grid
-                                grid_info = f"video_grid_thw={vg[0]}"
-                        except Exception:
-                            pass
-
-                    logging.info(f"[VideoEncoder][DEBUG] processed inputs: {', '.join(shapes)}{' ' + grid_info if grid_info else ''}{' estimated_visual_tokens=' + str(token_est) if token_est is not None else ''}")
-                except Exception:
-                    logging.exception("[VideoEncoder][DEBUG] failed to log processed input shapes")
-                
+                if "video_grid_thw" in inputs:
+                    vg = inputs["video_grid_thw"].detach().cpu().tolist()
+                    # vg is typically [[T, H_grid, W_grid]]
+                    if isinstance(vg, list) and len(vg) > 0 and len(vg[0]) >= 3:
+                        t, h_grid, w_grid = int(vg[0][0]), int(vg[0][1]), int(vg[0][2])
+            
                 # Verify pixel_values were created
                 assert "pixel_values_videos" in inputs or "pixel_values" in inputs, \
                     f"No pixel_values in processed inputs. Keys: {inputs.keys()}"
@@ -295,17 +283,13 @@ class VideoEncoder(BaseEncoder):
                     
                     assert isinstance(vision_outputs, torch.Tensor), \
                         f"vision_outputs is not a tensor: {type(vision_outputs)}"
-                    
-                    logging.debug(f"[Qwen2-VL] vision_outputs shape: {vision_outputs.shape}, dtype: {vision_outputs.dtype}")
-                    
+                        
                     # Handle both 2D [seq_len, hidden_dim] and 3D [batch, seq_len, hidden_dim] shapes
                     if vision_outputs.dim() == 2:
                         # Shape: [seq_len, hidden_dim] - use first token directly
-                        logging.debug(f"[Qwen2-VL] Using 2D shape, extracting first token")
                         video_embedding = vision_outputs[0, :].detach().cpu().to(torch.float32)
                     elif vision_outputs.dim() == 3:
                         # Shape: [batch, seq_len, hidden_dim] - use first token of first batch
-                        logging.debug(f"[Qwen2-VL] Using 3D shape, extracting first token of first batch")
                         video_embedding = vision_outputs[0, 0, :].detach().cpu().to(torch.float32)
                     else:
                         raise ValueError(f"Unexpected vision_outputs shape: {vision_outputs.shape}")

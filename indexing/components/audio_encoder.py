@@ -36,6 +36,8 @@ except ImportError:
 
 from .base_encoder import BaseEncoder
 from configuration.config import CONFIG
+import subprocess
+import shutil
 
 class AudioEncoder(BaseEncoder):
     """
@@ -108,6 +110,34 @@ class AudioEncoder(BaseEncoder):
             self.diarization_pipeline = Pipeline.from_pretrained(diarization_model_id).to(torch.device(self.device))
         
         logging.info(f"[{self.__class__.__name__}] Models loaded.")
+
+    def has_audio_track(self, video_path: str) -> bool:
+        """
+        Fast check whether a video file has an audio track.
+        Prefer using `ffprobe` (fast, no decoding). If `ffprobe` is not
+        available, fall back to using MoviePy's `VideoFileClip`.
+        """
+        # Try ffprobe first
+        ffprobe = shutil.which("ffprobe")
+        if ffprobe:
+            try:
+                cmd = [
+                    ffprobe,
+                    "-v", "error",
+                    "-select_streams", "a",
+                    "-show_entries", "stream=index",
+                    "-of", "csv=p=0",
+                    video_path,
+                ]
+                out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)
+                return bool(out and out.strip())
+            except Exception:
+                pass
+        try:
+            with VideoFileClip(video_path) as vid:
+                return vid.audio is not None
+        except Exception:
+            return False
 
     def _extract_audio_array(self, video_path: str, start_t: float, end_t: float) -> np.ndarray | None:
         """

@@ -4,6 +4,7 @@ import logging
 import traceback
 import torch
 import numpy as np
+import re
 from threading import Lock
 from tqdm import tqdm
 from decord import VideoReader, cpu
@@ -109,13 +110,13 @@ class MultiModalEncoder:
         
         # Generate global video embedding for the entire video (except XCLIP)
         if self.video_encoder.model_name == "qwen2-vl":
-            logging.info(f"[Stage 1] Encoding global video embedding for entire video ({dp.video_name})...")
+            logging.info(f"[Video Stage] Encoding global video embedding for entire video ({dp.video_name})...")
             video_data = self.video_encoder.encode_full_video(video_path)
             if video_data:
                 dp.global_embeddings["video"] = video_data["video"]
-                logging.info(f"[Stage 1] Global video embedding generated for {dp.video_name}")
+                logging.info(f"[Video Stage] Global video embedding generated for {dp.video_name}")
         elif self.video_encoder.model_name == "xclip":
-            logging.info(f"[Stage 1] Using mean pooling for global video embedding (XCLIP)")
+            logging.info(f"[Video Stage] Using mean pooling for global video embedding (XCLIP)")
         else:
             raise ValueError(f"Unknown model {self.video_encoder.model_name}")
 
@@ -348,6 +349,13 @@ class MultiModalEncoder:
                 # Use captioner.processor to tokenize the prompt and captioner.model to generate summary
                 messages = [{"role": "user", "content": [{"type": "text", "text": full_prompt}]}]
                 proc_inputs = self.captioner.processor.apply_chat_template(messages, tokenize=True, return_tensors="pt")
+                # The processor may return a single Tensor (e.g., input_ids) or a dict
+                # of tensors. Normalize to a dict so we can safely move tensors to device.
+                if isinstance(proc_inputs, torch.Tensor):
+                    proc_inputs = {"input_ids": proc_inputs}
+                elif not isinstance(proc_inputs, dict):
+                    proc_inputs = dict(proc_inputs)
+                
                 proc_inputs = {k: (v.to(self.device) if hasattr(v, "to") else v) for k, v in proc_inputs.items()}
 
                 with torch.inference_mode():
@@ -355,6 +363,18 @@ class MultiModalEncoder:
                         gen_ids = self.captioner.model.generate(**proc_inputs, max_new_tokens=128)
 
                 summary = self.captioner.processor.batch_decode(gen_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)[0].strip()
+
+                # Extract assistant reply if model returns chat-style text
+                m = re.search(r"assistant:\s*(.*)$", summary, flags=re.IGNORECASE | re.DOTALL)
+                if m:
+                    summary = m.group(1).strip()
+                else:
+                    parts = re.split(r"assistant:\s*", summary, flags=re.IGNORECASE)
+                    if parts and len(parts) > 1:
+                        summary = parts[-1].strip()
+
+                # Remove trailing separators like lines of dashes
+                summary = re.sub(r"\n[-]{3,}.*$", "", summary, flags=re.DOTALL).strip()
                 # Cleanup
                 del proc_inputs, gen_ids
                 if self.device == "cuda":
@@ -426,7 +446,7 @@ class MultiModalEncoder:
                 logging.info(f"No pre-existing scenes found for {os.path.basename(video_path)}, using pyscenedetect")
                 dp.scenes = SceneDetector.detect_scenes(
                     video_path=video_path,
-                    method="pyscenedetect",
+                    method="temporal",
                     existing_scenes=None
                 )
             
@@ -467,9 +487,16 @@ class MultiModalEncoder:
                 gc.collect()
             
             # Stage 2: Audio Encoding
-            self.audio_encoder.load_models()
-            self._encode_audio_stage(video_path, dp)
-            self.unload_model("audio")
+            # Fast-check if the video has an audio track before loading heavy models
+            has_audio = self.audio_encoder.has_audio_track(video_path)
+
+            if not has_audio:
+                logging.info(f"Video {video_path} appears to have no audio - skipping audio stage")
+                dp.has_audio = False
+            else:
+                self.audio_encoder.load_models()
+                self._encode_audio_stage(video_path, dp)
+                self.unload_model("audio")
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 gc.collect()
