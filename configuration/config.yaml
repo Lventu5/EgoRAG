@@ -2,7 +2,7 @@ device: "cuda"
 data:
   video_path: "../ego4d_data/v2/full_scale/"
   annotation_path: "../ego4d_data/v2/annotations/nlq_train.json"
-  video_dataset: "../ego4d_data/v2/qwen_llava_encoded_videos/qwen_llava_10_videos.pkl"
+  video_dataset: "./qwen_llava_10_videos.pkl" # "../ego4d_data/v2/qwen_llava_encoded_videos/qwen_llava_10_videos.pkl"
 indexing:
   video:
     model_name: "qwen2-vl" # Options: "xclip", "qwen2-vl"
@@ -23,13 +23,14 @@ indexing:
     diarization_model_id: "pyannote/speaker-diarization-3.1" # Speaker diarization model
   text:
     text_model_id: "all-MiniLM-L6-v2"
+    llm_model_id: "Qwen/Qwen2.5-3B-Instruct"  # LLM for screenplay generation
   caption:
     use_captioner: "captioner2" # Options: "captioner1" (BLIP), "captioner2" (LLaVA)
     caption_model_id: "Salesforce/blip-image-captioning-base"
     caption2_model_id: "llava-hf/LLaVA-NeXT-Video-7B-hf"
 retrieval:
   text_model_id: "all-MiniLM-L6-v2"
-  video_model_id: "laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
+  video_model_id: "Qwen/Qwen2-VL-7B-Instruct"
   audio_model_id: "laion/clap-htsat-unfused"
   caption_model_id: "all-MiniLM-L6-v2"
   rewriter_model_id: "Qwen/Qwen2.5-7B-Instruct"

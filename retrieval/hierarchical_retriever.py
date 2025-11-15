@@ -7,6 +7,7 @@ from transformers import (
     ClapProcessor,
     ClapModel,
     AutoProcessor,
+    AutoModel,
     LlavaNextVideoForConditionalGeneration,
     CLIPProcessor,
     CLIPTextModel
@@ -85,7 +86,6 @@ class HierarchicalRetriever:
             if self.video_model_type == "qwen2-vl":
                 qwen_id = CONFIG.retrieval.video_model_id
                 logging.info(f"Loading Qwen2-VL encoder: {qwen_id}")
-                from transformers import AutoProcessor, AutoModel
                 self.processor = AutoProcessor.from_pretrained(qwen_id)
                 self.embedder = AutoModel.from_pretrained(
                     qwen_id,

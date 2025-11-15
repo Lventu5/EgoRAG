@@ -57,7 +57,8 @@ class VideoDataPoint:
         self.global_embeddings: Dict[str, Optional[torch.Tensor | str]] = {
             "video": None,
             "audio": None,
-            "text": None,
+            "text": None,  # Single text embedding from screenplay summary
+            "text_raw": "",  # LLM-generated screenplay text
             "caption": None,
             "caption_text": "",
         }
@@ -67,11 +68,12 @@ class VideoDataPoint:
             f"scene_{i}": {
                 "video": None,
                 "audio": None,
-                "text": None,
-                "caption": None,
-                "transcript": "",
+                "text": None,  # Single text embedding from screenplay summary
+                "text_raw": "",  # LLM-generated screenplay text
                 "image": {},
                 "meta": {},
+                "caption": None,
+                "transcript": "",
                 "caption_text": "",
             }
             for i, _ in enumerate(self.scenes)

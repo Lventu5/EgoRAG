@@ -19,7 +19,6 @@ from indexing.components.text_encoder import TextEncoder
 from indexing.components.visual_captioner import VisualCaptioner as VisualCaptioner1
 from indexing.components.visual_captioner2 import VisualCaptioner as VisualCaptioner2
 from configuration.config import CONFIG
-from transformers import AutoProcessor
 
 
 # --- Setup logging (can be moved to a main file) ---
@@ -125,8 +124,9 @@ class MultiModalEncoder:
         Stage 2: Encode all scenes with audio encoder.
         Requires video_path and scene timing information.
         Gracefully handles videos without audio tracks.
+        Stores audio embeddings, transcripts, audio events, and speaker diarization.
         """
-        logging.info(f"[Caption Stage] Audio encoding for {video_path}")
+        logging.info(f"[Audio Stage] Audio encoding for {video_path}")
         
         # Track if this video has audio at all
         video_has_audio = None  # Unknown until we try first scene
@@ -151,12 +151,17 @@ class MultiModalEncoder:
                     if audio_data and sid in dp.scene_embeddings:
                         if audio_data.get("has_audio", True):
                             dp.scene_embeddings[sid]["audio"] = audio_data["audio_embedding"]
-                            dp.scene_embeddings[sid]["transcript"] = audio_data["transcript"]
+                            # Store temporary data for screenplay generation
+                            dp.scene_embeddings[sid]["_temp_transcript"] = audio_data["transcript"]
+                            dp.scene_embeddings[sid]["_temp_audio_events"] = audio_data.get("audio_events", [])
+                            dp.scene_embeddings[sid]["_temp_speaker_segments"] = audio_data.get("speaker_segments", [])
                             scenes_with_audio += 1
                         else:
                             # No audio - set to None explicitly
                             dp.scene_embeddings[sid]["audio"] = None
-                            dp.scene_embeddings[sid]["transcript"] = ""
+                            dp.scene_embeddings[sid]["_temp_transcript"] = ""
+                            dp.scene_embeddings[sid]["_temp_audio_events"] = []
+                            dp.scene_embeddings[sid]["_temp_speaker_segments"] = []
                     else:
                         logging.warning(f"[SKIP] scene {sid}, audio encoding failed.")
                 except Exception as e:
@@ -182,21 +187,22 @@ class MultiModalEncoder:
                 global_audio = self.audio_encoder.encode(video_path, start_time, end_time)
                 if global_audio:
                     dp.global_embeddings["audio"] = global_audio.get("audio_embedding")
-                    dp.global_embeddings["transcript"] = global_audio.get("transcript", "")
-                    dp.global_embeddings["transcript_words"] = global_audio.get("transcript_words", [])
-                    dp.global_embeddings["audio_events"] = global_audio.get("audio_events", [])
-                    dp.global_embeddings["speaker_segments"] = global_audio.get("speaker_segments", [])
+                    # Store temporary data for screenplay generation
+                    dp._temp_global_transcript = global_audio.get("transcript", "")
+                    dp._temp_global_audio_events = global_audio.get("audio_events", [])
+                    dp._temp_global_speaker_segments = global_audio.get("speaker_segments", [])
                     logging.info(f"[Caption Stage] Global audio embedding generated for {dp.video_name}")
 
     def _encode_caption_stage(self, video_path: str, dp: VideoDataPoint) -> None:
         """
-        Stage 3: Generate captions from keyframes (captioner1) or video scenes (captioner2).
+        Stage 3: Generate visual captions from keyframes (captioner1) or video scenes (captioner2).
+        These captions will be combined with audio information in the text stage.
         
         Captioner1 (BLIP): Uses pre-extracted keyframes from video stage
         Captioner2 (Qwen2-VL): Creates temporary video clip of entire scene, 
                                loads all frames, generates caption, then deletes clip
         """
-        logging.info(f"[Audio Stage] Caption generation for {dp.video_name} using {self.use_captioner}")
+        logging.info(f"[Caption Stage] Visual caption generation for {dp.video_name} using {self.use_captioner}")
         futures = {}
         
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
@@ -217,7 +223,8 @@ class MultiModalEncoder:
                 try:
                     caption = f.result()
                     if sid in dp.scene_embeddings:
-                        dp.scene_embeddings[sid]["caption_text"] = caption
+                        # Store as temporary data for screenplay generation
+                        dp.scene_embeddings[sid]["_temp_caption"] = caption
                         if "keyframes" in dp.scene_embeddings[sid]:
                             del dp.scene_embeddings[sid]["keyframes"]
                             logging.debug(f"Freed keyframes for scene {sid} in {dp.video_name}")
@@ -228,63 +235,78 @@ class MultiModalEncoder:
                     logging.error(traceback.format_exc())
         
         # Generate global caption for the entire video
-        logging.info(f"[Audio Stage] Generating global caption for entire video ({dp.video_name})...")
+        logging.info(f"[Caption Stage] Generating global caption for entire video ({dp.video_name})...")
         global_caption = self._generate_full_video_caption(video_path, dp)
-        dp.global_embeddings["caption_text"] = global_caption
-        logging.info(f"[Audio Stage] Global caption generated for {dp.video_name}")
+        # Store as temporary data for screenplay generation
+        dp._temp_global_caption = global_caption
+        logging.info(f"[Caption Stage] Global caption generated for {dp.video_name}")
         
         if hasattr(dp, "_temp_keyframes"):
             del dp._temp_keyframes
-            logging.info(f"[Audio Stage] Keyframes cleaned up for {dp.video_name}")
+            logging.info(f"[Caption Stage] Keyframes cleaned up for {dp.video_name}")
 
     def _encode_text_stage(self, dp: VideoDataPoint) -> None:
         """
-        Stage 4: Encode all text (captions + transcripts) with text encoder.
-        Requires caption_text and transcript from previous stages.
+        Stage 4: Generate screenplay-style summaries and encode with text encoder.
+        Combines visual captions, transcripts, audio events, and speaker diarization
+        into a coherent narrative description using TextEncoder's LLM.
         """
-        logging.info(f"[Text Stage] Text encoding for {dp.video_name}")
+        logging.info(f"[Text Stage] Generating screenplay summaries for {dp.video_name}")
+        
+        # Generate screenplay for each scene
         futures = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             for sid, scene_data in dp.scene_embeddings.items():
-                caption = scene_data.get("caption_text", "")
-                transcript = scene_data.get("transcript", "")
-                full_text = f"Transcript: {transcript}. Visuals: {caption}"
-                futures[executor.submit(self._encode_text_pair, full_text, caption)] = sid
+                # Prepare data for screenplay generation
+                screenplay_data = {
+                    "caption_text": scene_data.get("_temp_caption", ""),
+                    "transcript": scene_data.get("_temp_transcript", ""),
+                    "audio_events": scene_data.get("_temp_audio_events", []),
+                    "speaker_segments": scene_data.get("_temp_speaker_segments", [])
+                }
+                futures[executor.submit(self.text_encoder.generate_screenplay_summary, screenplay_data)] = sid
 
             for f in tqdm(as_completed(futures), total=len(futures), desc=f"Text ({dp.video_name})", disable=False):
                 sid = futures[f]
                 try:
-                    text_emb, caption_emb = f.result()
+                    screenplay = f.result()
                     if sid in dp.scene_embeddings:
+                        # Store the screenplay text and its embedding
+                        dp.scene_embeddings[sid]["text_raw"] = screenplay
+                        text_emb = self.text_encoder.encode(screenplay)
                         dp.scene_embeddings[sid]["text"] = text_emb
-                        dp.scene_embeddings[sid]["caption"] = caption_emb
+                        
+                        # Clean up temporary data
+                        for temp_key in ["_temp_caption", "_temp_transcript", "_temp_audio_events", "_temp_speaker_segments"]:
+                            if temp_key in dp.scene_embeddings[sid]:
+                                del dp.scene_embeddings[sid][temp_key]
                     else:
-                        logging.warning(f"[SKIP] scene {sid}, text encoding failed.")
+                        logging.warning(f"[SKIP] scene {sid}, screenplay generation failed.")
                 except Exception as e:
-                    logging.error(f"[ERROR] scene {sid} text encoding failed: {e}")
+                    logging.error(f"[ERROR] scene {sid} screenplay generation failed: {e}")
                     logging.error(traceback.format_exc())
         
-        # Generate global text embeddings for the entire video
-        global_caption = dp.global_embeddings.get("caption_text", "")
-        global_transcript = dp.global_embeddings.get("transcript", "")
-        combined_text = f"Transcript: {global_transcript}. Visuals: {global_caption}".strip()
-        text_emb, caption_emb = self._encode_text_pair(combined_text, global_caption)
+        # Generate global screenplay summary for the entire video
+        logging.info(f"[Text Stage] Generating global screenplay summary for {dp.video_name}")
+        scene_screenplays = [(sid, scene_data.get("text_raw", "")) for sid, scene_data in sorted(dp.scene_embeddings.items())]
+        global_screenplay = self.text_encoder.generate_global_screenplay(scene_screenplays)
+        dp.global_embeddings["text_raw"] = global_screenplay
+        text_emb = self.text_encoder.encode(global_screenplay)
         dp.global_embeddings["text"] = text_emb
-        dp.global_embeddings["caption"] = caption_emb
-        logging.info(f"[Text Stage] Global text embeddings generated for {dp.video_name}")
-
-    def _encode_text_pair(self, full_text: str, caption: str) -> tuple[torch.Tensor, torch.Tensor]:
-        """Helper: Encode both full text and caption separately."""
-        text_embedding = self.text_encoder.encode(full_text)
-        caption_emb = self.text_encoder.encode(caption) if caption else torch.zeros(384, dtype=torch.float32)
-        return text_embedding, caption_emb
+        
+        # Clean up temporary global data
+        for attr in ["_temp_global_caption", "_temp_global_transcript", "_temp_global_audio_events", "_temp_global_speaker_segments"]:
+            if hasattr(dp, attr):
+                delattr(dp, attr)
+        
+        logging.info(f"[Text Stage] Global screenplay summary generated for {dp.video_name}")
 
     def _aggregate_embeddings(self, scene_embeddings: dict) -> dict:
         """Aggregates scene embeddings to create global video embeddings."""
-        global_embs = {"video": [], "audio": [], "text": [], "caption": []}
+        global_embs = {"video": [], "audio": [], "text": []}
         for scene_data in scene_embeddings.values():
             for key in global_embs.keys():
-                if scene_data[key] is not None:
+                if scene_data.get(key) is not None:
                     global_embs[key].append(scene_data[key])
         
         aggregated = {}
@@ -512,13 +534,11 @@ class MultiModalEncoder:
             # For XCLIP video: use mean pooling since we don't call the model on full video
             if CONFIG.indexing.video.model_name == "xclip":
                 aggregated = self._aggregate_embeddings(dp.scene_embeddings)
-                # Only override video embedding, keep the rest (audio, text, caption were computed globally)
+                # Only override video embedding, keep the rest (audio, text were computed globally)
                 if aggregated.get("video") is not None:
                     dp.global_embeddings["video"] = aggregated["video"]
                     logging.info(f"[Aggregate] Used mean pooling for global video embedding (XCLIP)")
 
-            # Ora posso scaricare il modello video
-            self.unload_model("video")
             self.dataset.encoded = True
         
         return self.dataset

@@ -1,25 +1,39 @@
-import os
 import torch
 import logging
+import re
 from sentence_transformers import SentenceTransformer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from .base_encoder import BaseEncoder
 from configuration.config import CONFIG
 
 class TextEncoder(BaseEncoder):
     """
-    Encodes textual descriptions (transcripts, captions) into
-    semantic embeddings using SentenceTransformers (SBERT).
+    Encodes textual descriptions into semantic embeddings using SentenceTransformers.
+    Also generates screenplay-style summaries using an LLM (Qwen2-VL).
     """
     def __init__(self, device: str = "cuda"):
         super().__init__(device)
         self.sbert_model: SentenceTransformer = None
+        self.llm_model = None
+        self.llm_tokenizer = None
         self.model_name = CONFIG.indexing.text.text_model_id
+        self.llm_model_name = CONFIG.indexing.text.llm_model_id
 
     def load_models(self):
         logging.info(f"[{self.__class__.__name__}] Loading {self.model_name}...")
         # SentenceTransformer automatically uses SENTENCE_TRANSFORMERS_HOME or HF_HOME
         self.sbert_model = SentenceTransformer(self.model_name, device=self.device)
         logging.info(f"[{self.__class__.__name__}] Model loaded.")
+        
+        # Load LLM for screenplay generation
+        logging.info(f"[{self.__class__.__name__}] Loading LLM {self.llm_model_name}...")
+        self.llm_tokenizer = AutoTokenizer.from_pretrained(self.llm_model_name)
+        self.llm_model = AutoModelForCausalLM.from_pretrained(
+            self.llm_model_name,
+            torch_dtype=torch.bfloat16 if self.device == "cuda" else torch.float32,
+            device_map=self.device
+        )
+        logging.info(f"[{self.__class__.__name__}] LLM loaded.")
 
     def encode(self, text: str) -> torch.Tensor:
         """
@@ -43,3 +57,165 @@ class TextEncoder(BaseEncoder):
                 device=self.device
             )
         return embedding.cpu()
+    
+    def generate_screenplay_summary(self, scene_data: dict) -> str:
+        """
+        Generate a screenplay-style summary for a single scene.
+        Combines visual description, dialogue, sound effects, and speaker attribution.
+        
+        Args:
+            scene_data: Dictionary with keys 'caption_text', 'transcript', 'audio_events', 'speaker_segments'
+        
+        Returns:
+            Screenplay-style text summary
+        """
+        caption = scene_data.get("caption_text", "")
+        transcript = scene_data.get("transcript", "")
+        audio_events = scene_data.get("audio_events", [])
+        speaker_segments = scene_data.get("speaker_segments", [])
+        
+        # Build context for LLM
+        context_parts = []
+        
+        if caption and len(caption) > 0:
+            context_parts.append(f"Visual description: {caption}")
+        
+        if transcript and len(transcript) > 0:
+            context_parts.append(f"Dialogue/Speech: {transcript}")
+        
+        if audio_events and len(audio_events) > 0:
+            events_str = ", ".join([f"{e['label']} ({e['confidence']:.2f})" for e in audio_events[:3]])
+            context_parts.append(f"Audio events: {events_str}")
+        
+        if speaker_segments and len(speaker_segments) > 0:
+            speakers = list(set([seg['speaker'] for seg in speaker_segments]))
+            context_parts.append(f"Speakers detected: {', '.join(speakers)}")
+        
+        if not context_parts:
+            return "[No information available for this scene]"
+        
+        # Create prompt for LLM
+        prompt = f"""You are a screenplay writer. Based on the following information about a video scene, write a concise screenplay-style description (2-3 sentences) that captures what is happening visually, what is being said, and any notable sounds. Format it like a screenplay with action lines and dialogue.
+
+Scene Information:
+{chr(10).join(context_parts)}
+
+Screenplay description:"""
+        
+        try:
+            messages = [{"role": "user", "content": prompt}]
+            text = self.llm_tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+            
+            model_inputs = self.llm_tokenizer([text], return_tensors="pt").to(self.device)
+            
+            with torch.inference_mode():
+                with torch.amp.autocast("cuda", enabled=True, dtype=torch.bfloat16):
+                    gen_ids = self.llm_model.generate(
+                        **model_inputs,
+                        max_new_tokens=256,
+                        do_sample=False,
+                        pad_token_id=self.llm_tokenizer.eos_token_id
+                    )
+            
+            # Decode only the generated part (skip input prompt)
+            gen_ids = gen_ids[:, model_inputs.input_ids.shape[1]:]
+            screenplay = self.llm_tokenizer.batch_decode(
+                gen_ids,
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=True
+            )[0].strip()
+            
+            # Cleanup
+            screenplay = re.sub(r"\n[-]{3,}.*$", "", screenplay, flags=re.DOTALL).strip()
+            
+            del model_inputs, gen_ids
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+            
+            return screenplay
+            
+        except Exception as e:
+            logging.error(f"[Screenplay] Generation failed: {e}")
+            import traceback
+            logging.error(traceback.format_exc())
+            # Fallback to simple concatenation
+            return " ".join([p.split(": ", 1)[-1] for p in context_parts])
+    
+    def generate_global_screenplay(self, scene_screenplays: list) -> str:
+        """
+        Generate a global screenplay summary for the entire video.
+        Summarizes all scene screenplays into a coherent narrative.
+        
+        Args:
+            scene_screenplays: List of tuples (scene_id, screenplay_text)
+        
+        Returns:
+            Global screenplay summary
+        """
+        if not scene_screenplays:
+            return "[No information available for this video]"
+        
+        # Format scene screenplays
+        formatted_scenes = [f"Scene {sid}: {text}" for sid, text in scene_screenplays if text]
+        
+        if not formatted_scenes:
+            return "[No information available for this video]"
+        
+        # For short videos (< 5 scenes), just concatenate
+        if len(formatted_scenes) <= 5:
+            return "\n\n".join(formatted_scenes)
+        
+        # For longer videos, ask LLM to summarize
+        prompt = f"""You are a screenplay writer. Summarize the following scene descriptions into a coherent 3-4 sentence narrative that captures the overall story of the video. Write it in screenplay style.
+
+Scenes:
+{chr(10).join(formatted_scenes)}
+
+Overall narrative:"""
+        
+        try:
+            messages = [{"role": "user", "content": prompt}]
+            text = self.llm_tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+            
+            model_inputs = self.llm_tokenizer([text], return_tensors="pt").to(self.device)
+            
+            with torch.inference_mode():
+                with torch.amp.autocast("cuda", enabled=True, dtype=torch.bfloat16):
+                    gen_ids = self.llm_model.generate(
+                        **model_inputs,
+                        max_new_tokens=512,
+                        do_sample=False,
+                        pad_token_id=self.llm_tokenizer.eos_token_id
+                    )
+            
+            # Decode only the generated part (skip input prompt)
+            gen_ids = gen_ids[:, model_inputs.input_ids.shape[1]:]
+            summary = self.llm_tokenizer.batch_decode(
+                gen_ids,
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=True
+            )[0].strip()
+            
+            # Cleanup
+            summary = re.sub(r"\n[-]{3,}.*$", "", summary, flags=re.DOTALL).strip()
+            
+            del model_inputs, gen_ids
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+            
+            return summary
+            
+        except Exception as e:
+            logging.error(f"[Global Screenplay] Generation failed: {e}")
+            import traceback
+            logging.error(traceback.format_exc())
+            # Fallback to concatenation
+            return "\n\n".join(formatted_scenes)
