@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from data.video_dataset import Scene
-from .metrics import(
+from .metrics import (
     topKAccuracyScene,
     topKAccuracyVideo,
     MeanReciprocalRank,
@@ -11,7 +11,10 @@ from .metrics import(
     ROUGEScore,
     METEOR,
     BERTScore,
-    BLEURTScore
+    BLEURTScore,
+    RecallAtK,
+    IoUAtThreshold,
+    RecallAtKIoU,
 )
 
 class Evaluator(ABC):
@@ -40,6 +43,29 @@ class RetrievalEvaluator(Evaluator):
         self.topk_prec_video = topKPrecisionVideo()
         self.mean_rank = MeanRank()
 
+        # === NUOVE METRICHE ===
+
+        # Recall@K (solo video correctness)
+        self.recall1 = RecallAtK(k=1, name="Recall@1")
+        self.recall3 = RecallAtK(k=3, name="Recall@3")
+        self.recall5 = RecallAtK(k=5, name="Recall@5")
+        self.recall10 = RecallAtK(k=10, name="Recall@10")
+
+        # IoU-only
+        self.iou03 = IoUAtThreshold(iou_threshold=0.3, name="IoU@0.3")
+        self.iou05 = IoUAtThreshold(iou_threshold=0.5, name="IoU@0.5")
+
+        # Recall@K + IoU@τ (metriche standard da paper)
+        self.r1_iou03 = RecallAtKIoU(k=1, iou_threshold=0.3, name="R@1_IoU@0.3")
+        self.r3_iou03 = RecallAtKIoU(k=3, iou_threshold=0.3, name="R@3_IoU@0.3")
+        self.r5_iou03 = RecallAtKIoU(k=5, iou_threshold=0.3, name="R@5_IoU@0.3")
+        self.r10_iou03 = RecallAtKIoU(k=10, iou_threshold=0.3, name="R@10_IoU@0.3")
+
+        self.r1_iou05 = RecallAtKIoU(k=1, iou_threshold=0.5, name="R@1_IoU@0.5")
+        self.r3_iou05 = RecallAtKIoU(k=3, iou_threshold=0.5, name="R@3_IoU@0.5")
+        self.r5_iou05 = RecallAtKIoU(k=5, iou_threshold=0.5, name="R@5_IoU@0.5")
+        self.r10_iou05 = RecallAtKIoU(k=10, iou_threshold=0.5, name="R@10_IoU@0.5")
+
     def forward_pass(
         self,
         pred: list[list[tuple[str, Scene]]], 
@@ -51,6 +77,27 @@ class RetrievalEvaluator(Evaluator):
         results["mean_reciprocal_rank"] = self.mean_reciprocal_rank(pred=pred, true=true)
         results["topk_prec_video"] = self.topk_prec_video(pred=pred, true=true)
         results["mean_rank"] = self.mean_rank(pred=pred, true=true)
+
+        # === Recall@K ===
+        results["Recall@1"] = self.recall1(pred=pred, true=true)
+        results["Recall@3"] = self.recall3(pred=pred, true=true)
+        results["Recall@5"] = self.recall5(pred=pred, true=true)
+        results["Recall@10"] = self.recall10(pred=pred, true=true)
+
+        # === IoU-only ===
+        results["IoU@0.3"] = self.iou03(pred=pred, true=true)
+        results["IoU@0.5"] = self.iou05(pred=pred, true=true)
+
+        # === Recall@K + IoU ===
+        results["R@1_IoU@0.3"] = self.r1_iou03(pred=pred, true=true)
+        results["R@3_IoU@0.3"] = self.r3_iou03(pred=pred, true=true)
+        results["R@5_IoU@0.3"] = self.r5_iou03(pred=pred, true=true)
+        results["R@10_IoU@0.3"] = self.r10_iou03(pred=pred, true=true)
+
+        results["R@1_IoU@0.5"] = self.r1_iou05(pred=pred, true=true)
+        results["R@3_IoU@0.5"] = self.r3_iou05(pred=pred, true=true)
+        results["R@5_IoU@0.5"] = self.r5_iou05(pred=pred, true=true)
+        results["R@10_IoU@0.5"] = self.r10_iou05(pred=pred, true=true)
 
         return results
 

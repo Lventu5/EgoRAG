@@ -310,3 +310,163 @@ class BLEURTScore(Metric):
         assert len(pred) == len(true), "The number of predicted responses and the groud truth must be the same"
         scores = self.scorer.score(references = true, candidates = pred)
         return float(np.mean(scores))
+
+
+class RecallAtK(Metric):
+    """
+    Recall@K (solo sul video):
+    Per ogni query controlla se il video corretto compare almeno una volta
+    nei top-K retrieved.
+    
+    Risultato:
+        (# query per cui il video corretto è nelle top-K) / (# query totali)
+    """
+    def __init__(self, k: int = 1, name: str | None = None):
+        self.k = k
+        if name is None:
+            name = f"Recall@{k}"
+        super().__init__(name)
+
+    def compute(self, pred: list[list[tuple[str, Scene]]],
+                true: list[tuple[str, float, float]]) -> float:
+        assert len(pred) == len(true), "The predictions and the ground truths must have the same length"
+        n = len(pred)
+        hits = 0
+
+        for i in range(n):
+            top_k = pred[i][:self.k]
+            gt_video = true[i][0]
+            # hit se il video corretto appare almeno una volta nelle top-K
+            if any(video_name == gt_video for video_name, _ in top_k):
+                hits += 1
+
+        return hits / n if n > 0 else 0.0
+
+class IoUAtThreshold(Metric):
+    """
+    IoU@τ:
+    
+    Per ogni query:
+      - prendo TUTTE le predizioni (o le top-K che gli passiamo in pred[i])
+        che appartengono al video corretto
+      - considero la best IoU tra predizioni e ground truth
+      - conto la query come "successo" se best_iou >= iou_threshold
+
+    Risultato:
+        (# query con best IoU >= τ) / (# query totali)
+    """
+    def __init__(self, iou_threshold: float = 0.5, name: str | None = None):
+        self.iou_threshold = iou_threshold
+        if name is None:
+            name = f"IoU@{iou_threshold}"
+        super().__init__(name)
+
+    def compute(self, pred: list[list[tuple[str, Scene]]],
+                true: list[tuple[str, float, float]]) -> float:
+        def _unpack_true(t):
+            if len(t) == 2:
+                vid, moment = t
+                return vid, float(moment) - 0.5, float(moment) + 0.5
+            elif len(t) >= 3:
+                vid, start, end = t[0], t[1], t[2]
+                gt_start = float(start) if start is not None else 0.0
+                if end is not None:
+                    gt_end = float(end)
+                else:
+                    gt_end = gt_start
+                return vid, gt_start, gt_end
+            else:
+                raise ValueError("Unsupported true format")
+
+        def _iou(pred_scene: Scene, gt_start: float, gt_end: float) -> float:
+            p_start, p_end = pred_scene.start_time, pred_scene.end_time
+            inter = max(0.0, min(p_end, gt_end) - max(p_start, gt_start))
+            union = max(p_end, gt_end) - min(p_start, gt_start)
+            return inter / union if union > 0 else 0.0
+
+        assert len(pred) == len(true), "The predictions and the ground truths must have the same length"
+
+        n = len(pred)
+        hits = 0
+
+        for i in range(n):
+            candidates = pred[i]
+            gt_video, gt_start, gt_end = _unpack_true(true[i])
+
+            best_iou = 0.0
+            for video_name, prediction in candidates:
+                if video_name != gt_video:
+                    continue
+                best_iou = max(best_iou, _iou(prediction, gt_start, gt_end))
+
+            if best_iou >= self.iou_threshold:
+                hits += 1
+
+        return hits / n if n > 0 else 0.0
+
+
+class RecallAtKIoU(Metric):
+    """
+    Recall@K con requisito IoU >= τ (metrica standard nei paper di moment retrieval).
+
+    Per ogni query:
+      - guardo solo le top-K predizioni
+      - cerco una predizione con video corretto e IoU >= soglia
+      - se esiste, la query è un "hit"
+
+    Risultato:
+        (# query con almeno una predizione nelle top-K
+         che ha video corretto e IoU >= τ) / (# query totali)
+    """
+    def __init__(self, k: int = 1, iou_threshold: float = 0.5, name: str | None = None):
+        self.k = k
+        self.iou_threshold = iou_threshold
+        if name is None:
+            name = f"Recall@{k}_IoU@{iou_threshold}"
+        super().__init__(name)
+
+    def compute(self, pred: list[list[tuple[str, Scene]]],
+                true: list[tuple[str, float, float]]) -> float:
+        def _unpack_true(t):
+            if len(t) == 2:
+                vid, moment = t
+                return vid, float(moment) - 0.5, float(moment) + 0.5
+            elif len(t) >= 3:
+                vid, start, end = t[0], t[1], t[2]
+                gt_start = float(start) if start is not None else 0.0
+                if end is not None:
+                    gt_end = float(end)
+                else:
+                    gt_end = gt_start
+                return vid, gt_start, gt_end
+            else:
+                raise ValueError("Unsupported true format")
+
+        def _iou(pred_scene: Scene, gt_start: float, gt_end: float) -> float:
+            p_start, p_end = pred_scene.start_time, pred_scene.end_time
+            inter = max(0.0, min(p_end, gt_end) - max(p_start, gt_start))
+            union = max(p_end, gt_end) - min(p_start, gt_start)
+            return inter / union if union > 0 else 0.0
+
+        assert len(pred) == len(true), "The predictions and the ground truths must have the same length"
+
+        n = len(pred)
+        hits = 0
+
+        for i in range(n):
+            top_k = pred[i][:self.k]
+            gt_video, gt_start, gt_end = _unpack_true(true[i])
+
+            hit = False
+            for video_name, prediction in top_k:
+                if video_name != gt_video:
+                    continue
+                iou = _iou(prediction, gt_start, gt_end)
+                if iou >= self.iou_threshold:
+                    hit = True
+                    break
+
+            if hit:
+                hits += 1
+
+        return hits / n if n > 0 else 0.0
