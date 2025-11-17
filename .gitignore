@@ -6,9 +6,11 @@
 
 */scene_clips/
 */logs
+*/visualizations/
 
 *.pkl
 *.pth
 *.pt
 *.out
 *.err
+*.png
