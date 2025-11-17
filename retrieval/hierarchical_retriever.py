@@ -10,7 +10,8 @@ from transformers import (
     AutoModel,
     LlavaNextVideoForConditionalGeneration,
     CLIPProcessor,
-    CLIPTextModel
+    CLIPTextModel,
+    AutoTokenizer,
 )
 from sentence_transformers import SentenceTransformer
 from torch.nn.functional import normalize
@@ -94,14 +95,12 @@ class HierarchicalRetriever:
         
         elif target_modality == "video":
             if self.video_model_type == "qwen2-vl":
-                qwen_id = CONFIG.retrieval.video_model_id
-                logging.info(f"Loading Qwen2-VL encoder: {qwen_id}")
-                self.processor = AutoProcessor.from_pretrained(qwen_id)
-                self.embedder = AutoModel.from_pretrained(
-                    qwen_id,
-                    dtype=torch.float16,
-                    device_map=self.device
-                ).eval()
+                    qwen_id = getattr(CONFIG.indexing.video, "qwen2_vl_id", None) or CONFIG.retrieval.video_model_id
+                    logging.info(f"Loading Qwen2-VL processor+model: {qwen_id}")
+                    self.processor = AutoProcessor.from_pretrained(qwen_id)
+                    self.tokenizer = AutoTokenizer.from_pretrained(qwen_id, use_fast=True)
+
+                    self.embedder = AutoModel.from_pretrained(qwen_id).to(self.device).eval()
 
             else:  # xclip
                 model_name = self.sizes["video"]["model"]
@@ -144,13 +143,23 @@ class HierarchicalRetriever:
             ) # type: ignore
         elif self.current_modality == "video":
             if self.video_model_type == "qwen2-vl":
-                if not hasattr(self, "tokenizer") or self.embedder is None:
-                    raise RuntimeError("Qwen tokenizer/model not loaded. Call _load_models_for_modality first.")
+                if self.embedder is None:
+                    raise RuntimeError("Qwen model not loaded. Call _load_models_for_modality first.")
 
-                inputs = self.tokenizer(
-                    mod_queries, return_tensors="pt", padding=True, truncation=True
-                )
-                inputs = {k: v.to(self.device) for k, v in inputs.items()}
+                # Prefer processor if available, otherwise fallback to tokenizer
+                proc_inputs = None
+                if hasattr(self, "processor") and self.processor is not None:
+                    proc_inputs = self.processor(text=mod_queries, return_tensors="pt", padding=True, truncation=True)
+
+                if proc_inputs is None and hasattr(self, "tokenizer") and self.tokenizer is not None:
+                    proc_inputs = self.tokenizer(mod_queries, return_tensors="pt", padding=True, truncation=True)
+
+                if proc_inputs is None:
+                    raise RuntimeError("No tokenizer/processor available for Qwen text encoding")
+
+                # Filter out any visual inputs (pixel_values / pixel_values_videos etc.)
+                allowed_keys = {"input_ids", "attention_mask", "token_type_ids", "position_ids", "labels", "decoder_input_ids", "decoder_attention_mask"}
+                inputs = {k: v.to(self.device) for k, v in proc_inputs.items() if k in allowed_keys}
 
                 with torch.no_grad():
                     out = self.embedder(**inputs)
