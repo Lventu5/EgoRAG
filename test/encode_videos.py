@@ -50,8 +50,6 @@ def encode(video_dir, save_dir):
         pickle_path = f"{save_dir}/{base}_encoded.pkl"
         video_dataset.save_to_pickle(pickle_path)
 
-        print(f"{'-'*80} The size of the embedding is {video_dataset.video_datapoints[0].global_embeddings["video"].shape}")
-
         # Free memory (CPU RAM, not GPU) to avoid OOM on long batch processing
         MemoryMonitor.log_memory("[BEFORE cleanup] ")
         del encoder
