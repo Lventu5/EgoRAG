@@ -21,7 +21,7 @@ MODEL_REGISTRY = {
     "whisper-base": "models--openai--whisper-base",
     "whisper-large-v3": "models--openai--whisper-large-v3",
     "clap": "models--laion--clap-htsat-unfused",
-    "sentence-transformers": "models--sentence-transformers--all-MiniLM-L6-v2",
+    "sentence-transformers": "models--sentence-transformers--EmbeddingGemma-300M",
     "blip": "models--Salesforce--blip-image-captioning-base",
 }
 
@@ -121,6 +121,22 @@ def setup_smart_cache(force_copy_all: bool = False, verbose: bool = True):
     original_transformers_cache = os.environ.get("TRANSFORMERS_CACHE", SLOW_CACHE)
     
     os.makedirs(FAST_CACHE, exist_ok=True)
+    # Create convenience bidirectional links (do not replace real model dirs)
+    created_links: List[str] = []
+    try:
+        scratch_to_fast = os.path.join(SLOW_CACHE, "fast_hf_cache")
+        if not os.path.exists(scratch_to_fast):
+            os.symlink(FAST_CACHE, scratch_to_fast)
+            created_links.append(scratch_to_fast)
+        fast_to_scratch = os.path.join(FAST_CACHE, "scratch_hub")
+        if not os.path.exists(fast_to_scratch):
+            os.symlink(SLOW_CACHE, fast_to_scratch)
+            created_links.append(fast_to_scratch)
+        if verbose and created_links:
+            print(f"🔗 Created convenience links: {created_links}")
+    except OSError:
+        # Not critical; continue
+        created_links = []
     
     # Detect required models
     required_models = _detect_required_models()
@@ -157,52 +173,111 @@ def setup_smart_cache(force_copy_all: bool = False, verbose: bool = True):
         for model_type, _, size in small_models:
             print(f"   • {model_type}: {size:.2f}GB")
     
-    # Copy large models to fast cache
+    moved_models: List[str] = []
+
+    # Copy/move large models to fast cache and create symlink from scratch -> fast
     for model_type, model_dir, size_gb in large_models:
         slow_path = os.path.join(SLOW_CACHE, model_dir)
         fast_path = os.path.join(FAST_CACHE, model_dir)
-        
+
         if os.path.exists(fast_path):
             if verbose:
                 print(f"✓ {model_type} already in fast cache")
             continue
-        
+
+        if not os.path.exists(slow_path):
+            if verbose:
+                print(f"⚠️  {model_type}: not found in scratch during move")
+            continue
+
         if verbose:
-            print(f"\n📥 Copying {model_type} ({size_gb:.1f}GB) to fast cache...")
-        
+            print(f"\n📥 Moving {model_type} ({size_gb:.1f}GB) to fast cache...")
+
+        # Try fast atomic move first
         try:
-            # Use rsync with progress
-            cmd = ["rsync", "-ah"]
+            os.rename(slow_path, fast_path)
+            moved_models.append(model_dir)
             if verbose:
-                cmd.append("--info=progress2")
-            cmd.extend([slow_path + "/", fast_path + "/"])
-            
-            subprocess.run(cmd, check=True)
-            
+                print(f"✓ {model_type} moved (rename) to fast cache")
+        except OSError:
+            # Different filesystems: fallback to rsync copy then remove
+            try:
+                cmd = ["rsync", "-a", slow_path + "/", fast_path + "/"]
+                subprocess.run(cmd, check=True)
+                shutil.rmtree(slow_path)
+                moved_models.append(model_dir)
+                if verbose:
+                    print(f"✓ {model_type} copied (rsync) and removed from scratch")
+            except subprocess.CalledProcessError:
+                if verbose:
+                    print(f"⚠️  rsync failed for {model_type}, trying shutil.copytree...")
+                shutil.copytree(slow_path, fast_path)
+                shutil.rmtree(slow_path)
+                moved_models.append(model_dir)
+                if verbose:
+                    print(f"✓ {model_type} copied via shutil and removed from scratch")
+
+        # Create symlink at the original scratch location pointing to fast cache
+        try:
+            if os.path.exists(slow_path):
+                # should not exist, but if it does, remove to replace with symlink
+                if os.path.islink(slow_path):
+                    os.unlink(slow_path)
+                else:
+                    shutil.rmtree(slow_path)
+            os.symlink(fast_path, slow_path)
             if verbose:
-                print(f"✓ {model_type} copied successfully")
-        except subprocess.CalledProcessError:
+                print(f"🔗 Created symlink: {slow_path} -> {fast_path}")
+        except OSError:
             if verbose:
-                print(f"⚠️  rsync failed for {model_type}, trying shutil...")
-            shutil.copytree(slow_path, fast_path)
-            if verbose:
-                print(f"✓ {model_type} copied via shutil")
+                print(f"⚠️  Could not create symlink for {model_type}")
     
-    # Create symlinks for small models (avoid unnecessary copying)
+    # For small models, prefer to leave them on scratch but expose them via symlink
     for model_type, model_dir, _ in small_models:
         slow_path = os.path.join(SLOW_CACHE, model_dir)
         fast_path = os.path.join(FAST_CACHE, model_dir)
-        
+
         if os.path.exists(fast_path):
             continue
-        
-        try:
-            os.symlink(slow_path, fast_path)
-            if verbose:
-                print(f"🔗 Linked {model_type} (symlink to scratch)")
-        except OSError:
-            # Symlink failed, not critical
-            pass
+
+        if os.path.exists(slow_path):
+            # Try to move small model to fast cache and symlink scratch -> fast
+            try:
+                os.rename(slow_path, fast_path)
+                moved_models.append(model_dir)
+                if verbose:
+                    print(f"✓ {model_type} moved (small) to fast cache")
+            except OSError:
+                try:
+                    subprocess.run(["rsync", "-a", slow_path + "/", fast_path + "/"], check=True)
+                    shutil.rmtree(slow_path)
+                    moved_models.append(model_dir)
+                    if verbose:
+                        print(f"✓ {model_type} copied (rsync) and removed from scratch")
+                except subprocess.CalledProcessError:
+                    # leave on scratch and create symlink fast->slow as fallback
+                    try:
+                        os.symlink(slow_path, fast_path)
+                        if verbose:
+                            print(f"🔗 Linked {model_type} (fast -> scratch fallback)")
+                    except OSError:
+                        if verbose:
+                            print(f"⚠️  Could not link {model_type}")
+                    continue
+
+            # create symlink at scratch pointing to fast
+            try:
+                if os.path.exists(slow_path):
+                    if os.path.islink(slow_path):
+                        os.unlink(slow_path)
+                    else:
+                        shutil.rmtree(slow_path)
+                os.symlink(fast_path, slow_path)
+                if verbose:
+                    print(f"🔗 Linked {model_type} (scratch -> fast)")
+            except OSError:
+                if verbose:
+                    print(f"⚠️  Could not create scratch->fast symlink for {model_type}")
     
     # Set environment to use fast cache
     os.environ["HF_HOME"] = FAST_CACHE
@@ -215,7 +290,10 @@ def setup_smart_cache(force_copy_all: bool = False, verbose: bool = True):
     return {
         "original_hf_home": original_hf_home,
         "original_transformers_cache": original_transformers_cache,
-        "fast_cache_path": FAST_CACHE
+        "fast_cache_path": FAST_CACHE,
+        "moved_models": moved_models,
+        "slow_cache_path": SLOW_CACHE,
+        "created_links": created_links,
     }
 
 
@@ -235,11 +313,57 @@ def cleanup_smart_cache(cache_info: Dict[str, str] = None, verbose: bool = True)
         print("CLEANING UP FAST CACHE")
         print("="*60)
     
+    if cache_info is None:
+        cache_info = {}
+
+    moved_models = cache_info.get("moved_models", [])
+    slow_cache = cache_info.get("slow_cache_path", "/cluster/scratch/tnanni/hub")
+    created_links = cache_info.get("created_links", [])
+
     if os.path.exists(FAST_CACHE):
         if verbose:
-            print(f"Removing: {FAST_CACHE}")
-        
-        # Remove only actual copied files, symlinks will be deleted automatically
+            print(f"Restoring moved models and removing: {FAST_CACHE}")
+
+        # Restore moved models back to scratch by replacing symlinks
+        for model_dir in moved_models:
+            slow_path = os.path.join(slow_cache, model_dir)
+            fast_path = os.path.join(FAST_CACHE, model_dir)
+
+            try:
+                # If slow_path is a symlink pointing to fast, remove it
+                if os.path.islink(slow_path):
+                    try:
+                        os.unlink(slow_path)
+                    except Exception:
+                        pass
+
+                # If fast_path exists and slow_path does not, move it back
+                if os.path.exists(fast_path) and not os.path.exists(slow_path):
+                    try:
+                        os.rename(fast_path, slow_path)
+                    except OSError:
+                        # Different filesystems: rsync then remove
+                        try:
+                            subprocess.run(["rsync", "-a", fast_path + "/", slow_path + "/"], check=True)
+                            shutil.rmtree(fast_path)
+                        except subprocess.CalledProcessError:
+                            if verbose:
+                                print(f"⚠️  Could not rsync {model_dir} back to scratch")
+            except Exception as e:
+                if verbose:
+                    print(f"⚠️  Error restoring {model_dir}: {e}")
+
+        # Finally remove the fast cache directory
+        # Remove any convenience links recorded
+        for link in created_links:
+            try:
+                if os.path.islink(link):
+                    os.unlink(link)
+                    if verbose:
+                        print(f"✓ Removed link: {link}")
+            except Exception:
+                pass
+
         try:
             shutil.rmtree(FAST_CACHE)
             if verbose:
@@ -318,7 +442,7 @@ def setup_fast_cache():
         "models--openai--whisper-base",
         "models--laion--clap-htsat-unfused",
         "models--laion--CLIP-ViT-H-14-laion2B-s32B-b79K",
-        "models--sentence-transformers--all-MiniLM-L6-v2"
+        "models--sentence-transformers--EmbeddingGemma-300M"
     ]
     
     for model in other_models:
