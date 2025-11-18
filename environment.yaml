@@ -1,4 +1,4 @@
-name: video_encoding
+name: RAGu
 channels:
   - defaults
   - conda-forge
@@ -8,12 +8,13 @@ dependencies:
   - aom=3.3.0=h27087fc_1
   - blas=1.0=mkl
   - bzip2=1.0.8=h5eee18b_6
-  - ca-certificates=2025.10.5=hbd8a1cb_0
+  - ca-certificates=2025.11.4=h06a4308_0
   - cairo=1.18.4=h44eff21_0
   - contourpy=1.3.1=py313hdb19cb5_0
   - cycler=0.11.0=pyhd3eb1b0_0
   - cyrus-sasl=2.1.28=h1110e0f_3
   - expat=2.7.1=h6a678d5_0
+  - ffmpeg=4.4.0=hca11adc_0
   - fontconfig=2.15.0=h2c49b7f_0
   - fonttools=4.60.1=py313hee96239_0
   - freetype=2.13.3=h4a9f257_0
@@ -27,7 +28,6 @@ dependencies:
   - kiwisolver=1.4.8=py313h6a678d5_0
   - lame=3.100=h7f98852_1001
   - lcms2=2.16=h92b89f2_1
-  - ffmpeg=7.0
   - ld_impl_linux-64=2.44=h153f514_2
   - lerc=4.0.0=h6a678d5_0
   - libcups=2.4.2=h252cb56_2
@@ -55,7 +55,7 @@ dependencies:
   - libtiff=4.7.0=hde9077f_0
   - libuuid=1.41.5=h5eee18b_0
   - libva=2.21.0=hd590300_0
-  - libvpx=1.11.0=h9c3ff4c_3
+  - libvpx=1.13.1=h6a678d5_0
   - libwebp-base=1.3.2=h5eee18b_1
   - libxcb=1.17.0=h9b100fa_0
   - libxkbcommon=1.9.1=h69220b7_0
@@ -74,14 +74,14 @@ dependencies:
   - mysql-libs=9.3.0=h797a5cd_3
   - ncurses=6.5=h7934f7d_0
   - nettle=3.6=he412f7d_0
-  - numpy-base=2.3.3=py313h95072fd_1
+  - numpy=2.2.5=py313hc51ec59_2
+  - numpy-base=2.2.5=py313h0b9dd14_2
   - openh264=2.1.1=h4ff587b_0
   - openjpeg=2.5.2=h0d4d230_1
   - openldap=2.6.10=he9288cc_1
   - openssl=3.0.18=hd6dcaed_0
   - packaging=25.0=py313h06a4308_0
   - pcre2=10.42=hebb0a14_1
-  - pip=25.2=pyhc872135_0
   - pixman=0.46.4=h7934f7d_0
   - pthread-stubs=0.3=h0ce48e5_1
   - pyparsing=3.2.0=py313h06a4308_0
@@ -136,8 +136,21 @@ dependencies:
   - zstd=1.5.7=h11fc155_0
   - pip:
       - absl-py==2.3.1
+      - accelerate==1.11.0
+      - aiohappyeyeballs==2.6.1
+      - aiohttp==3.13.2
+      - aiosignal==1.4.0
+      - alembic==1.17.1
+      - annotated-types==0.7.0
+      - antlr4-python3-runtime==4.9.3
+      - anyio==4.11.0
+      - anykeystore==0.2
+      - apex==0.9.10.dev0
+      - asteroid-filterbanks==0.4.0
+      - attrs==25.4.0
       - audioop-lts==0.2.2
       - audioread==3.0.1
+      - av==16.0.1
       - awscli==1.42.54
       - bert-score==0.3.13
       - boto3==1.40.54
@@ -147,38 +160,76 @@ dependencies:
       - charset-normalizer==3.4.4
       - click==8.2.1
       - colorama==0.4.6
+      - coloredlogs==15.0.1
+      - colorlog==6.10.1
+      - cryptacular==1.6.2
+      - ctranslate2==4.6.1
       - dataclasses-json==0.6.7
+      - datasets==4.4.1
       - decorator==4.4.2
       - decord==0.6.0
+      - deepspeed==0.18.2
+      - defusedxml==0.7.1
+      - dill==0.4.0
+      - docopt==0.6.2
       - docutils==0.19
       - ego4d==1.7.3
+      - einops==0.8.1
       - faiss-cpu==1.12.0
-      - ffmpeg==1.4
+      - faster-whisper==1.2.1
       - filelock==3.20.0
+      - flash-attn==2.8.3
+      - flatbuffers==25.9.23
+      - frozenlist==1.8.0
       - fsspec==2025.9.0
+      - ftfy==6.3.1
+      - fvcore==0.1.5.post20221221
+      - gitdb==4.0.12
+      - gitpython==3.1.45
+      - googleapis-common-protos==1.72.0
+      - greenlet==3.2.4
+      - grpcio==1.76.0
+      - h11==0.16.0
       - hf-xet==1.1.10
+      - hjson==3.1.0
+      - httpcore==1.0.9
+      - httpx==0.28.1
       - huggingface-hub==0.35.3
+      - humanfriendly==10.0
+      - hupper==1.12.1
+      - hyperpyyaml==1.2.2
       - idna==3.11
       - imageio==2.37.0
       - imageio-ffmpeg==0.6.0
+      - importlib-metadata==8.7.0
+      - internvideo2-multi-modality==0.1.0
       - iopath==0.1.10
       - jinja2==3.1.6
       - jmespath==1.0.1
       - joblib==1.5.2
+      - julius==0.2.7
       - lazy-loader==0.4
+      - legacy-cgi==2.6.4
       - librosa==0.11.0
+      - lightning==2.5.6
+      - lightning-utilities==0.15.2
       - llvmlite==0.45.1
+      - mako==1.3.10
+      - markdown-it-py==4.0.0
       - markupsafe==3.0.3
       - marshmallow==3.26.1
+      - mdurl==0.1.2
       - more-itertools==10.8.0
       - moviepy==1.0.3
       - mpmath==1.3.0
       - msgpack==1.1.2
+      - multidict==6.7.0
+      - multiprocess==0.70.18
       - mypy-extensions==1.1.0
       - networkx==3.5
+      - ninja==1.13.0
       - nltk==3.9.2
       - numba==0.62.1
-      - numpy==2.2.6
       - nvidia-cublas-cu12==12.8.4.1
       - nvidia-cuda-cupti-cu12==12.8.90
       - nvidia-cuda-nvrtc-cu12==12.8.93
@@ -192,49 +243,132 @@ dependencies:
       - nvidia-cusparselt-cu12==0.7.1
       - nvidia-nccl-cu12==2.27.3
       - nvidia-nvjitlink-cu12==12.8.93
+      - nvidia-nvshmem-cu12==3.3.20
       - nvidia-nvtx-cu12==12.8.90
+      - oauthlib==3.3.1
+      - omegaconf==2.3.0
+      - onnxruntime==1.23.2
+      - open-clip-torch==3.2.0
       - openai-whisper==20250625
-      - opencv-python==4.12.0.88
+      - opencv-python==4.11.0.86
+      - opencv-python-headless==4.12.0.88
+      - opentelemetry-api==1.38.0
+      - opentelemetry-exporter-otlp==1.38.0
+      - opentelemetry-exporter-otlp-proto-common==1.38.0
+      - opentelemetry-exporter-otlp-proto-grpc==1.38.0
+      - opentelemetry-exporter-otlp-proto-http==1.38.0
+      - opentelemetry-proto==1.38.0
+      - opentelemetry-sdk==1.38.0
+      - opentelemetry-semantic-conventions==0.59b0
+      - optuna==4.6.0
       - pandas==2.3.3
+      - pastedeploy==3.1.0
+      - pbkdf2==1.3
+      - peft==0.18.0
       - pillow==10.4.0
+      - pip==25.3
+      - plaster==1.1.2
+      - plaster-pastedeploy==1.0.1
       - platformdirs==4.5.0
       - pooch==1.8.2
       - portalocker==3.2.0
+      - primepy==1.3
       - proglog==0.1.12
+      - propcache==0.4.1
       - protobuf==6.33.0
-      - psutil==6.1.1
+      - psutil==7.1.3
+      - py-cpuinfo==9.0.0
+      - pyannote-audio==3.4.0
+      - pyannote-core==5.0.0
+      - pyannote-database==5.1.3
+      - pyannote-metrics==3.2.1
+      - pyannote-pipeline==3.0.1
+      - pyannoteai-sdk==0.3.0
+      - pyarrow==22.0.0
       - pyasn1==0.6.1
       - pycparser==2.23
+      - pydantic==2.12.4
+      - pydantic-core==2.41.5
+      - pygments==2.19.2
+      - pynndescent==0.5.13
+      - pyramid==2.0.2
+      - pyramid-mailer==0.15.1
       - python-dotenv==1.1.1
+      - python3-openid==3.2.0
+      - pytorch-lightning==2.5.6
+      - pytorch-metric-learning==2.9.0
       - pytz==2025.2
       - pyyaml==6.0.3
-      - qwen-vl-utils==0.0.8
       - rank-bm25==0.2.2
       - regex==2025.9.18
+      - repoze-sendmail==4.4.1
       - requests==2.32.5
+      - requests-oauthlib==2.0.0
+      - rich==14.2.0
       - rouge-score==0.1.2
       - rsa==4.7.2
+      - ruamel-yaml==0.18.16
+      - ruamel-yaml-clib==0.2.15
       - s3transfer==0.14.0
       - safetensors==0.6.2
       - scenedetect==0.6.7.1
       - scikit-learn==1.7.2
       - scipy==1.16.2
+      - seaborn==0.13.2
+      - semver==3.0.4
       - sentence-transformers==5.1.1
+      - sentencepiece==0.2.1
+      - sentry-sdk==2.44.0
+      - shellingham==1.5.4
+      - smmap==5.0.2
+      - sniffio==1.3.1
+      - sortedcontainers==2.4.0
       - soundfile==0.13.1
       - soxr==1.0.0
+      - speechbrain==1.0.3
+      - sqlalchemy==2.0.44
       - standard-aifc==3.13.0
       - standard-chunk==3.13.0
       - standard-sunau==3.13.0
       - sympy==1.14.0
+      - tabulate==0.9.0
+      - tensorboardx==2.6.4
+      - termcolor==3.2.0
       - threadpoolctl==3.6.0
       - tiktoken==0.12.0
+      - timm==1.0.22
       - tokenizers==0.22.1
       - torch==2.8.0
+      - torch-audiomentations==0.12.0
+      - torch-pitch-shift==1.2.5
+      - torchaudio==2.8.0
+      - torchcodec==0.8.1
+      - torchmetrics==1.8.2
+      - torchvision==0.23.0
       - tqdm==4.67.1
-      - transformers==4.57.0
+      - transaction==5.0
+      - transformers==4.57.1
+      - translationstring==1.4
       - triton==3.4.0
+      - typer==0.20.0
       - typing-extensions==4.15.0
       - typing-inspect==0.9.0
+      - typing-inspection==0.4.2
       - tzdata==2025.2
+      - umap-learn==0.5.9.post2
       - urllib3==2.5.0
-prefix: /work/courses/dslab/team21/conda_envs/video_encoding
+      - velruse==1.1.1
+      - venusian==3.1.1
+      - wandb==0.23.0
+      - wcwidth==0.2.14
+      - webob==1.8.9
+      - wtforms==3.2.1
+      - wtforms-recaptcha==0.3.2
+      - xxhash==3.6.0
+      - yacs==0.1.8
+      - yarl==1.22.0
+      - zipp==3.23.0
+      - zope-deprecation==6.0
+      - zope-interface==8.1.1
+      - zope-sqlalchemy==4.0
+prefix: /cluster/project/cvg/students/lventuroli/miniconda3/envs/RAGu
