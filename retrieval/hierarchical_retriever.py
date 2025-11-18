@@ -44,7 +44,7 @@ class HierarchicalRetriever:
         
         self.sizes = {
             "video": {
-                "size": 1024,  # CLIP ViT-H/14 projection dimension
+                "size": 1024,  
                 "model": video_model_name
             },
             "audio": {

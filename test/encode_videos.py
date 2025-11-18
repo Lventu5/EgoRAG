@@ -16,7 +16,7 @@ os.environ["TORCHVISION_DISABLE_TORCHCODEC"] = "1"
 from utils.cache_manager import setup_smart_cache, cleanup_smart_cache
 
 # Setup smart cache (only copies large models like LLaVA)
-cache_info = setup_smart_cache(verbose=True)
+# cache_info = setup_smart_cache(verbose=True)
 
 # Now safe to import (will use fast cache)
 from indexing.multimodal_encoder import MultiModalEncoder
@@ -67,8 +67,6 @@ if __name__ == "__main__":
     video_dir = "../ego4d_data/v2/full_scale"
     save_dir = "../ego4d_data/v2/double_qwen_encoded_videos"
     
-    try:
-        encode(video_dir, save_dir)
-    finally:
-        # Clean up local cache after encoding
-        cleanup_smart_cache(cache_info, verbose=True)
+    encode(video_dir, save_dir)
+    # Clean up local cache after encoding
+    # cleanup_smart_cache(cache_info, verbose=True)

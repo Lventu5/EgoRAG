@@ -22,17 +22,17 @@ indexing:
     audio_event_model_id: "MIT/ast-finetuned-audioset-10-10-0.4593" # Audio Spectrogram Transformer for event detection
     diarization_model_id: "pyannote/speaker-diarization-3.1" # Speaker diarization model
   text:
-    text_model_id: "all-MiniLM-L6-v2"
+    text_model_id: "google/embeddinggemma-300m"
     llm_model_id: "Qwen/Qwen2.5-3B-Instruct"  # LLM for screenplay generation
   caption:
     use_captioner: "captioner2" # Options: "captioner1" (BLIP), "captioner2" (LLaVA)
     caption_model_id: "Salesforce/blip-image-captioning-base"
     caption2_model_id: "llava-hf/LLaVA-NeXT-Video-7B-hf"
 retrieval:
-  text_model_id: "all-MiniLM-L6-v2"
+  text_model_id: "google/embeddinggemma-300m"
   video_model_id: "Qwen/Qwen2-VL-7B-Instruct"
   audio_model_id: "laion/clap-htsat-unfused"
-  caption_model_id: "all-MiniLM-L6-v2"
+  caption_model_id: "google/embeddinggemma-300m"
   rewriter_model_id: "Qwen/Qwen2.5-7B-Instruct"
   top_k_videos: 3
   top_k_scenes: 10
