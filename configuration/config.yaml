@@ -1,8 +1,8 @@
 device: "cuda"
 data:
-  video_path: "../ego4d_data/v2/full_scale/"
-  annotation_path: "../ego4d_data/v2/annotations/nlq_train.json"
-  video_dataset: "../ego4d_data/v2/qwen_llava_encoded_videos/qwen_llava_10_videos.pkl"
+  video_path: "../../tnanni/ego4d_data/v2/full_scale/"
+  annotation_path: "../../tnanni/ego4d_data/v2/annotations/nlq_train.json"
+  video_dataset: "./qwen_llava_10_videos.pkl" # "../ego4d_data/v2/qwen_llava_encoded_videos/qwen_llava_10_videos.pkl"
 indexing:
   video:
     model_name: "qwen2-vl" # Options: "xclip", "qwen2-vl"
@@ -36,5 +36,5 @@ retrieval:
   rewriter_model_id: "Qwen/Qwen2.5-7B-Instruct"
   top_k_videos: 3
   top_k_scenes: 10
-  modalities: ["video"]
+  modalities: ["video","caption"]
   fusion: "rrf"
