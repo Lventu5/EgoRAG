@@ -65,7 +65,7 @@ def encode(video_dir, save_dir):
 
 if __name__ == "__main__":
     video_dir = "../ego4d_data/v2/full_scale"
-    save_dir = "../ego4d_data/v2/double_qwen_encoded_videos"
+    save_dir = "../ego4d_data/v2/internvideo_encoded_videos"
     
     encode(video_dir, save_dir)
     # Clean up local cache after encoding

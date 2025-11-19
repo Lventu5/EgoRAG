@@ -116,6 +116,12 @@ class MultiModalEncoder:
                 logging.info(f"[Video Stage] Global video embedding generated for {dp.video_name}")
         elif self.video_encoder.model_name == "xclip":
             logging.info(f"[Video Stage] Using mean pooling for global video embedding (XCLIP)")
+        elif self.video_encoder.model_name == "internvideo2":
+            logging.info(f"[Video Stage] Encoding global video embedding for entire video ({dp.video_name})...")
+            video_data = self.video_encoder.encode_full_video(video_path)
+            if video_data:
+                dp.global_embeddings["video"] = video_data["video"]
+                logging.info(f"[Video Stage] Global video embedding generated for {dp.video_name}")
         else:
             raise ValueError(f"Unknown model {self.video_encoder.model_name}")
 
@@ -510,6 +516,7 @@ class MultiModalEncoder:
             
             # Stage 2: Audio Encoding
             # Fast-check if the video has an audio track before loading heavy models
+            """
             has_audio = self.audio_encoder.has_audio_track(video_path)
 
             if not has_audio:
@@ -522,6 +529,7 @@ class MultiModalEncoder:
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 gc.collect()
+            """
             
             # Stage 3: Text Encoding
             self.text_encoder.load_models()

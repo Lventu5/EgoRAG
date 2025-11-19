@@ -555,13 +555,21 @@ class VideoEncoder(BaseEncoder):
                 - "video": torch.Tensor (embedding)
                 - "keyframes": np.ndarray (empty, not used)
         """
-        if self.model_name != "qwen2-vl":
-            raise ValueError("encode_full_video is only supported for Qwen2-VL")
+        if self.model_name != "qwen2-vl" and self.model_name != "internvideo2":
+            raise ValueError("encode_full_video is only supported for Qwen2-VL and InternVideo2")
 
-        fps_adaptive = self._compute_adaptive_fps(video_path, max_frames_allowed=42, margin=0)
-        logging.info(f"[VideoEncoder] adaptive fps (full video) for {video_path}: {fps_adaptive:.3f}")
-        video_emb = self._embed_frames(video_path=video_path, adaptive_fps=fps_adaptive)
-        return {
-            "video": torch.from_numpy(video_emb),
-            "keyframes": np.array([])
-        }
+        if self.model_name == "qwen2-vl":
+            fps_adaptive = self._compute_adaptive_fps(video_path, max_frames_allowed=42, margin=0)
+            logging.info(f"[VideoEncoder] adaptive fps (full video) for {video_path}: {fps_adaptive:.3f}")
+            video_emb = self._embed_frames(video_path=video_path, adaptive_fps=fps_adaptive)
+            return {
+                "video": torch.from_numpy(video_emb),
+                "keyframes": np.array([])
+            }
+        elif self.model_name == "internvideo2":
+            logging.info("[VideoEncoder] embedding the whole video")
+            video_emb = self._embed_frames(video_path=video_path)
+            return {
+                "video": torch.from_numpy(video_emb),
+                "keyframes": np.array([])
+            }

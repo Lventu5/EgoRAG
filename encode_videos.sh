@@ -25,6 +25,5 @@ echo "SLURM_GPUS: $SLURM_GPUS"
 echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
 
 # Cache setup is now handled by encode_videos.py
-python -m test.encode_videos
-
+/cluster/project/cvg/students/lventuroli/miniconda3/envs/RAGu/bin/python -m test.encode_videos
 echo "========================="
