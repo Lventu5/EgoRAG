@@ -6,7 +6,7 @@ from utils.modeling_internvideo2 import (retrieve_text, vid2tensor, _frame_from_
 if __name__ == '__main__':
     model = AutoModel.from_pretrained("OpenGVLab/InternVideo2-Stage2_6B", trust_remote_code=True).eval()
 
-    video = cv2.VideoCapture('example1.mp4')
+    video = cv2.VideoCapture('external/InternVideo/Data/InternVid/example1.mp4')
     frames = [x for x in _frame_from_video(video)]
     text_candidates = ["A playful dog and its owner wrestle in the snowy yard, chasing each other with joyous abandon.",
                     "A man in a gray coat walks through the snowy landscape, pulling a sleigh loaded with toys.",
@@ -18,6 +18,6 @@ if __name__ == '__main__':
     for t, p in zip(texts, probs):
         print(f'text: {t} ~ prob: {p:.4f}')
 
-    vidtensor = vid2tensor('models/InternVideo/Data/example1.mp4', fnum=4)
+    vidtensor = vid2tensor('external/InternVideo/Data/InternVid/example1.mp4', fnum=4)
     feat = model.get_vid_feat(vidtensor)
     print('video feature shape:', feat.shape)

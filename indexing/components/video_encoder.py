@@ -13,6 +13,7 @@ from transformers import (
     CLIPVisionModel,
     CLIPImageProcessor,
     AutoProcessor,
+    AutoModel,
     Qwen2VLForConditionalGeneration,
 )
 from qwen_vl_utils import process_vision_info
@@ -24,6 +25,7 @@ from .base_encoder import BaseEncoder
 from data.video_dataset import Scene
 from indexing.utils.clustering import cluster_frames
 from configuration.config import CONFIG
+from utils.modeling_internvideo2 import vid2tensor
 
 # Silence verbose torchcodec logging from qwen-vl-utils
 logging.getLogger("torchcodec").setLevel(logging.WARNING)
@@ -47,10 +49,13 @@ class VideoEncoder(BaseEncoder):
         # Configurazione basata sul modello
         # - XCLIP: 8 frames selezionati tramite clustering
         # - Qwen2-VL: estrae embedding diretto dalla vision tower
+        # - InternVideo2: vid2tensor automatically samples 8 frames uniformly
         if self.model_name == "xclip":
             self.max_frames = 8  # XCLIP usa esattamente 8 frame selezionati tramite clustering
         elif self.model_name == "qwen2-vl":
             self.max_frames = None  # Qwen2-VL gestisce internamente i frame
+        elif self.model_name == "internvideo2":
+            self.max_frames = 8  # InternVideo2 uses 8 frames
         else:
             raise ValueError(f"Unknown model: {self.model_name}")
         
@@ -114,9 +119,22 @@ class VideoEncoder(BaseEncoder):
             self.video_model.eval()
             
             logging.info(f"Qwen2-VL model loaded successfully")
+        
+        elif self.model_name == "internvideo2":
+            # InternVideo2 model
+            self.model_id = CONFIG.indexing.video.internvideo2_id
+            
+            logging.info(f"Loading InternVideo2 model: {self.model_id}...")
+            
+            self.video_model = AutoModel.from_pretrained(
+                self.model_id,
+                trust_remote_code=True
+            ).to(self.device).eval()
+            
+            logging.info(f"InternVideo2 model loaded successfully")
             
         else:
-            raise ValueError(f"Unsupported model_name: {self.model_name}. Choose 'xclip' or 'qwen2-vl'.")
+            raise ValueError(f"Unsupported model_name: {self.model_name}. Choose 'xclip', 'qwen2-vl', or 'internvideo2'.")
         
         # Load CLIP Vision for XCLIP frame clustering
         if self.model_name == "xclip":
@@ -158,6 +176,7 @@ class VideoEncoder(BaseEncoder):
         Embeds frames using the video model.
         - XCLIP: expects exactly 8 frames (uses frames parameter)
         - Qwen2-VL: processes entire video scene (uses video_path parameter)
+        - InternVideo2: uses video_path, vid2tensor samples frames automatically
         """
         if self.model_name == "qwen2-vl" and video_path is None:
             raise ValueError("Qwen2-VL requires video_path parameter")
@@ -166,6 +185,8 @@ class VideoEncoder(BaseEncoder):
             # Return zero embedding
             if self.model_name == "xclip":
                 embed_dim = 768
+            elif self.model_name == "internvideo2":
+                embed_dim = 512
             else:
                 embed_dim = 768
             return np.zeros(embed_dim, dtype=np.float32)
@@ -298,6 +319,28 @@ class VideoEncoder(BaseEncoder):
                 torch.cuda.empty_cache()
                 return video_embedding.numpy()
         
+        elif self.model_name == "internvideo2":
+            # InternVideo2 - uses vid2tensor which handles frame sampling automatically
+            if video_path is None:
+                raise ValueError("InternVideo2 requires video_path parameter")
+            
+            # vid2tensor automatically samples frames uniformly
+            frames_tensor = vid2tensor(
+                video_path, 
+                fnum=8,
+                device=self.device
+            )
+            
+            with torch.inference_mode():
+                # Get video features using InternVideo2
+                video_feat = self.video_model.get_vid_feat(frames_tensor)
+                # video_feat shape: [1, 512]
+                video_embedding = video_feat.squeeze(0).detach().cpu().to(torch.float32)
+            
+            del frames_tensor
+            torch.cuda.empty_cache()
+            return video_embedding.numpy()
+        
         else:
             raise ValueError(f"Unknown model {self.model_name}")
 
@@ -415,6 +458,7 @@ class VideoEncoder(BaseEncoder):
         Each encoder handles frame/clip extraction internally:
         - XCLIP: extracts all frames, clusters to 8, encodes
         - Qwen2-VL: extracts frames from scene, gets single embedding from vision tower
+        - InternVideo2: creates scene clip, vid2tensor samples 8 frames automatically
         
         Args:
             video_path: Path to video file
@@ -467,7 +511,38 @@ class VideoEncoder(BaseEncoder):
                 }
             finally:
                 if os.path.exists(tmp_dir):
-                    shutil.rmtree(tmp_dir)        
+                    shutil.rmtree(tmp_dir)
+        
+        elif self.model_name == "internvideo2":
+            # InternVideo2: create scene clip and let vid2tensor handle frame sampling
+            tmp_dir = tempfile.mkdtemp(prefix="internvideo2_scene_")
+            try:
+                # Create scene clip - vid2tensor will sample frames automatically
+                clip_path = self._create_clip_with_decord(
+                    video_path, scene.start_time, scene.end_time, tmp_dir
+                )
+                
+                # vid2tensor handles frame sampling automatically
+                video_emb = self._embed_frames(video_path=clip_path)
+                
+                # Extract keyframes for captioner
+                vr = VideoReader(clip_path, ctx=cpu(0))
+                total_frames = len(vr)
+                if total_frames > 0:
+                    keyframe_indices = np.linspace(0, total_frames - 1, min(8, total_frames), dtype=int)
+                    keyframes = vr.get_batch(keyframe_indices).asnumpy()
+                else:
+                    keyframes = np.array([])
+                del vr
+                
+                return {
+                    "video": torch.from_numpy(video_emb),
+                    "keyframes": keyframes
+                }
+            finally:
+                if os.path.exists(tmp_dir):
+                    shutil.rmtree(tmp_dir)
+        
         else:
             raise ValueError(f"Unknown model: {self.model_name}")
 

@@ -5,10 +5,11 @@ data:
   video_dataset: "./qwen_llava_10_videos.pkl" # "../ego4d_data/v2/qwen_llava_encoded_videos/qwen_llava_10_videos.pkl"
 indexing:
   video:
-    model_name: "qwen2-vl" # Options: "xclip", "qwen2-vl"
+    model_name: "qwen2-vl" # Options: "xclip", "qwen2-vl", "internvideo2"
     xclip_id: "microsoft/xclip-base-patch16"
     qwen2_vl_id: "Qwen/Qwen2-VL-7B-Instruct"
     llava_id: "llava-hf/LLaVA-NeXT-Video-7B-hf"
+    internvideo2_id: "OpenGVLab/InternVideo2-Stage2_6B"
     clip_id: "openai/clip-vit-base-patch32"  # For XCLIP clustering only
   audio:
     audio_sample_rate: 48000
@@ -30,7 +31,7 @@ indexing:
     caption2_model_id: "llava-hf/LLaVA-NeXT-Video-7B-hf"
 retrieval:
   text_model_id: "google/embeddinggemma-300m"
-  video_model_id: "Qwen/Qwen2-VL-7B-Instruct"
+  video_model_id: "OpenGVLab/InternVideo2-Stage2_6B"  # Options: "Qwen/Qwen2-VL-7B-Instruct", "OpenGVLab/InternVideo2-Stage2_6B"
   audio_model_id: "laion/clap-htsat-unfused"
   caption_model_id: "google/embeddinggemma-300m"
   rewriter_model_id: "Qwen/Qwen2.5-7B-Instruct"

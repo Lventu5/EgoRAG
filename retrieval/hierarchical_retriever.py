@@ -39,12 +39,25 @@ class HierarchicalRetriever:
         text_model_name = CONFIG.retrieval.text_model_id
         caption_model_name = CONFIG.retrieval.caption_model_id
         
-        # Determine video model type from indexing config
-        self.video_model_type = CONFIG.indexing.video.model_name  # "xclip" or "llava-video"
+        # Determine video model type from model name or indexing config
+        if "InternVideo2" in video_model_name or CONFIG.indexing.video.model_name == "internvideo2":
+            self.video_model_type = "internvideo2"
+        elif "Qwen" in video_model_name or CONFIG.indexing.video.model_name == "qwen2-vl":
+            self.video_model_type = "qwen2-vl"
+        else:
+            self.video_model_type = CONFIG.indexing.video.model_name  # "xclip" or other
+        
+        # Set video embedding size based on model type
+        if self.video_model_type == "internvideo2":
+            video_embed_size = 512  # InternVideo2 outputs 512-dim embeddings
+        elif self.video_model_type == "qwen2-vl":
+            video_embed_size = 1024  # Qwen2-VL vision embeddings
+        else:  # xclip
+            video_embed_size = 512  # XCLIP outputs 512-dim embeddings
         
         self.sizes = {
             "video": {
-                "size": 1024,  
+                "size": video_embed_size,  
                 "model": video_model_name
             },
             "audio": {
@@ -101,6 +114,14 @@ class HierarchicalRetriever:
                     self.tokenizer = AutoTokenizer.from_pretrained(qwen_id, use_fast=True)
 
                     self.embedder = AutoModel.from_pretrained(qwen_id).to(self.device).eval()
+            
+            elif self.video_model_type == "internvideo2":
+                model_name = self.sizes["video"]["model"]
+                logging.info(f"Loading InternVideo2 model for retrieval: {model_name}")
+                self.embedder = AutoModel.from_pretrained(
+                    model_name,
+                    trust_remote_code=True
+                ).to(self.device).eval()
 
             else:  # xclip
                 model_name = self.sizes["video"]["model"]
@@ -182,6 +203,15 @@ class HierarchicalRetriever:
                 ).to(self.device)
                 with torch.no_grad():
                     embeddings = self.embedder.get_text_features(**inputs) # type: ignore
+            
+            elif self.video_model_type == "internvideo2":
+                # InternVideo2 uses get_txt_feat for text encoding
+                embeddings_list = []
+                for query_text in mod_queries:
+                    text_feat = self.embedder.get_txt_feat(query_text)
+                    embeddings_list.append(text_feat.squeeze(0))
+                embeddings = torch.stack(embeddings_list)
+            
             else:
                 raise ValueError(f"Model type not supported: {self.video_model_type}")        
             
