@@ -95,7 +95,7 @@ class TextEncoder(BaseEncoder):
             return "[No information available for this scene]"
         
         # Create prompt for LLM
-        prompt = f"""You are a screenplay writer. Based on the following information about a video scene, write a concise screenplay-style description (2-3 sentences) that captures what is happening visually, what is being said, and any notable sounds. Format it like a screenplay with action lines and dialogue.
+        prompt = f"""You are an exper writer and journalist. Based on the following information about a video, write a concise report-style description (2-3 sentences) that captures what is happening visually (actions performed, objects used and who performed those - if the person wearing the camera or a different subject), what is being said, and any notable sounds. Format it like a screenplay with action lines and dialogue. Don't add personal considerations or useless descriptions.
 
 Scene Information:
 {chr(10).join(context_parts)}
@@ -170,7 +170,7 @@ Screenplay description:"""
             return "\n\n".join(formatted_scenes)
         
         # For longer videos, ask LLM to summarize
-        prompt = f"""You are a screenplay writer. Summarize the following scene descriptions into a coherent 3-4 sentence narrative that captures the overall story of the video. Write it in screenplay style.
+        prompt = f"""You are an exper writer and journalist. Summarize the following descriptions, captions and transcripts into a coherent 3-4 sentence narrative that captures the overall story of the video. Write it in report style, focusing on capturing what concretely is happening and being said. Specify actions, subjects, speakers, sounds and objects.
 
 Scenes:
 {chr(10).join(formatted_scenes)}

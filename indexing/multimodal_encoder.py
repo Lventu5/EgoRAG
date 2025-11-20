@@ -367,7 +367,7 @@ class MultiModalEncoder:
 
             # Build summarization prompt
             prompt_lines = [
-                "You are a helpful assistant. Summarize the following scene captions into a concise, coherent paragraph describing the whole video. Keep it short (1-3 sentences).",
+                "You are a helpful assistant. Summarize the following scene captions into a concise, coherent paragraph describing the whole video. Be concrete: encapsulate the setting, actions performed and how they impact the surroundings, objects used. Keep it short (1-3 sentences).",
                 "\nCaptions:\n"
             ]
             prompt_lines.extend(captions)

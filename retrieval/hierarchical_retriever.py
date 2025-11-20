@@ -65,7 +65,7 @@ class HierarchicalRetriever:
                 "model": audio_model_name
             },
             "text": {
-                "size": 384,
+                "size": 768,
                 "model": text_model_name
             },
             "caption": {
