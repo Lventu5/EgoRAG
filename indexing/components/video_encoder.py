@@ -4,6 +4,10 @@ import subprocess
 import tempfile
 import uuid
 import shutil
+import sys
+from pathlib import Path
+sys.path.append(os.path.join(Path(os.getcwd()), 'external/InternVideo/InternVideo2'))
+import interface
 
 import numpy as np
 import torch
@@ -112,7 +116,7 @@ class VideoEncoder(BaseEncoder):
             
             self.video_model = Qwen2VLForConditionalGeneration.from_pretrained(
                 self.model_id,
-                torch_dtype=torch.bfloat16,
+                dtype=torch.bfloat16,
                 device_map=self.device,
             )
             
@@ -121,17 +125,21 @@ class VideoEncoder(BaseEncoder):
             logging.info(f"Qwen2-VL model loaded successfully")
         
         elif self.model_name == "internvideo2":
-            # InternVideo2 model
-            self.model_id = CONFIG.indexing.video.internvideo2_id
-            
-            logging.info(f"Loading InternVideo2 model: {self.model_id}...")
-            
-            self.video_model = AutoModel.from_pretrained(
-                self.model_id,
-                trust_remote_code=True
-            ).to(self.device).eval()
-            
-            logging.info(f"InternVideo2 model loaded successfully")
+            # InternVideo2 6B model
+            # self.model_id = CONFIG.indexing.video.internvideo2_id
+            # logging.info(f"Loading InternVideo2 model: {self.model_id}...")
+            # self.video_model = AutoModel.from_pretrained(
+            #     self.model_id,
+            #     trust_remote_code=True
+            # ).to(self.device).eval()
+            # logging.info(f"InternVideo2 model loaded successfully")
+
+            # Internvideo 1B
+            config_path = "external/InternVideo/InternVideo2/multi_modality/demo/internvideo2_stage2_config.py"
+            model_path = "external/InternVideo/InternVideo2/checkpoints/internvideo2_stage2_1b.pth"
+
+            model = interface.load_model(config_path, model_path)
+            self.video_model = model.to(self.device).eval()
             
         else:
             raise ValueError(f"Unsupported model_name: {self.model_name}. Choose 'xclip', 'qwen2-vl', or 'internvideo2'.")
@@ -325,22 +333,22 @@ class VideoEncoder(BaseEncoder):
                 raise ValueError("InternVideo2 requires video_path parameter")
             
             # vid2tensor automatically samples frames uniformly
-            frames_tensor = vid2tensor(
-                video_path, 
-                fnum=8,
-                device=self.device
-            )
-            
-            with torch.inference_mode():
-                # Get video features using InternVideo2
-                video_feat = self.video_model.get_vid_feat(frames_tensor)
-                # video_feat shape: [1, 512]
-                video_embedding = video_feat.squeeze(0).detach().cpu().to(torch.float32)
-            
-            del frames_tensor
-            torch.cuda.empty_cache()
-            return video_embedding.numpy()
-        
+            # frames_tensor = vid2tensor(
+            #     video_path, 
+            #     fnum=8,
+            #     device=self.device
+            # )
+            # with torch.inference_mode():
+            #     # Get video features using InternVideo2
+            #     video_feat = self.video_model.get_vid_feat(frames_tensor)
+            #     # video_feat shape: [1, 512]
+            #     video_embedding = video_feat.squeeze(0).detach().cpu().to(torch.float32)
+            # del frames_tensor
+            # torch.cuda.empty_cache()
+            # return video_embedding.numpy()
+
+            # Internvideo 1B
+            return interface.extract_video_features([video_path], self.video_model, )        
         else:
             raise ValueError(f"Unknown model {self.model_name}")
 
