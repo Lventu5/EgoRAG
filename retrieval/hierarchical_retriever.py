@@ -22,6 +22,7 @@ from data.query import Query, QueryDataset
 import data.datatypes as types
 from retrieval.rewriter import QueryRewriterLLM
 from .fuser import Fuser
+from .scene_merger import SceneMerger
 from configuration.config import CONFIG
 
 class HierarchicalRetriever:
@@ -84,6 +85,21 @@ class HierarchicalRetriever:
             self.fuser = Fuser()
         else:
             self.fuser = fuser
+        
+        # Initialize scene merger if enabled in config
+        merger_config = getattr(CONFIG.retrieval, 'scene_merger', None)
+        if merger_config and getattr(merger_config, 'enabled', False):
+            self.scene_merger = SceneMerger(
+                max_gap=getattr(merger_config, 'max_gap', 1.0),
+                min_scenes_to_merge=getattr(merger_config, 'min_scenes_to_merge', 2),
+                max_scenes_to_merge=getattr(merger_config, 'max_scenes_to_merge', 5),
+            )
+            self.merge_score_aggregation = getattr(merger_config, 'score_aggregation', 'max')
+            logging.info("Scene merger enabled")
+        else:
+            self.scene_merger = None
+            self.merge_score_aggregation = 'max'
+            logging.info("Scene merger disabled")
 
     def _load_models_for_modality(self, modality: str):
         if self.current_modality == modality:
@@ -369,6 +385,14 @@ class HierarchicalRetriever:
         results = []
         for score, scene_idx in zip(top_scores, top_indices):
             results.append((scenes[scene_idx.item()], score.item())) # type: ignore
+        
+        # Apply scene merging if enabled
+        if self.scene_merger is not None:
+            results = self.scene_merger.merge_top_k_scenes(
+                results,
+                score_aggregation=self.merge_score_aggregation
+            )
+        
         return results
 
 

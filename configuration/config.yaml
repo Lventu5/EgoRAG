@@ -39,3 +39,9 @@ retrieval:
   top_k_scenes: 10
   modalities: ["video","caption"]
   fusion: "rrf"
+  scene_merger:
+    enabled: true # Enable/disable scene merging
+    max_gap: 1.0 # Maximum time gap (seconds) between scenes to consider them consecutive
+    min_scenes_to_merge: 2 # Minimum number of scenes required to create a merge
+    max_scenes_to_merge: 5 # Maximum number of scenes to merge into one
+    score_aggregation: "max" # How to aggregate scores: "max", "mean", or "sum"
