@@ -210,15 +210,91 @@ def check_for_keyframes(path: str) -> None:
             print("✅ No keyframes found in scene_embeddings")
 
 
+def check_for_captions(path: str) -> None:
+    """Check if pickle contains per-scene captions and a global caption for the video.
+
+    Reports which scenes contain a caption (embedding or text) and whether a global
+    caption is present in `dp.global_embeddings` or as a temporary attribute.
+    """
+    with open(path, "rb") as f:
+        data = pickle.load(f)
+
+    vds = getattr(data, "video_datapoints", None)
+    if not vds:
+        print("No video_datapoints found")
+        return
+
+    for idx, dp in enumerate(vds):
+        print(f"\n=== VideoDataPoint {idx} ===")
+        scenes = getattr(dp, "scene_embeddings", {})
+
+        scenes_with_caption = []
+        for scene_id, scene_dict in scenes.items():
+            if not isinstance(scene_dict, dict):
+                continue
+            # Check for caption embedding or caption text
+            caption_obj = None
+            caption_text = None
+            if "caption" in scene_dict:
+                caption_obj = scene_dict.get("caption")
+            if "caption_text" in scene_dict:
+                caption_text = scene_dict.get("caption_text")
+
+            if caption_obj is not None or (isinstance(caption_text, str) and caption_text.strip()):
+                size_obj = sizeof(caption_obj, set()) if caption_obj is not None else 0
+                size_txt = sizeof(caption_text, set()) if caption_text is not None else 0
+                scenes_with_caption.append((scene_id, size_obj + size_txt))
+
+        if scenes_with_caption:
+            print(f"⚠️  Found captions in {len(scenes_with_caption)} scene(s):")
+            total = 0
+            for sid, sz in scenes_with_caption:
+                print(f"   {sid}: {human(sz)}")
+                total += sz
+            print(f"   TOTAL scene captions: {human(total)}")
+        else:
+            print("✅ No per-scene captions found")
+
+        # Check for global caption in global_embeddings or temporary attribute
+        global_caption_size = 0
+        ge = getattr(dp, "global_embeddings", {})
+        global_caption = None
+        if isinstance(ge, dict):
+            # possible keys: 'caption_text' or 'caption'
+            if "caption_text" in ge and isinstance(ge.get("caption_text"), str) and ge.get("caption_text").strip():
+                global_caption = ge.get("caption_text")
+            elif "caption" in ge and ge.get("caption") is not None:
+                global_caption = ge.get("caption")
+
+        # Also check temporary attribute used during encoding
+        if global_caption is None and hasattr(dp, "_temp_global_caption") and getattr(dp, "_temp_global_caption"):
+            global_caption = getattr(dp, "_temp_global_caption")
+
+        if global_caption is not None:
+            global_caption_size = sizeof(global_caption, set())
+            print(f"⚠️  Global caption present: {human(global_caption_size)}")
+        else:
+            print("✅ No global caption found in this datapoint")
+
+
 if __name__ == "__main__":
     # Load and inspect the specific pickle the user asked for
-    path = "../ego4d_data/v2/double_llava_encoded_videos/2b5569df-5deb-4ebd-8a45-dd6524330eb8_encoded.pkl"
+    path = "../ego4d_data/v2/internvideo_encoded_videos/2b5569df-5deb-4ebd-8a45-dd6524330eb8_encoded.pkl"
     
     print("=" * 80)
     print("CHECKING FOR KEYFRAMES")
     print("=" * 80)
     check_for_keyframes(path)
     
+    print("\n" + "=" * 80)
+    print("FULL MEMORY BREAKDOWN")
+    print("=" * 80)
+    # Also check captions presence
+    print("\n" + "=" * 80)
+    print("CHECKING FOR CAPTIONS")
+    print("=" * 80)
+    check_for_captions(path)
+
     print("\n" + "=" * 80)
     print("FULL MEMORY BREAKDOWN")
     print("=" * 80)
