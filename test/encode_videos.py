@@ -31,7 +31,20 @@ import torch
 from tqdm import tqdm
 
 
-def encode(video_dir, save_dir):
+def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_audio=None, 
+           force_caption=None, force_text=None):
+    """
+    Encode videos in a directory.
+    
+    Args:
+        video_dir: Directory containing video files
+        save_dir: Directory to save encoded pickles
+        force_reencoding: If True, re-encode all modalities (default for all force_* params)
+        force_video: If True, force re-encode video embeddings. If None, uses force_reencoding.
+        force_audio: If True, force re-encode audio embeddings. If None, uses force_reencoding.
+        force_caption: If True, force re-encode captions. If None, uses force_reencoding.
+        force_text: If True, force re-encode text embeddings. If None, uses force_reencoding.
+    """
     video_ids = glob.glob(os.path.join(video_dir, "*.mp4"))
     print(f"Found {len(video_ids)} videos")
 
@@ -43,18 +56,44 @@ def encode(video_dir, save_dir):
         print("-"*50)
         print(f"Encoding video {video}")
         print("-"*50)
-        dataset = VideoDataset([video])
-        encoder = MultiModalEncoder(dataset, max_workers=4)
-        video_dataset = encoder.encode_videos()
-
+        
         base = os.path.splitext(os.path.basename(video))[0]
         pickle_path = f"{save_dir}/{base}_encoded.pkl"
+        
+        # Determine if we should load existing pickle
+        any_force = force_reencoding or force_video or force_audio or force_caption or force_text
+        
+        # Check if pickle already exists and load it if not forcing complete re-encoding
+        if os.path.exists(pickle_path) and not (force_reencoding and not any([force_video is False, force_audio is False, force_caption is False, force_text is False])):
+            print(f"Found existing pickle at {pickle_path}, loading and updating...")
+            encoder = MultiModalEncoder(pickle_path=pickle_path, max_workers=4)
+            video_dataset = encoder.encode_videos(
+                force=force_reencoding,
+                force_video=force_video,
+                force_audio=force_audio,
+                force_caption=force_caption,
+                force_text=force_text
+            )
+        else:
+            if os.path.exists(pickle_path):
+                print(f"Force re-encoding enabled, creating new pickle")
+            dataset = VideoDataset([video])
+            encoder = MultiModalEncoder(dataset, max_workers=4)
+            video_dataset = encoder.encode_videos(
+                force=force_reencoding,
+                force_video=force_video,
+                force_audio=force_audio,
+                force_caption=force_caption,
+                force_text=force_text
+            )
+
         video_dataset.save_to_pickle(pickle_path)
 
         # Free memory (CPU RAM, not GPU) to avoid OOM on long batch processing
         MemoryMonitor.log_memory("[BEFORE cleanup] ")
         del encoder
-        del dataset
+        if 'dataset' in locals():
+            del dataset
         del video_dataset
         
         gc.collect()
@@ -68,6 +107,32 @@ if __name__ == "__main__":
     video_dir = "../ego4d_data/v2/full_scale"
     save_dir = "../ego4d_data/v2/internvideo_encoded_videos"
     
-    encode(video_dir, save_dir)
+    # Option 1: Re-encode everything
+    # force_reencoding = True
+    
+    # Option 2: Only update missing embeddings (default)
+    force_reencoding = False
+    
+    # Option 3: Fine-grained control - force specific modalities
+    # Set individual modality flags to override force_reencoding
+    # Example: Only re-encode captions, keep everything else
+    # force_video = False      # Keep existing video embeddings
+    # force_audio = False      # Keep existing audio embeddings  
+    # force_caption = True     # Re-encode captions
+    # force_text = True        # Re-encode text (depends on captions)
+    
+    # Example: Only re-encode video embeddings
+    # force_video = True
+    # force_audio = False
+    # force_caption = False
+    # force_text = False
+    
+    encode(video_dir, save_dir, force_reencoding=force_reencoding)
+    
+    # With modality-specific control:
+    # encode(video_dir, save_dir, 
+    #        force_video=True, force_audio=False, 
+    #        force_caption=False, force_text=False)
+    
     # Clean up local cache after encoding
     # cleanup_smart_cache(cache_info, verbose=True)

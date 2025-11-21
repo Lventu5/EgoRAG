@@ -39,14 +39,24 @@ class MultiModalEncoder:
     """
     def __init__(
         self,
-        video_dataset: VideoDataset,
+        video_dataset: VideoDataset = None,
         device: str = "cuda",
         max_workers: int = 2,
+        pickle_path: str = None,
     ):
-        if video_dataset is None or len(video_dataset) == 0:
-            raise ValueError("Video dataset is empty or not provided.")
+        # Load from pickle if provided
+        if pickle_path and os.path.exists(pickle_path):
+            logging.info(f"Loading existing VideoDataset from {pickle_path}")
+            self.dataset = VideoDataset.load_from_pickle(pickle_path)
+            logging.info(f"Loaded {len(self.dataset)} videos from pickle")
+        elif video_dataset is not None:
+            self.dataset = video_dataset
+        else:
+            raise ValueError("Either video_dataset or pickle_path must be provided.")
         
-        self.dataset = video_dataset
+        if len(self.dataset) == 0:
+            raise ValueError("Video dataset is empty.")
+        
         self.device = device if torch.cuda.is_available() else "cpu"
         self.max_workers = max_workers
         self.video_reader_lock = Lock()
@@ -74,7 +84,43 @@ class MultiModalEncoder:
         logging.info(f"MultiModalEncoder initialized with {max_workers} workers.")
         
 
-    def _encode_video_stage(self, video_path: str, dp: VideoDataPoint) -> None:
+    def _should_encode_stage(self, dp: VideoDataPoint, stage: str) -> bool:
+        """Check if a stage needs to be encoded based on existing embeddings."""
+        if stage == "video":
+            # Check if video embeddings exist
+            if dp.global_embeddings.get("video") is not None:
+                return False
+            for scene_data in dp.scene_embeddings.values():
+                if scene_data.get("video") is not None:
+                    return False
+            return True
+        elif stage == "audio":
+            # Check if audio embeddings exist
+            if dp.global_embeddings.get("audio") is not None:
+                return False
+            for scene_data in dp.scene_embeddings.values():
+                if scene_data.get("audio") is not None:
+                    return False
+            return True
+        elif stage == "caption":
+            # Check if captions exist
+            if dp.global_embeddings.get("caption_text"):
+                return False
+            for scene_data in dp.scene_embeddings.values():
+                if scene_data.get("caption_text"):
+                    return False
+            return True
+        elif stage == "text":
+            # Check if text embeddings exist
+            if dp.global_embeddings.get("text") is not None:
+                return False
+            for scene_data in dp.scene_embeddings.values():
+                if scene_data.get("text") is not None:
+                    return False
+            return True
+        return True
+
+    def _encode_video_stage(self, video_path: str, dp: VideoDataPoint, force: bool = False) -> None:
         """
         Stage 1: Encode all scenes with video encoder.
         Each encoder handles frame/clip extraction internally:
@@ -83,6 +129,10 @@ class MultiModalEncoder:
         - Qwen2-VL: Creates temporary clip of scene, loads ALL frames, extracts 
                     single embedding (first token from vision tower, no pooling)
         """
+        if not force and not self._should_encode_stage(dp, "video"):
+            logging.info(f"[Stage 1] Video embeddings already exist for {video_path}, skipping")
+            return
+        
         logging.info(f"[Stage 1] Video encoding for {video_path}")
         
         # Temporary storage for keyframes (needed for captioner1)
@@ -125,13 +175,17 @@ class MultiModalEncoder:
         else:
             raise ValueError(f"Unknown model {self.video_encoder.model_name}")
 
-    def _encode_audio_stage(self, video_path: str, dp: VideoDataPoint) -> None:
+    def _encode_audio_stage(self, video_path: str, dp: VideoDataPoint, force: bool = False) -> None:
         """
         Stage 2: Encode all scenes with audio encoder.
         Requires video_path and scene timing information.
         Gracefully handles videos without audio tracks.
         Stores audio embeddings, transcripts, audio events, and speaker diarization.
         """
+        if not force and not self._should_encode_stage(dp, "audio"):
+            logging.info(f"[Audio Stage] Audio embeddings already exist for {video_path}, skipping")
+            return
+        
         logging.info(f"[Audio Stage] Audio encoding for {video_path}")
         
         # Track if this video has audio at all
@@ -199,7 +253,7 @@ class MultiModalEncoder:
                     dp._temp_global_speaker_segments = global_audio.get("speaker_segments", [])
                     logging.info(f"[Caption Stage] Global audio embedding generated for {dp.video_name}")
 
-    def _encode_caption_stage(self, video_path: str, dp: VideoDataPoint) -> None:
+    def _encode_caption_stage(self, video_path: str, dp: VideoDataPoint, force: bool = False) -> None:
         """
         Stage 3: Generate visual captions from keyframes (captioner1) or video scenes (captioner2).
         These captions will be combined with audio information in the text stage.
@@ -208,6 +262,10 @@ class MultiModalEncoder:
         Captioner2 (Qwen2-VL): Creates temporary video clip of entire scene, 
                                loads all frames, generates caption, then deletes clip
         """
+        if not force and not self._should_encode_stage(dp, "caption"):
+            logging.info(f"[Caption Stage] Captions already exist for {dp.video_name}, skipping")
+            return
+        
         logging.info(f"[Caption Stage] Visual caption generation for {dp.video_name} using {self.use_captioner}")
         futures = {}
         
@@ -251,12 +309,16 @@ class MultiModalEncoder:
             del dp._temp_keyframes
             logging.info(f"[Caption Stage] Keyframes cleaned up for {dp.video_name}")
 
-    def _encode_text_stage(self, dp: VideoDataPoint) -> None:
+    def _encode_text_stage(self, dp: VideoDataPoint, force: bool = False) -> None:
         """
         Stage 4: Generate screenplay-style summaries and encode with text encoder.
         Combines visual captions, transcripts, audio events, and speaker diarization
         into a coherent narrative description using TextEncoder's LLM.
         """
+        if not force and not self._should_encode_stage(dp, "text"):
+            logging.info(f"[Text Stage] Text embeddings already exist for {dp.video_name}, skipping")
+            return
+        
         logging.info(f"[Text Stage] Generating screenplay summaries for {dp.video_name}")
         
         # Generate screenplay for each scene
@@ -436,9 +498,19 @@ class MultiModalEncoder:
             stacked = stacked[indices]
         return stacked
 
-    def encode_videos(self) -> VideoDataset:
+    def encode_videos(self, force: bool = False, force_video: bool = None, force_audio: bool = None, 
+                      force_caption: bool = None, force_text: bool = None) -> VideoDataset:
         """
         Orchestrates encoding in stages to load/unload models one at a time.
+        
+        Args:
+            force: If True, re-encode all stages even if embeddings already exist.
+                  If False, skip stages that already have embeddings.
+                  Overridden by modality-specific flags.
+            force_video: If True, force re-encode video embeddings. If None, use `force`.
+            force_audio: If True, force re-encode audio embeddings. If None, use `force`.
+            force_caption: If True, force re-encode captions. If None, use `force`.
+            force_text: If True, force re-encode text embeddings. If None, use `force`.
         
         Stages:
         1. Video encoding:
@@ -456,6 +528,17 @@ class MultiModalEncoder:
         4. Text encoding:
            - Encodes transcript + caption with Sentence Transformers
         """
+        # Set modality-specific force flags (use `force` as default if not specified)
+        _force_video = force if force_video is None else force_video
+        _force_audio = force if force_audio is None else force_audio
+        _force_caption = force if force_caption is None else force_caption
+        _force_text = force if force_text is None else force_text
+        # Set modality-specific force flags (use `force` as default if not specified)
+        _force_video = force if force_video is None else force_video
+        _force_audio = force if force_audio is None else force_audio
+        _force_caption = force if force_caption is None else force_caption
+        _force_text = force if force_text is None else force_text
+        
         for dp in tqdm(self.dataset.video_datapoints, desc="Encoding Videos", disable=False):
             # GPU monitor semplice dopo ogni video
             if torch.cuda.is_available():
@@ -485,7 +568,7 @@ class MultiModalEncoder:
             video_model_name = CONFIG.indexing.video.model_name
 
             self.video_encoder.load_models()
-            self._encode_video_stage(video_path, dp)
+            self._encode_video_stage(video_path, dp, force=_force_video)
             
             if not dp.scene_embeddings:
                 logging.warning(f"No scenes were successfully encoded for {video_path} (video stage).")
@@ -502,7 +585,7 @@ class MultiModalEncoder:
             # Load captioner models separately (no sharing between video encoder and captioner).
             self.captioner.load_models()
             
-            self._encode_caption_stage(video_path, dp)
+            self._encode_caption_stage(video_path, dp, force=_force_caption)
 
             self.unload_model("caption")
             if self.device == "cuda":
@@ -524,7 +607,7 @@ class MultiModalEncoder:
                 dp.has_audio = False
             else:
                 self.audio_encoder.load_models()
-                self._encode_audio_stage(video_path, dp)
+                self._encode_audio_stage(video_path, dp, force=_force_audio)
                 self.unload_model("audio")
             if self.device == "cuda":
                 torch.cuda.empty_cache()
@@ -533,7 +616,7 @@ class MultiModalEncoder:
             
             # Stage 3: Text Encoding
             self.text_encoder.load_models()
-            self._encode_text_stage(dp)
+            self._encode_text_stage(dp, force=_force_text)
             self.unload_model("text")
             if self.device == "cuda":
                 torch.cuda.empty_cache()

@@ -57,8 +57,8 @@ class RetrievalEvaluator(Evaluator):
         self.iou05 = IoUAtThreshold(iou_threshold=0.5, name="IoU@0.5")
 
         # Iou-cumulative
-        self.iou03 = CumulativeIoUAtThreshold(iou_threshold=0.3, name="CumIoU@0.3")
-        self.iou05 = CumulativeIoUAtThreshold(iou_threshold=0.5, name="CumIoU@0.5")
+        self.cum_iou03 = CumulativeIoUAtThreshold(iou_threshold=0.3, name="CumIoU@0.3")
+        self.cum_iou05 = CumulativeIoUAtThreshold(iou_threshold=0.5, name="CumIoU@0.5")
 
         # Recall@K + IoU@τ (metriche standard da paper)
         self.r1_iou03 = RecallAtKIoU(k=1, iou_threshold=0.3, name="R@1_IoU@0.3")
@@ -93,8 +93,8 @@ class RetrievalEvaluator(Evaluator):
         results["IoU@0.3"] = self.iou03(pred=pred, true=true)
         results["IoU@0.5"] = self.iou05(pred=pred, true=true)
 
-        results["CumIoU@0.3"] = self.iou03(pred=pred, true=true)
-        results["CumIoU@0.5"] = self.iou05(pred=pred, true=true)
+        results["CumIoU@0.3"] = self.cum_iou03(pred=pred, true=true)
+        results["CumIoU@0.5"] = self.cum_iou05(pred=pred, true=true)
 
         # === Recall@K + IoU ===
         results["R@1_IoU@0.3"] = self.r1_iou03(pred=pred, true=true)

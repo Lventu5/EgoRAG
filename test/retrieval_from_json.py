@@ -63,11 +63,17 @@ def convert_and_evaluate(retrieval_results: dict, queries, evaluator: RetrievalE
 
         # Ground truth: try start_sec, else end_sec, else None
         gt_video = q.video_uid
+        gt_moment_start = 0.0
+        gt_moment_end = 0.0
+        
+        # Safely extract GT
         if getattr(q, "gt", None):
-            if q.gt.get("start_sec") is not None and q.gt.get("start_sec") >= 0:
-                gt_moment_start = q.gt.get("start_sec")
-            if q.gt.get("end_sec") is not None and q.gt.get("end_sec") >= 0:
-                gt_moment_end = q.gt.get("end_sec")
+            gt_moment_start = q.gt.get("start_sec", 0.0)
+            gt_moment_end = q.gt.get("end_sec", 0.0)
+            
+            # Handle cases where end might be None or -1 in your data
+            if gt_moment_end is None: 
+                gt_moment_end = gt_moment_start
 
         trues.append((gt_video, gt_moment_start, gt_moment_end))
 

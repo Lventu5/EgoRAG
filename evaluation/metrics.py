@@ -7,6 +7,16 @@ from nltk.translate.meteor_score import meteor_score
 from rouge_score import rouge_scorer
 # from bleurt import score as bleurt_score # FIXME, to install
 
+def iou(pred_scene, gt_start, gt_end):
+    p_start, p_end = pred_scene.start_time, pred_scene.end_time
+    intersection = max(0.0, min(p_end, gt_end) - max(p_start, gt_start))
+    
+    area_pred = p_end - p_start
+    area_gt = gt_end - gt_start
+    union = area_pred + area_gt - intersection
+    
+    return intersection / union if union > 0 else 0.0
+
 class Metric(ABC):
     def __init__(self, name: str | None = None):
         self.name = name or self.__class__.__name__
@@ -33,13 +43,7 @@ class topKAccuracyScene(Metric):
         """
         pred: list where each element is a list with the top k (video, scene) tuples
         true: list of (video-moments) of the ground truth
-        """
-
-        def _iou(pred_scene, gt_start, gt_end):
-            p_start, p_end = pred_scene.start_time, pred_scene.end_time
-            inter = max(0.0, min(p_end, gt_end) - max(p_start, gt_start))
-            union = max(p_end, gt_end) - min(p_start, gt_start)
-            return inter / union if union > 0 else 0.0
+        """       
 
         assert len(pred) == len(true), "The predictions and the ground truths must have the same length"
         n = len(pred)
@@ -53,7 +57,7 @@ class topKAccuracyScene(Metric):
                 prediction = el[1]
                 if video_name != gt_video:
                     continue
-                best_iou = max(best_iou, _iou(prediction, gt_start, gt_end))
+                best_iou = max(best_iou, iou(prediction, gt_start, gt_end))
             total_score += best_iou
         return total_score / n
     
@@ -106,12 +110,6 @@ class MeanReciprocalRank(Metric):
             else:
                 raise ValueError("Unsupported true format")
 
-        def _iou(pred_scene, gt_start, gt_end):
-            p_start, p_end = pred_scene.start_time, pred_scene.end_time
-            inter = max(0.0, min(p_end, gt_end) - max(p_start, gt_start))
-            union = max(p_end, gt_end) - min(p_start, gt_start)
-            return inter / union if union > 0 else 0.0
-
         cum_sum = 0.0
         assert len(pred) == len(true), "The predictions and the ground truths must have the same length"
         n = len(pred)
@@ -122,7 +120,7 @@ class MeanReciprocalRank(Metric):
             for pos, (video_name, prediction) in enumerate(top_k):
                 if video_name != gt_video:
                     continue
-                overlap = _iou(prediction, gt_start, gt_end)
+                overlap = iou(prediction, gt_start, gt_end)
                 best_score = max(best_score, overlap / (pos + 1))
             cum_sum += best_score
         return cum_sum / n
@@ -177,12 +175,6 @@ class MeanRank(Metric):
             else:
                 raise ValueError("Unsupported true format")
 
-        def _iou(pred_scene, gt_start, gt_end):
-            p_start, p_end = pred_scene.start_time, pred_scene.end_time
-            inter = max(0.0, min(p_end, gt_end) - max(p_start, gt_start))
-            union = max(p_end, gt_end) - min(p_start, gt_start)
-            return inter / union if union > 0 else 0.0
-
         assert len(pred) == len(true)
         ranks = []
         n = len(pred)
@@ -194,7 +186,7 @@ class MeanRank(Metric):
             for pos, (video_name, prediction) in enumerate(top_k):
                 if video_name != gt_video:
                     continue
-                iou = _iou(prediction, gt_start, gt_end)
+                iou = iou(prediction, gt_start, gt_end)
                 if iou > best_iou:
                     best_iou = iou
                     best_pos = pos
@@ -378,12 +370,6 @@ class IoUAtThreshold(Metric):
             else:
                 raise ValueError("Unsupported true format")
 
-        def _iou(pred_scene: Scene, gt_start: float, gt_end: float) -> float:
-            p_start, p_end = pred_scene.start_time, pred_scene.end_time
-            inter = max(0.0, min(p_end, gt_end) - max(p_start, gt_start))
-            union = max(p_end, gt_end) - min(p_start, gt_start)
-            return inter / union if union > 0 else 0.0
-
         assert len(pred) == len(true), "The predictions and the ground truths must have the same length"
 
         n = len(pred)
@@ -397,7 +383,7 @@ class IoUAtThreshold(Metric):
             for video_name, prediction in candidates:
                 if video_name != gt_video:
                     continue
-                best_iou = max(best_iou, _iou(prediction, gt_start, gt_end))
+                best_iou = max(best_iou, iou(prediction, gt_start, gt_end))
 
             if best_iou >= self.iou_threshold:
                 hits += 1
@@ -441,12 +427,6 @@ class CumulativeIoUAtThreshold(Metric):
             else:
                 raise ValueError("Unsupported true format")
 
-        def _iou(pred_scene: Scene, gt_start: float, gt_end: float) -> float:
-            p_start, p_end = pred_scene.start_time, pred_scene.end_time
-            inter = max(0.0, min(p_end, gt_end) - max(p_start, gt_start))
-            union = max(p_end, gt_end) - min(p_start, gt_start)
-            return inter / union if union > 0 else 0.0
-
         assert len(pred) == len(true), "The predictions and the ground truths must have the same length"
 
         n = len(pred)
@@ -460,7 +440,7 @@ class CumulativeIoUAtThreshold(Metric):
             for video_name, prediction in candidates:
                 if video_name != gt_video:
                     continue
-                cumul_iou += _iou(prediction, gt_start, gt_end)
+                cumul_iou += iou(prediction, gt_start, gt_end)
             if cumul_iou >= self.iou_threshold:
                 hits += 1
 
@@ -505,12 +485,6 @@ class RecallAtKIoU(Metric):
             else:
                 raise ValueError("Unsupported true format")
 
-        def _iou(pred_scene: Scene, gt_start: float, gt_end: float) -> float:
-            p_start, p_end = pred_scene.start_time, pred_scene.end_time
-            inter = max(0.0, min(p_end, gt_end) - max(p_start, gt_start))
-            union = max(p_end, gt_end) - min(p_start, gt_start)
-            return inter / union if union > 0 else 0.0
-
         assert len(pred) == len(true), "The predictions and the ground truths must have the same length"
 
         n = len(pred)
@@ -524,7 +498,7 @@ class RecallAtKIoU(Metric):
             for video_name, prediction in top_k:
                 if video_name != gt_video:
                     continue
-                iou = _iou(prediction, gt_start, gt_end)
+                iou = iou(prediction, gt_start, gt_end)
                 if iou >= self.iou_threshold:
                     hit = True
                     break
