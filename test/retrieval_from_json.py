@@ -4,6 +4,7 @@ import torch
 import os
 import sys
 import logging
+import warnings
 
 from data.dataset import Ego4DDataset
 from retrieval.hierarchical_retriever import HierarchicalRetriever
@@ -11,6 +12,11 @@ from evaluation.evaluator import RetrievalEvaluator
 
 from configuration.config import CONFIG
 
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+os.environ["HF_HOME"] = os.environ.get("TRANSFORMERS_CACHE", "")
 
 def convert_and_evaluate(retrieval_results: dict, queries, evaluator: RetrievalEvaluator):
     """Convert hierarchical retriever output to metric inputs and run evaluator.

@@ -137,7 +137,7 @@ class VideoEncoder(BaseEncoder):
 
             # Internvideo 1B
             config_path = "external/InternVideo/InternVideo2/multi_modality/demo/internvideo2_stage2_config.py"
-            model_path = "external/InternVideo/InternVideo2/checkpoints/internvideo2_stage2_1b.pth"
+            model_path = "external/InternVideo/InternVideo2/checkpoints/InternVideo2-stage2_1b-224p-f4.pt"
 
             model = interface.load_model(config_path, model_path)
             self.video_model = model.to(self.device).eval()

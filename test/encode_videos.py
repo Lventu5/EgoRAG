@@ -9,7 +9,8 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-# Set environment variable to disable torchcodec warnings
+# Set environment variable to disable warnings
+os.environ["HF_HOME"] = os.environ.get("TRANSFORMERS_CACHE", "")
 os.environ["TORCHVISION_DISABLE_TORCHCODEC"] = "1"
 
 # CRITICAL: Setup cache BEFORE importing transformers!
