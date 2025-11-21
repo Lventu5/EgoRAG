@@ -25,7 +25,11 @@ from .fuser import Fuser
 from .scene_merger import SceneMerger
 from configuration.config import CONFIG
 
+import sys
+import os
+from pathlib import Path
 sys.path.append(os.path.join(Path(os.getcwd()), 'external/InternVideo/InternVideo2'))
+sys.path.append(os.path.join(Path(os.getcwd()), 'external/InternVideo/InternVideo2/multi_moodality'))
 import interface
 
 
@@ -136,18 +140,18 @@ class HierarchicalRetriever:
                     self.embedder = AutoModel.from_pretrained(qwen_id).to(self.device).eval()
             
             elif self.video_model_type == "internvideo2":
-                # model_name = self.sizes["video"]["model"]
-                # logging.info(f"Loading InternVideo2 model for retrieval: {model_name}")
-                # self.embedder = AutoModel.from_pretrained(
-                #     model_name,
-                #     trust_remote_code=True
-                # ).to(self.device).eval()
+                model_name = self.sizes["video"]["model"]
+                logging.info(f"Loading InternVideo2 model for retrieval: {model_name}")
+                self.embedder = AutoModel.from_pretrained(
+                    model_name,
+                    trust_remote_code=True
+                ).to(self.device).eval()
 
-                config_path = "external/InternVideo/InternVideo2/multi_modality/demo/internvideo2_stage2_config.py"
-                model_path = "external/InternVideo/InternVideo2/checkpoints/internvideo2_stage2_1b.pth"
+                # config_path = "external/InternVideo/InternVideo2/multi_modality/demo/internvideo2_stage2_config.py"
+                # model_path = "external/InternVideo/InternVideo2/checkpoints/internvideo2_stage2_1b.pth"
 
-                model = interface.load_model(config_path, model_path)
-                self.embedder = model.to(self.device).eval()
+                # model = interface.load_model(config_path, model_path)
+                # self.embedder = model.to(self.device).eval()
 
             else:  # xclip
                 model_name = self.sizes["video"]["model"]
@@ -232,17 +236,17 @@ class HierarchicalRetriever:
             
             elif self.video_model_type == "internvideo2":
                 # InternVideo2 uses get_txt_feat for text encoding
-                # embeddings_list = []
-                # for query_text in mod_queries:
-                #     text_feat = self.embedder.get_txt_feat(query_text)
-                #     embeddings_list.append(text_feat.squeeze(0))
-                # embeddings = torch.stack(embeddings_list)
+                embeddings_list = []
+                for query_text in mod_queries:
+                    text_feat = self.embedder.get_txt_feat(query_text)
+                    embeddings_list.append(text_feat.squeeze(0))
+                embeddings = torch.stack(embeddings_list)
 
                 # Internvideo 1B
-                embeddings = interface.extract_query_features(
-                    base_dataset, 
-                    model
-                )
+                # embeddings = interface.extract_query_features(
+                #     base_dataset, 
+                #     model
+                # )
             else:
                 raise ValueError(f"Model type not supported: {self.video_model_type}")        
             

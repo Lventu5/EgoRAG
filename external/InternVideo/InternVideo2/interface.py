@@ -54,7 +54,7 @@ def extract_video_features(video_paths, model, device='cuda', fn=4, size_t=224):
 
 def extract_query_features(queries_list, model):
     embeddings_list = []
-    for query in queries_list.
+    for query in queries_list:
         feature =  get_text_feat_dict(query, model).values()
         embeddings_list.append(feature)
     return torch.stack(embeddings_list, dim = 0)
