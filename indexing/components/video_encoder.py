@@ -7,7 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 sys.path.append(os.path.join(Path(os.getcwd()), 'external/InternVideo/InternVideo2'))
-sys.path.append(os.path.join(Path(os.getcwd()), 'external/InternVideo/InternVideo2/multi_moodality'))
+sys.path.append(os.path.join(Path(os.getcwd()), 'external/InternVideo/InternVideo2/multi_modality'))
 import interface
 
 import numpy as np
