@@ -567,9 +567,10 @@ class MultiModalEncoder:
 
             video_model_name = CONFIG.indexing.video.model_name
 
-            self.video_encoder.load_models()
-            self._encode_video_stage(video_path, dp, force=_force_video)
+            #self.video_encoder.load_models()
+            #self._encode_video_stage(video_path, dp)
             
+            '''
             if not dp.scene_embeddings:
                 logging.warning(f"No scenes were successfully encoded for {video_path} (video stage).")
                 self.unload_model("video")
@@ -596,6 +597,7 @@ class MultiModalEncoder:
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 gc.collect()
+            '''
             
             # Stage 2: Audio Encoding
             # Fast-check if the video has an audio track before loading heavy models

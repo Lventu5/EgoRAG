@@ -21,7 +21,7 @@ from transformers import (
     AutoModel,
     Qwen2VLForConditionalGeneration,
 )
-from qwen_vl_utils import process_vision_info
+# from qwen_vl_utils import process_vision_info
 from PIL import Image
 from sklearn.cluster import KMeans
 from decord import VideoReader, cpu
