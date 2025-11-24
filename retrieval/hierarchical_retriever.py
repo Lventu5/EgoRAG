@@ -118,12 +118,14 @@ class HierarchicalRetriever:
         target_modality = modality
 
         # Ensure fast cache is configured once before loading heavy models
+        '''
         if not self._fast_cache_setup_done:
             try:
                 setup_smart_cache(verbose=True)
             except Exception:
                 logging.warning("Fast cache setup failed or skipped")
             self._fast_cache_setup_done = True
+        '''
 
         if target_modality == "text" or target_modality == "caption":
             self.embedder = SentenceTransformer(
@@ -140,18 +142,19 @@ class HierarchicalRetriever:
                     self.embedder = AutoModel.from_pretrained(qwen_id).to(self.device).eval()
             
             elif self.video_model_type == "internvideo2":
-                model_name = self.sizes["video"]["model"]
-                logging.info(f"Loading InternVideo2 model for retrieval: {model_name}")
-                self.embedder = AutoModel.from_pretrained(
-                    model_name,
-                    trust_remote_code=True
-                ).to(self.device).eval()
+                # model_name = self.sizes["video"]["model"]
+                # logging.info(f"Loading InternVideo2 model for retrieval: {model_name}")
+                # self.embedder = AutoModel.from_pretrained(
+                    # model_name,
+                    # trust_remote_code=True
+                # ).to(self.device).eval()
 
-                # config_path = "external/InternVideo/InternVideo2/multi_modality/demo/internvideo2_stage2_config.py"
-                # model_path = "external/InternVideo/InternVideo2/checkpoints/internvideo2_stage2_1b.pth"
+                config_path = "external/InternVideo/InternVideo2/multi_modality/demo/internvideo2_stage2_config.py"
+                model_path = "external/InternVideo/InternVideo2/checkpoints/InternVideo2-stage2_1b-224p-f4.pt"
 
-                # model = interface.load_model(config_path, model_path)
-                # self.embedder = model.to(self.device).eval()
+                model = interface.load_model(config_path, model_path)
+                print("DEBUG after load_model, type(model.tokenizer) =", type(model.tokenizer))
+                self.embedder = model.to(self.device).eval()
 
             else:  # xclip
                 model_name = self.sizes["video"]["model"]
@@ -236,17 +239,18 @@ class HierarchicalRetriever:
             
             elif self.video_model_type == "internvideo2":
                 # InternVideo2 uses get_txt_feat for text encoding
-                embeddings_list = []
-                for query_text in mod_queries:
-                    text_feat = self.embedder.get_txt_feat(query_text)
-                    embeddings_list.append(text_feat.squeeze(0))
-                embeddings = torch.stack(embeddings_list)
+                # embeddings_list = []
+                # for query_text in mod_queries:
+                    # text_feat = self.embedder.get_txt_feat(query_text)
+                    # embeddings_list.append(text_feat.squeeze(0))
+                # embeddings = torch.stack(embeddings_list)
 
                 # Internvideo 1B
-                # embeddings = interface.extract_query_features(
-                #     base_dataset, 
-                #     model
-                # )
+                embeddings = interface.extract_query_features(
+                     # base_dataset, 
+                     mod_queries,
+                     self.embedder
+                )
             else:
                 raise ValueError(f"Model type not supported: {self.video_model_type}")        
             

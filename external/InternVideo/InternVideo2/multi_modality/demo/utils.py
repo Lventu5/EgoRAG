@@ -10,7 +10,8 @@ from models.backbones.internvideo2 import pretrain_internvideo2_1b_patch14_224
 from models.backbones.bert.builder import build_bert
 from models.criterions import get_sim
 from models.backbones.internvideo2.pos_embed import interpolate_pos_embed_internvideo2_new
-from models.backbones.bert.tokenization_bert import BertTokenizer
+# from models.backbones.bert.tokenization_bert import BertTokenizer
+from transformers import BertTokenizer  # quello HF standard
 
 
 def _frame_from_video(video):
@@ -78,7 +79,8 @@ def retrieve_text(frames,
 
 def setup_internvideo2(config: dict):
     if "bert" in config.model.text_encoder.name:
-        tokenizer = BertTokenizer.from_pretrained(config.model.text_encoder.pretrained, local_files_only=True)
+        tokenizer = BertTokenizer.from_pretrained(config.model.text_encoder.pretrained)
+        # tokenizer = BertTokenizer.from_pretrained("bert-large-uncased")
         model = InternVideo2_Stage2(config=config, tokenizer=tokenizer, is_pretrain=True)
     else:
         model = InternVideo2_Stage2(config=config, is_pretrain=True)
@@ -125,11 +127,15 @@ class InternVideo2_Stage2(nn.Module):
 
     def __init__(self, 
                  config, 
-                 tokenizer, 
+                 tokenizer = None, 
                  is_pretrain: bool=True):
         super(InternVideo2_Stage2, self).__init__()
 
         self.config = config
+        if tokenizer is None or isinstance(tokenizer, bool):
+            txt_ckpt = config.model.text_encoder.pretrained
+            tokenizer = BertTokenizer.from_pretrained(txt_ckpt, local_files_only=True)
+
         self.tokenizer = tokenizer
 
         self.is_pretrain = is_pretrain

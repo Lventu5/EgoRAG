@@ -2,7 +2,7 @@ import torch
 import logging
 import re
 from sentence_transformers import SentenceTransformer
-from huggingface_hub import HfFolder
+from huggingface_hub import HfFolder, whoami
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from .base_encoder import BaseEncoder
 from configuration.config import CONFIG
@@ -26,24 +26,16 @@ class TextEncoder(BaseEncoder):
         print("[TextEncoder] python:", sys.executable, flush=True)
         print(f"[TextEncoder] Loading SBERT model: {self.model_name}", flush=True)
 
-        # 1) Prova a prendere il token da env, poi da HfFolder
-        env_token = os.environ.get("HUGGINGFACE_HUB_TOKEN")
-        folder_token = HfFolder.get_token()
-        token = env_token or folder_token
-
-        print(
-            f"[TextEncoder] Token from env: {env_token is not None}, "
-            f"from HfFolder: {folder_token is not None}",
-            flush=True,
+        token = (
+        os.environ.get("HUGGINGFACE_HUB_TOKEN")
+            or os.environ.get("HF_TOKEN")
+            or HfFolder.get_token()
         )
 
-        st_kwargs = {"device": self.device}
-
-        # 2) Passa il token SOLO se esiste davvero
+        st_kwargs = {}
         if token is not None:
             st_kwargs["token"] = token
 
-        # 3) Chiama SentenceTransformer in modo pulito
         self.sbert_model = SentenceTransformer(self.model_name, **st_kwargs)
         logging.info(f"[{self.__class__.__name__}] Model loaded.")
         

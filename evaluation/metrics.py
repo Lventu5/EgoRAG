@@ -186,9 +186,9 @@ class MeanRank(Metric):
             for pos, (video_name, prediction) in enumerate(top_k):
                 if video_name != gt_video:
                     continue
-                iou = iou(prediction, gt_start, gt_end)
-                if iou > best_iou:
-                    best_iou = iou
+                curr_iou = iou(prediction, gt_start, gt_end)
+                if curr_iou > best_iou:
+                    best_iou = curr_iou
                     best_pos = pos
 
             if best_pos is None:
@@ -498,8 +498,8 @@ class RecallAtKIoU(Metric):
             for video_name, prediction in top_k:
                 if video_name != gt_video:
                     continue
-                iou = iou(prediction, gt_start, gt_end)
-                if iou >= self.iou_threshold:
+                curr_iou = iou(prediction, gt_start, gt_end)
+                if curr_iou >= self.iou_threshold:
                     hit = True
                     break
 

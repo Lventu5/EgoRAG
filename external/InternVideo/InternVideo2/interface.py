@@ -7,6 +7,8 @@ from demo.config import Config, eval_dict_leaf
 from demo.utils import _frame_from_video, setup_internvideo2, frames2tensor, get_text_feat_dict
 import decord
 from decord import VideoReader
+from models.backbones.bert.tokenization_bert import BertTokenizer
+import torch
 
 
 def load_model(config_path, model_path, device='cuda'):
@@ -16,8 +18,10 @@ def load_model(config_path, model_path, device='cuda'):
     config['pretrained_path'] = model_path
 
     model, _ = setup_internvideo2(config)
-    model.to(device)
 
+    print("DEBUG load_model right after setup, type(model.tokenizer) =", type(model.tokenizer))
+
+    model.to(device)
     return model
 
 
@@ -54,8 +58,10 @@ def extract_video_features(video_paths, model, device='cuda', fn=4, size_t=224):
 
 def extract_query_features(queries_list, model):
     embeddings_list = []
-    for query in queries_list:
-        feature =  get_text_feat_dict(query, model).values()
-        embeddings_list.append(feature)
-    return torch.stack(embeddings_list, dim = 0)
-    
+    for i, query in enumerate(queries_list):
+        print(f"DEBUG Processing query #{i}: {query!r}")
+        feature_dict = get_text_feat_dict([query], model)
+        feat = next(iter(feature_dict.values()))
+        embeddings_list.append(feat.squeeze(0))
+    print(f"DEBUG embeddings_list length = {len(embeddings_list)}; example element type = {type(embeddings_list[0])}, shape = {embeddings_list[0].shape}")
+    return torch.stack(embeddings_list, dim=0)
