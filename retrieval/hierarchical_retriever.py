@@ -15,7 +15,6 @@ from transformers import (
 )
 from sentence_transformers import SentenceTransformer
 from torch.nn.functional import normalize
-from utils.cache_manager import setup_smart_cache
 
 from data.video_dataset import VideoDataset
 from data.query import Query, QueryDataset
@@ -86,7 +85,6 @@ class HierarchicalRetriever:
         self.current_modality = None
         self.processor = None
         self.embedder = None
-        self._fast_cache_setup_done = False
         
         if fuser is None:
             logging.warning("Fuser not specified, using a RRF fuser")
@@ -116,16 +114,6 @@ class HierarchicalRetriever:
         self.processor = None
         self.embedder = None
         target_modality = modality
-
-        # Ensure fast cache is configured once before loading heavy models
-        '''
-        if not self._fast_cache_setup_done:
-            try:
-                setup_smart_cache(verbose=True)
-            except Exception:
-                logging.warning("Fast cache setup failed or skipped")
-            self._fast_cache_setup_done = True
-        '''
 
         if target_modality == "text" or target_modality == "caption":
             self.embedder = SentenceTransformer(

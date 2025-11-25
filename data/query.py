@@ -24,7 +24,7 @@ class Query:
         }
         if gt:
             self.gt.update(gt)
-
+            
     def __repr__(self):
         return f"Query(qid={self.qid}, query_text={self.query_text.strip()})"
 

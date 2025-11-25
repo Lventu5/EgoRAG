@@ -18,6 +18,7 @@ from indexing.components.audio_encoder import AudioEncoder
 from indexing.components.text_encoder import TextEncoder
 from indexing.components.visual_captioner import VisualCaptioner as VisualCaptioner1
 from indexing.components.visual_captioner2 import VisualCaptioner as VisualCaptioner2
+from indexing.components.tagger import Tagger
 from configuration.config import CONFIG
 
 
@@ -39,7 +40,7 @@ class MultiModalEncoder:
     """
     def __init__(
         self,
-        video_dataset: VideoDataset = None,
+        video_dataset: VideoDataset=None,
         device: str = "cuda",
         max_workers: int = 2,
         pickle_path: str = None,
@@ -82,6 +83,9 @@ class MultiModalEncoder:
             raise ValueError(f"Unknown captioner: {self.use_captioner}. Use 'captioner1' or 'captioner2'")
         
         logging.info(f"MultiModalEncoder initialized with {max_workers} workers.")
+        # Tagger (lazy-load model on first use)
+        self.tagger = Tagger(device=self.device)
+        self._tagger_loaded = False
         
 
     def _should_encode_stage(self, dp: VideoDataPoint, stage: str) -> bool:
@@ -617,6 +621,16 @@ class MultiModalEncoder:
             # Stage 3: Text Encoding
             self.text_encoder.load_models()
             self._encode_text_stage(dp, force=_force_text)
+            # Tagging: run the tagger using the generated screenplay/text
+            try:
+                if not self._tagger_loaded:
+                    self.tagger.load_model()
+                    self._tagger_loaded = True
+                # Tag both global video and individual scenes
+                self.tagger.tag_datapoint(dp, tag_scenes=True)
+            except Exception as e:
+                logging.warning(f"[Tagger] tagging failed for {getattr(dp, 'video_name', '<unknown>')}: {e}")
+
             self.unload_model("text")
             if self.device == "cuda":
                 torch.cuda.empty_cache()
@@ -630,8 +644,8 @@ class MultiModalEncoder:
                     dp.global_embeddings["video"] = aggregated["video"]
                     logging.info(f"[Aggregate] Used mean pooling for global video embedding (XCLIP)")
 
-            self.dataset.encoded = True
-        
+        self.dataset.encoded = True
+        self.tagger.pretty_print_dataset(self.dataset)
         return self.dataset
 
     def unload_model(self, modality: str) -> None:

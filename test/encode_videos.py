@@ -1,6 +1,3 @@
-"""
-Code to encode the videos in a specific directory
-"""
 import warnings
 import os
 import gc
@@ -22,7 +19,6 @@ from utils.cache_manager import setup_smart_cache, cleanup_smart_cache
 # Now safe to import (will use fast cache)
 from indexing.multimodal_encoder import MultiModalEncoder
 from data.video_dataset import VideoDataset
-from utils.memory_monitor import MemoryMonitor
 import glob
 import os
 import numpy as np
@@ -48,11 +44,7 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
     video_ids = glob.glob(os.path.join(video_dir, "*.mp4"))
     print(f"Found {len(video_ids)} videos")
 
-    print("="*80)
-    MemoryMonitor.log_memory("[INITIAL STATE] ")
-    print("="*80)
-
-    for video in tqdm(video_ids):
+    for video in tqdm(video_ids[6:7]):
         print("-"*50)
         print(f"Encoding video {video}")
         print("-"*50)
@@ -86,11 +78,8 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
                 force_caption=force_caption,
                 force_text=force_text
             )
-
         video_dataset.save_to_pickle(pickle_path)
 
-        # Free memory (CPU RAM, not GPU) to avoid OOM on long batch processing
-        MemoryMonitor.log_memory("[BEFORE cleanup] ")
         del encoder
         if 'dataset' in locals():
             del dataset
@@ -99,9 +88,6 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
         gc.collect()
         torch.cuda.empty_cache()
         gc.collect()  # Double gc to ensure everything is freed
-        
-        MemoryMonitor.log_memory("[AFTER cleanup] ")
-        print("="*80)
 
 if __name__ == "__main__":
     video_dir = "../ego4d_data/v2/full_scale"

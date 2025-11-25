@@ -44,7 +44,7 @@ class QueryRewriterLLM:
         elif modality == "decompose":
             return self.decompose_to_json(query)
         else:
-            raise ValueError("Unknown modality. Use 'default' or 'decompose'.")
+            raise ValueError(f"Unknown modality {modality}. Use 'default' or 'decompose'.")
         
     # @staticmethod
     def _strip_prompt_echo(self, text: str, after: Optional[str] = None) -> str:
@@ -93,10 +93,10 @@ class QueryRewriterLLM:
             '  "video": string (short visual description)\n'
             "Do not add explanations, notes, code fences or extra text. \n\n "
             "Here are a few examples:\n\n"
-            "1) Query: \"A dog barks as a car explodes\"\n"
-            "JSON: {\"text\": \"A dog barks as a car explodes\", \"audio\": \"barking, explosion\", \"video\": \"A dog barking and an exploding car\"}\n"
-            "2) Query: \"A plane flies over a city while sirens blare\"\n"
-            "JSON: {\"text\": \"A plane flies over a city while sirens blare\", \"audio\": \"sirens blaring, plane noise\", \"video\": \"A plane flying over a city\"}\n\n"
+            "1) Query: \"Who was I talking to yesterday in the office?\"\n"
+            "JSON: {\"text\": \"Someone talking to another person in an office\", \"audio\": \"office chatter, office noises\", \"video\": \"Two people having a conversation in an office\"}\n"
+            "2) Query: \"What is happening when a plane flies over a city while sirens are sounding?\"\n"
+            "JSON: {\"text\": \"A plane flying over a city while sirens are sounding\", \"audio\": \"sirens blaring, airplane noise\", \"video\": \"A plane flying over an urban skyline\"}\n\n"
             f'Query: "{query}"\n'
             "Generated JSON:"
         )
@@ -123,11 +123,20 @@ class QueryRewriterLLM:
             raw,
             default_keys={"text": "", "audio": "", "video": ""}
         )
-
-        data["text"]  = " ".join(data["text"].split()).strip()
-        data["audio"] = ",".join(
-            [t.strip().lower() for t in data["audio"].split(",") if t.strip()]
-        )
-        data["video"] = " ".join(data["video"].split()).strip()
-
+        print(f"{'-'*50}\n original query {query} \n\n")
+        for modality in ["text", "audio", "video"]:
+            if modality in ["text", "video"]:
+                ans = " ".join(data["text"].split()).strip()
+                if ans == "" or len(ans.split()) <= 2:
+                    data[modality] = query
+                else:
+                    data[modality]  = query # ans
+            else:
+                ans = ",".join(
+                    [t.strip().lower() for t in data["audio"].split(",") if t.strip()]
+                )
+                if ans == "" or len(ans.split()) <= 2:
+                    data[modality] = query
+                else:
+                    data[modality] = query # ans
         return data

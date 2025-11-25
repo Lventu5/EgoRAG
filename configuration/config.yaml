@@ -1,16 +1,16 @@
 device: "cuda"
 data:
-  video_path: "../../mronconi/ego4d_data/v2/full_scale/"
-  annotation_path: "../../mronconi/ego4d_data/v2/annotations/nlq_train.json"
-  video_dataset:  "../ego4d_data/v2/internvideo_encoded_videos/merged_internvideo_videos.pkl" # "./qwen_llava_10_videos.pkl" # "../ego4d_data/v2/qwen_llava_encoded_videos/qwen_llava_10_videos.pkl"
+  video_path: "../../tnanni/ego4d_data/v2/full_scale/"
+  annotation_path: "../../tnanni/ego4d_data/v2/annotations/nlq_train.json"
+  video_dataset: "../ego4d_data/v2/internvideo_encoded_videos/internvideo_10_videos.pkl"
 indexing:
   video:
     model_name: "internvideo2" # Options: "xclip", "qwen2-vl", "internvideo2"
     xclip_id: "microsoft/xclip-base-patch16"
     qwen2_vl_id: "Qwen/Qwen2-VL-7B-Instruct"
     llava_id: "llava-hf/LLaVA-NeXT-Video-7B-hf"
-    internvideo2_id: "OpenGVLab/InternVideo2-Stage1-1B-224p-f8"
-    clip_id: "openai/clip-vit-base-patch32"  # For XCLIP clustering only
+    internvideo2_id: "OpenGVLab/InternVideo2-Stage2-1B-224p-f8"
+    clip_id: "openai/clip-vit-base-patch32" # For XCLIP clustering only
   audio:
     audio_sample_rate: 48000
     asr_sample_rate: 16000
@@ -24,20 +24,22 @@ indexing:
     diarization_model_id: "pyannote/speaker-diarization-3.1" # Speaker diarization model
   text:
     text_model_id: "google/embeddinggemma-300m"
-    llm_model_id: "Qwen/Qwen2.5-3B-Instruct"  # LLM for screenplay generation
+    llm_model_id: "Qwen/Qwen2.5-3B-Instruct" # LLM for screenplay generation
   caption:
     use_captioner: "captioner2" # Options: "captioner1" (BLIP), "captioner2" (LLaVA)
     caption_model_id: "Salesforce/blip-image-captioning-base"
     caption2_model_id: "llava-hf/LLaVA-NeXT-Video-7B-hf"
+  tag:
+    tagger_model_id: "Qwen/Qwen2.5-3B-Instruct" # LLM for tagging
 retrieval:
   text_model_id: "google/embeddinggemma-300m"
-  video_model_id: "OpenGVLab/InternVideo2-Stage1-6B" #"OpenGVLab/InternVideo2-Stage1-1B-224p-f8"  # Options: "Qwen/Qwen2-VL-7B-Instruct", "OpenGVLab/InternVideo2-Stage1-1B-224p-f8"
+  video_model_id: "OpenGVLab/InternVideo2-Stage2_6B" #"OpenGVLab/InternVideo2-Stage1-1B-224p-f8"  # Options: "Qwen/Qwen2-VL-7B-Instruct", "OpenGVLab/InternVideo2-Stage1-1B-224p-f8"
   audio_model_id: "laion/clap-htsat-unfused"
   caption_model_id: "google/embeddinggemma-300m"
   rewriter_model_id: "Qwen/Qwen2.5-7B-Instruct"
   top_k_videos: 3
   top_k_scenes: 10
-  modalities: ["text"]
+  modalities: ["video", "text"]
   fusion: "rrf"
   scene_merger:
     enabled: true # Enable/disable scene merging

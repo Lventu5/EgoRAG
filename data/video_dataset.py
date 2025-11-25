@@ -61,6 +61,7 @@ class VideoDataPoint:
             "text_raw": "",  # LLM-generated screenplay text
             "caption": None,
             "caption_text": "",
+            "tags": None,
         }
 
         # Embeddings per ogni scena
@@ -75,6 +76,7 @@ class VideoDataPoint:
                 "caption": None,
                 "transcript": "",
                 "caption_text": "",
+                "tags": None,
             }
             for i, _ in enumerate(self.scenes)
         }

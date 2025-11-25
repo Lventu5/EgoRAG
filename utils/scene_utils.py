@@ -54,6 +54,7 @@ class SceneDetector:
             return SceneDetector._pyscenedetect(video_path, Scene, **kwargs)
         # Method: Fixed temporal window
         elif method == "temporal":
+            print(f"calling with {kwargs}")
             return SceneDetector._temporal_window(video_path, Scene, **kwargs)
         else:
             logging.error(f"Unknown scene detection method: {method}")
@@ -124,6 +125,7 @@ class SceneDetector:
         RAG systems requiring uniform granularity. The last scene may be shorter
         than window_size if the video duration is not evenly divisible.
         """
+        print(f"Splitting video into fixed temporal windows of {window_size} seconds.")
         try:
             # Get video duration
             from moviepy.editor import VideoFileClip
