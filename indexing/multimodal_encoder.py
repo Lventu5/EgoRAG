@@ -16,8 +16,7 @@ from indexing.utils.logging import LevelAwareFormatter
 from indexing.components.video_encoder import VideoEncoder
 from indexing.components.audio_encoder import AudioEncoder
 from indexing.components.text_encoder import TextEncoder
-from indexing.components.visual_captioner import VisualCaptioner as VisualCaptioner1
-from indexing.components.visual_captioner2 import VisualCaptioner as VisualCaptioner2
+from indexing.components.visual_captioner import VisualCaptioner
 from indexing.components.tagger import Tagger
 from configuration.config import CONFIG
 
@@ -73,15 +72,7 @@ class MultiModalEncoder:
             device=self.device
         )
         
-        # Select captioner based on config
-        self.use_captioner = CONFIG.indexing.caption.use_captioner
-        if self.use_captioner == "captioner1":
-            self.captioner = VisualCaptioner1(device=self.device)
-        elif self.use_captioner == "captioner2":
-            self.captioner = VisualCaptioner2(device=self.device)
-        else:
-            raise ValueError(f"Unknown captioner: {self.use_captioner}. Use 'captioner1' or 'captioner2'")
-        
+        self.captioner = VisualCaptioner(device=self.device)
         logging.info(f"MultiModalEncoder initialized with {max_workers} workers.")
         # Tagger (lazy-load model on first use)
         self.tagger = Tagger(device=self.device)
@@ -270,21 +261,13 @@ class MultiModalEncoder:
             logging.info(f"[Caption Stage] Captions already exist for {dp.video_name}, skipping")
             return
         
-        logging.info(f"[Caption Stage] Visual caption generation for {dp.video_name} using {self.use_captioner}")
+        logging.info(f"[Caption Stage] Visual caption generation for {dp.video_name}")
         futures = {}
         
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            if self.use_captioner == "captioner1":
-                # BLIP captioner: uses keyframes
-                for sid in dp.scene_embeddings.keys():
-                    if sid in dp._temp_keyframes:
-                        futures[executor.submit(self.captioner.encode, dp._temp_keyframes[sid])] = sid
-            
-            elif self.use_captioner == "captioner2":
-                # Qwen2-VL captioner: use precomputed video embedding when available
-                for sid, scene in dp.scenes.items():
-                    if sid in dp.scene_embeddings:
-                        futures[executor.submit(self.captioner.encode, video_path, scene)] = sid
+            for sid, scene in dp.scenes.items():
+                if sid in dp.scene_embeddings:
+                    futures[executor.submit(self.captioner.encode, video_path, scene)] = sid
 
             for f in tqdm(as_completed(futures), total=len(futures), desc=f"Caption ({dp.video_name})", disable=False):
                 sid = futures[f]
@@ -304,7 +287,7 @@ class MultiModalEncoder:
         
         # Generate global caption for the entire video
         logging.info(f"[Caption Stage] Generating global caption for entire video ({dp.video_name})...")
-        global_caption = self._generate_full_video_caption(video_path, dp)
+        global_caption = self._generate_full_video_caption(dp)
         # Store as temporary data for screenplay generation
         dp._temp_global_caption = global_caption
         logging.info(f"[Caption Stage] Global caption generated for {dp.video_name}")
@@ -409,79 +392,67 @@ class MultiModalEncoder:
             logging.error(f"[Duration] Failed to estimate video duration for {video_path}: {exc}")
             return 0.0, 0.01
 
-    def _generate_full_video_caption(self, video_path: str, dp: VideoDataPoint) -> str:
+    def _generate_full_video_caption(self, dp: VideoDataPoint) -> str:
         """Generate a single caption describing the full video."""
-        if self.use_captioner == "captioner1":
-            # For BLIP: collect keyframes from all scenes
-            keyframes = self._collect_keyframes_from_scenes(dp)
-            if keyframes.size == 0:
-                logging.warning(f"[Caption] No keyframes for full video {dp.video_name}")
-                return ""
-            return self.captioner.encode(keyframes)
-        
-        if self.use_captioner == "captioner2":
-            # For LLaVA captioner: summarize all per-scene captions by asking the captioner (LLM)
-            captions = []
-            for sid in sorted(dp.scene_embeddings.keys()):
-                c = dp.scene_embeddings[sid].get("caption_text", "")
-                if c:
-                    captions.append(f"Scene {sid}: {c}")
+        # For LLaVA captioner: summarize all per-scene captions by asking the captioner (LLM)
+        captions = []
+        for sid in sorted(dp.scene_embeddings.keys()):
+            c = dp.scene_embeddings[sid].get("caption_text", "")
+            if c:
+                captions.append(f"Scene {sid}: {c}")
 
-            if not captions:
-                logging.warning(f"[Caption] No scene captions available for full video {dp.video_name}")
-                return ""
+        if not captions:
+            logging.warning(f"[Caption] No scene captions available for full video {dp.video_name}")
+            return ""
 
-            # Build summarization prompt
-            prompt_lines = [
-                "You are a helpful assistant. Summarize the following scene captions into a concise, coherent paragraph describing the whole video. Be concrete: encapsulate the setting, actions performed and how they impact the surroundings, objects used. Keep it short (1-3 sentences).",
-                "\nCaptions:\n"
-            ]
-            prompt_lines.extend(captions)
-            full_prompt = "\n".join(prompt_lines)
+        # Build summarization prompt
+        prompt_lines = [
+            "You are a helpful assistant. Summarize the following scene captions into a concise, coherent paragraph describing the whole video. Be concrete: encapsulate the setting, actions performed and how they impact the surroundings, objects used. Keep it short (1-3 sentences).",
+            "\nCaptions:\n"
+        ]
+        prompt_lines.extend(captions)
+        full_prompt = "\n".join(prompt_lines)
 
-            try:
-                # Use captioner.processor to tokenize the prompt and captioner.model to generate summary
-                messages = [{"role": "user", "content": [{"type": "text", "text": full_prompt}]}]
-                proc_inputs = self.captioner.processor.apply_chat_template(messages, tokenize=True, return_tensors="pt")
-                # The processor may return a single Tensor (e.g., input_ids) or a dict
-                # of tensors. Normalize to a dict so we can safely move tensors to device.
-                if isinstance(proc_inputs, torch.Tensor):
-                    proc_inputs = {"input_ids": proc_inputs}
-                elif not isinstance(proc_inputs, dict):
-                    proc_inputs = dict(proc_inputs)
-                
-                proc_inputs = {k: (v.to(self.device) if hasattr(v, "to") else v) for k, v in proc_inputs.items()}
+        try:
+            # Use captioner.processor to tokenize the prompt and captioner.model to generate summary
+            messages = [{"role": "user", "content": [{"type": "text", "text": full_prompt}]}]
+            proc_inputs = self.captioner.processor.apply_chat_template(messages, tokenize=True, return_tensors="pt")
+            # The processor may return a single Tensor (e.g., input_ids) or a dict
+            # of tensors. Normalize to a dict so we can safely move tensors to device.
+            if isinstance(proc_inputs, torch.Tensor):
+                proc_inputs = {"input_ids": proc_inputs}
+            elif not isinstance(proc_inputs, dict):
+                proc_inputs = dict(proc_inputs)
+            
+            proc_inputs = {k: (v.to(self.device) if hasattr(v, "to") else v) for k, v in proc_inputs.items()}
 
-                with torch.inference_mode():
-                    with torch.amp.autocast("cuda", enabled=True, dtype=torch.bfloat16):
-                        gen_ids = self.captioner.model.generate(**proc_inputs, max_new_tokens=128)
+            with torch.inference_mode():
+                with torch.amp.autocast("cuda", enabled=True, dtype=torch.bfloat16):
+                    gen_ids = self.captioner.model.generate(**proc_inputs, max_new_tokens=128)
 
-                summary = self.captioner.processor.batch_decode(gen_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)[0].strip()
+            summary = self.captioner.processor.batch_decode(gen_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)[0].strip()
 
-                # Extract assistant reply if model returns chat-style text
-                m = re.search(r"assistant:\s*(.*)$", summary, flags=re.IGNORECASE | re.DOTALL)
-                if m:
-                    summary = m.group(1).strip()
-                else:
-                    parts = re.split(r"assistant:\s*", summary, flags=re.IGNORECASE)
-                    if parts and len(parts) > 1:
-                        summary = parts[-1].strip()
+            # Extract assistant reply if model returns chat-style text
+            m = re.search(r"assistant:\s*(.*)$", summary, flags=re.IGNORECASE | re.DOTALL)
+            if m:
+                summary = m.group(1).strip()
+            else:
+                parts = re.split(r"assistant:\s*", summary, flags=re.IGNORECASE)
+                if parts and len(parts) > 1:
+                    summary = parts[-1].strip()
 
-                # Remove trailing separators like lines of dashes
-                summary = re.sub(r"\n[-]{3,}.*$", "", summary, flags=re.DOTALL).strip()
-                # Cleanup
-                del proc_inputs, gen_ids
-                if self.device == "cuda":
-                    torch.cuda.empty_cache()
+            # Remove trailing separators like lines of dashes
+            summary = re.sub(r"\n[-]{3,}.*$", "", summary, flags=re.DOTALL).strip()
+            # Cleanup
+            del proc_inputs, gen_ids
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
 
-                return summary
-            except Exception as e:
-                logging.error(f"[Caption][full_video] summarization failed: {e}")
-                logging.error(traceback.format_exc())
-                return ""
-        
-        logging.error(f"[Caption] Unknown captioner: {self.use_captioner}")
-        return ""
+            return summary
+        except Exception as e:
+            logging.error(f"[Caption][full_video] summarization failed: {e}")
+            logging.error(traceback.format_exc())
+            return ""
 
     def _collect_keyframes_from_scenes(self, dp: VideoDataPoint, max_frames: int = 32) -> np.ndarray:
         """Concatenate keyframes from all scenes for global captioning."""
@@ -645,7 +616,6 @@ class MultiModalEncoder:
                     logging.info(f"[Aggregate] Used mean pooling for global video embedding (XCLIP)")
 
         self.dataset.encoded = True
-        self.tagger.pretty_print_dataset(self.dataset)
         return self.dataset
 
     def unload_model(self, modality: str) -> None:

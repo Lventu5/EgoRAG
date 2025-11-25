@@ -8,9 +8,6 @@ from transformers import (
     ClapModel,
     AutoProcessor,
     AutoModel,
-    LlavaNextVideoForConditionalGeneration,
-    CLIPProcessor,
-    CLIPTextModel,
     AutoTokenizer,
 )
 from sentence_transformers import SentenceTransformer
@@ -46,21 +43,16 @@ class HierarchicalRetriever:
         video_model_name = CONFIG.retrieval.video_model_id
         audio_model_name = CONFIG.retrieval.audio_model_id
         text_model_name = CONFIG.retrieval.text_model_id
-        caption_model_name = CONFIG.retrieval.caption_model_id
         
         # Determine video model type from model name or indexing config
         if "InternVideo2" in video_model_name or CONFIG.indexing.video.model_name == "internvideo2":
             self.video_model_type = "internvideo2"
-        elif "Qwen" in video_model_name or CONFIG.indexing.video.model_name == "qwen2-vl":
-            self.video_model_type = "qwen2-vl"
         else:
             self.video_model_type = CONFIG.indexing.video.model_name  # "xclip" or other
         
         # Set video embedding size based on model type
         if self.video_model_type == "internvideo2":
             video_embed_size = 512  # InternVideo2 outputs 512-dim embeddings
-        elif self.video_model_type == "qwen2-vl":
-            video_embed_size = 1024  # Qwen2-VL vision embeddings
         else:  # xclip
             video_embed_size = 512  # XCLIP outputs 512-dim embeddings
         
@@ -77,10 +69,6 @@ class HierarchicalRetriever:
                 "size": 768,
                 "model": text_model_name
             },
-            "caption": {
-                "size": 384,
-                "model": caption_model_name
-            }
         }
         self.rewriter = CONFIG.retrieval.rewriter_model_id
         self.current_modality = None
@@ -127,22 +115,14 @@ class HierarchicalRetriever:
         target_modality = modality
 
         # Text encoder
-        if target_modality == "text" or target_modality == "caption":
+        if target_modality == "text":
             self.embedder = SentenceTransformer(
                 self.sizes["text"]["model"], device=self.device
             )
         
         # Video encoder
         elif target_modality == "video":
-            if self.video_model_type == "qwen2-vl":
-                    qwen_id = getattr(CONFIG.indexing.video, "qwen2_vl_id", None) or CONFIG.retrieval.video_model_id
-                    logging.info(f"Loading Qwen2-VL processor+model: {qwen_id}")
-                    self.processor = AutoProcessor.from_pretrained(qwen_id)
-                    self.tokenizer = AutoTokenizer.from_pretrained(qwen_id, use_fast=True)
-
-                    self.embedder = AutoModel.from_pretrained(qwen_id).to(self.device).eval()
-            
-            elif self.video_model_type == "internvideo2":
+            if self.video_model_type == "internvideo2":
                 # model_name = self.sizes["video"]["model"]
                 # logging.info(f"Loading InternVideo2 model for retrieval: {model_name}")
                 # self.embedder = AutoModel.from_pretrained(
@@ -200,44 +180,12 @@ class HierarchicalRetriever:
         
         mod_queries = queries.group_by_modality(self.current_modality)
 
-        if self.current_modality == "text" or self.current_modality == "caption":
+        if self.current_modality == "text":
             embeddings = self.embedder.encode(
                 mod_queries, convert_to_tensor=True, device=self.device
             )
         elif self.current_modality == "video":
-            if self.video_model_type == "qwen2-vl":
-                if self.embedder is None:
-                    raise RuntimeError("Qwen model not loaded. Call _load_models_for_modality first.")
-                proc_inputs = None
-                if hasattr(self, "processor") and self.processor is not None:
-                    proc_inputs = self.processor(text=mod_queries, return_tensors="pt", padding=True, truncation=True)
-
-                if proc_inputs is None and hasattr(self, "tokenizer") and self.tokenizer is not None:
-                    proc_inputs = self.tokenizer(mod_queries, return_tensors="pt", padding=True, truncation=True)
-
-                if proc_inputs is None:
-                    raise RuntimeError("No tokenizer/processor available for Qwen text encoding")
-
-                # Filter out any visual inputs (pixel_values / pixel_values_videos etc.)
-                allowed_keys = {"input_ids", "attention_mask", "token_type_ids", "position_ids", "labels", "decoder_input_ids", "decoder_attention_mask"}
-                inputs = {k: v.to(self.device) for k, v in proc_inputs.items() if k in allowed_keys}
-
-                with torch.no_grad():
-                    out = self.embedder(**inputs)
-
-                # Prefer pooler_output if provided, otherwise mean-pool last_hidden_state
-                if hasattr(out, "pooler_output") and out.pooler_output is not None:
-                    embeddings = out.pooler_output
-                else:
-                    last_hidden = out.last_hidden_state
-                    attention_mask = inputs.get("attention_mask", None)
-                    if attention_mask is not None:
-                        mask = attention_mask.unsqueeze(-1)
-                        embeddings = (last_hidden * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
-                    else:
-                        embeddings = last_hidden[:, 0, :]
-                    
-            elif self.video_model_type == "xclip":
+            if self.video_model_type == "xclip":
                 inputs = self.processor(
                     text=mod_queries, return_tensors="pt", padding=True # type: ignore
                 ).to(self.device)

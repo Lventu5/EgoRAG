@@ -53,12 +53,9 @@ class VideoEncoder(BaseEncoder):
         # Simple logic:
         # Configurazione basata sul modello
         # - XCLIP: 8 frames selezionati tramite clustering
-        # - Qwen2-VL: estrae embedding diretto dalla vision tower
         # - InternVideo2: vid2tensor automatically samples 8 frames uniformly
         if self.model_name == "xclip":
             self.max_frames = 8  # XCLIP usa esattamente 8 frame selezionati tramite clustering
-        elif self.model_name == "qwen2-vl":
-            self.max_frames = None  # Qwen2-VL gestisce internamente i frame
         elif self.model_name == "internvideo2":
             self.max_frames = 8  # InternVideo2 uses 8 frames
         else:
@@ -98,33 +95,6 @@ class VideoEncoder(BaseEncoder):
             self.video_model = XCLIPModel.from_pretrained(self.model_id).to(self.device).eval()
             self.video_processor = XCLIPProcessor.from_pretrained(self.model_id)
             
-        elif self.model_name == "qwen2-vl":
-            # Qwen2-VL model
-            self.model_id = CONFIG.indexing.video.qwen2_vl_id
-            
-            logging.info(f"Loading Qwen2-VL model: {self.model_id}...")
-            
-            # HuggingFace automatically uses HF_HOME/TRANSFORMERS_CACHE if set
-            cache_dir = os.environ.get("HF_HOME", os.environ.get("TRANSFORMERS_CACHE"))
-            if cache_dir:
-                logging.info(f"Using cache directory: {cache_dir}")
-            
-            self.video_processor = AutoProcessor.from_pretrained(
-                self.model_id,
-                min_pixels=256*28*28,
-                max_pixels=1280*28*28
-            )
-            
-            self.video_model = Qwen2VLForConditionalGeneration.from_pretrained(
-                self.model_id,
-                dtype=torch.bfloat16,
-                device_map=self.device,
-            )
-            
-            self.video_model.eval()
-            
-            logging.info(f"Qwen2-VL model loaded successfully")
-        
         elif self.model_name == "internvideo2":
             # InternVideo2 6B model
             # self.model_id = CONFIG.indexing.video.internvideo2_id
@@ -165,7 +135,7 @@ class VideoEncoder(BaseEncoder):
     def _select_frames_by_clustering(self, frames: np.ndarray, k: int = 8) -> np.ndarray:
         """Select k representative frames using clustering (for XCLIP)"""
         frame_embs = self._embed_frames_clip(frames)
-        clusters = cluster_frames(frame_embs, k=k)
+        clusters = cluster_frames(frame_embs, max_temporal_segments=k)
         
         # Select frame closest to each centroid
         selected_frames = []
@@ -184,7 +154,6 @@ class VideoEncoder(BaseEncoder):
         """
         Embeds frames using the video model.
         - XCLIP: expects exactly 8 frames (uses frames parameter)
-        - Qwen2-VL: processes entire video scene (uses video_path parameter)
         - InternVideo2: uses video_path, vid2tensor samples frames automatically
         """
         if self.model_name == "qwen2-vl" and video_path is None:
@@ -223,111 +192,6 @@ class VideoEncoder(BaseEncoder):
                 torch.cuda.empty_cache()
                 return video_embedding.numpy()
                     
-        elif self.model_name == "qwen2-vl":
-            # Qwen2-VL - passa direttamente il video file path (leggero, no preload)
-            with torch.inference_mode():
-                prompt = "Describe this video scene."
-                
-                # Minimal approach: let processor load the video directly
-                # Use adaptive_fps only when provided; otherwise keep fps=1.0 for scene clips
-                fps_to_use = adaptive_fps if adaptive_fps is not None else 1.0
-                messages = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "video", "video": video_path, "max_pixels": 360 * 420, "fps": fps_to_use},
-                            {"type": "text", "text": prompt},
-                        ],
-                    }
-                ]
-                
-                # Apply chat template
-                text = self.video_processor.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True
-                )
-                
-                # Let process_vision_info load and process the video efficiently
-                image_inputs, video_inputs = process_vision_info(messages)
-                
-                # Verify video was loaded
-                assert video_inputs is not None and len(video_inputs) > 0, \
-                    f"process_vision_info failed to load video: {video_path}, video_inputs={video_inputs}"
-                
-                logging.debug(f"[Qwen2-VL] video_inputs type: {type(video_inputs)}, len: {len(video_inputs)}")
-                
-                # Process inputs - processor handles video loading
-                inputs = self.video_processor(
-                    text=[text],
-                    images=image_inputs,
-                    videos=video_inputs,
-                    padding=True,
-                    return_tensors="pt",
-                )
-                inputs = inputs.to(self.device)
-
-                # DEBUG: log keys and shapes of tensors passed to the visual encoder
-                shapes = []
-                for k, v in inputs.items():
-                    try:
-                        if isinstance(v, torch.Tensor):
-                            shapes.append(f"{k}:{tuple(v.shape)}")
-                        elif isinstance(v, (list, tuple)):
-                            shapes.append(f"{k}:list(len={len(v)})")
-                        else:
-                            shapes.append(f"{k}:{type(v).__name__}")
-                    except Exception:
-                        shapes.append(f"{k}:<uninspectable>")
-
-                if "video_grid_thw" in inputs:
-                    vg = inputs["video_grid_thw"].detach().cpu().tolist()
-                    # vg is typically [[T, H_grid, W_grid]]
-                    if isinstance(vg, list) and len(vg) > 0 and len(vg[0]) >= 3:
-                        t, h_grid, w_grid = int(vg[0][0]), int(vg[0][1]), int(vg[0][2])
-            
-                # Verify pixel_values were created
-                assert "pixel_values_videos" in inputs or "pixel_values" in inputs, \
-                    f"No pixel_values in processed inputs. Keys: {inputs.keys()}"
-                
-                # Extract vision embeddings from visual encoder
-                with torch.amp.autocast("cuda", dtype=torch.bfloat16):
-                    # Qwen2-VL visual encoder expects pixel_values as first positional arg
-                    # See: https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen2_vl/modeling_qwen2_vl.py
-                    if "pixel_values_videos" in inputs:
-                        # Video input - call visual encoder with pixel_values directly
-                        vision_outputs = self.video_model.visual(
-                            inputs["pixel_values_videos"],  # First positional argument (hidden_states/pixel_values)
-                            grid_thw=inputs["video_grid_thw"]
-                        )
-                    elif "pixel_values" in inputs:
-                        # Image input (fallback)
-                        vision_outputs = self.video_model.visual(
-                            inputs["pixel_values"],  # First positional argument
-                            grid_thw=inputs["image_grid_thw"]
-                        )
-                    else:
-                        raise ValueError(f"No pixel_values found in inputs. Keys: {inputs.keys()}")
-                    
-                    # Check vision_outputs validity
-                    assert vision_outputs is not None, \
-                        f"vision_outputs is None - video processing failed for {video_path}"
-                    
-                    assert isinstance(vision_outputs, torch.Tensor), \
-                        f"vision_outputs is not a tensor: {type(vision_outputs)}"
-                        
-                    # Handle both 2D [seq_len, hidden_dim] and 3D [batch, seq_len, hidden_dim] shapes
-                    if vision_outputs.dim() == 2:
-                        # Shape: [seq_len, hidden_dim] - use first token directly
-                        video_embedding = vision_outputs[0, :].detach().cpu().to(torch.float32)
-                    elif vision_outputs.dim() == 3:
-                        # Shape: [batch, seq_len, hidden_dim] - use first token of first batch
-                        video_embedding = vision_outputs[0, 0, :].detach().cpu().to(torch.float32)
-                    else:
-                        raise ValueError(f"Unexpected vision_outputs shape: {vision_outputs.shape}")
-                
-                del inputs, vision_outputs, image_inputs, video_inputs
-                torch.cuda.empty_cache()
-                return video_embedding.numpy()
-        
         elif self.model_name == "internvideo2":
             # InternVideo2 - uses vid2tensor which handles frame sampling automatically
             if video_path is None:
@@ -466,7 +330,6 @@ class VideoEncoder(BaseEncoder):
         Encode video scene into embeddings.
         Each encoder handles frame/clip extraction internally:
         - XCLIP: extracts all frames, clusters to 8, encodes
-        - Qwen2-VL: extracts frames from scene, gets single embedding from vision tower
         - InternVideo2: creates scene clip, vid2tensor samples 8 frames automatically
         
         Args:
@@ -493,34 +356,6 @@ class VideoEncoder(BaseEncoder):
                 "video": torch.from_numpy(video_emb),
                 "keyframes": keyframes
             }
-        
-        elif self.model_name == "qwen2-vl":
-            # Qwen2-VL: crea clip usando decord (no ffmpeg, no encoding issues)
-            tmp_dir = tempfile.mkdtemp(prefix="qwen2vl_scene_")
-            try:
-                # Extract frames con decord e salva come video temp
-                clip_path = self._create_clip_with_decord(
-                    video_path, scene.start_time, scene.end_time, tmp_dir
-                )
-                video_emb = self._embed_frames(video_path=clip_path)
-                
-                # Extract keyframes from clip
-                vr = VideoReader(clip_path, ctx=cpu(0))
-                total_frames = len(vr)
-                if total_frames > 0:
-                    keyframe_indices = np.linspace(0, total_frames - 1, min(8, total_frames), dtype=int)
-                    keyframes = vr.get_batch(keyframe_indices).asnumpy()
-                else:
-                    keyframes = np.array([])
-                del vr
-                
-                return {
-                    "video": torch.from_numpy(video_emb),
-                    "keyframes": keyframes
-                }
-            finally:
-                if os.path.exists(tmp_dir):
-                    shutil.rmtree(tmp_dir)
         
         elif self.model_name == "internvideo2":
             # InternVideo2: create scene clip and let vid2tensor handle frame sampling
@@ -567,15 +402,7 @@ class VideoEncoder(BaseEncoder):
         if self.model_name != "qwen2-vl" and self.model_name != "internvideo2":
             raise ValueError("encode_full_video is only supported for Qwen2-VL and InternVideo2")
 
-        if self.model_name == "qwen2-vl":
-            fps_adaptive = self._compute_adaptive_fps(video_path, max_frames_allowed=42, margin=0)
-            logging.info(f"[VideoEncoder] adaptive fps (full video) for {video_path}: {fps_adaptive:.3f}")
-            video_emb = self._embed_frames(video_path=video_path, adaptive_fps=fps_adaptive)
-            return {
-                "video": torch.from_numpy(video_emb),
-                "keyframes": np.array([])
-            }
-        elif self.model_name == "internvideo2":
+        if self.model_name == "internvideo2":
             logging.info("[VideoEncoder] embedding the whole video")
             video_emb = self._embed_frames(video_path=video_path)
             return {

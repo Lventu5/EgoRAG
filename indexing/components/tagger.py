@@ -58,14 +58,6 @@ class Tagger:
     def _parse_response(self, response: str) -> List[str]:
         found = []
 
-        print(f"{'-'*70}")
-        print(f"{'-'*70}")
-        print(f"{'-'*70}")
-        print(response)
-        print(f"{'-'*70}")
-        print(f"{'-'*70}")
-        print(f"{'-'*70}")
-
         if not response:
             return found
         resp_low = response.lower()
