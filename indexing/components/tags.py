@@ -1,5 +1,4 @@
 TAG_LIST = [
-    # Object categories
     "kitchen_objects",
     "home_appliances",
     "food_containers",
