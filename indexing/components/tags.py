@@ -40,11 +40,8 @@ TAG_LIST = [
     "public_transport",
     "vehicle_accessories",
 
-    "object_manipulation_actions",
-    "object_transport_actions",
     "opening_closing_actions",
     "assembly_disassembly_actions",
-    "tool_usage_actions",
     "device_usage_actions",
 
     "walking",
@@ -72,6 +69,7 @@ TAG_LIST = [
     "repair_construction",
 
     # Environments
+    "house"
     "kitchen_environment",
     "living_room",
     "bathroom_environment",

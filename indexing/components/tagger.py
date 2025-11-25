@@ -39,14 +39,20 @@ class Tagger:
         # Build a deterministic prompt listing tags and asking for a comma-separated answer
         tags_block = ", ".join(TAG_LIST)
         prompt = (
-            "You are an assistant. Given the following textual description of a video, "
+            "You are an expert assistant, specialized in tagging video clips. Given the following textual description of a video, "
             "return which tags from the provided list are present in the video"
             "Only use tags from the list and return a comma-separated list of tags. Not all the tags from "
             "the list need to be used, select only the relevant ones strictly based on the screenplay of that scene."
             "Do not add additional commentary.\n\n"
             "Tags list: " + tags_block + "\n\n"
             "Video description:\n" + text + "\n\n"
-            "Answer:"
+            "Example: \n"
+            "Video desctiption:\n *INT. MODERN HOME - DAY\n\nCUT TO A CLOSE-UP SHOT OF HANDS WORKING ON AN ELECTRICAL CIRCUIT BREAKER.\nThe HANDS manipulate a SUEDE HANDLE SCREWDRIVER, ADJUSTING THE SETTINGS ON THE CIRCUIT BREAKER WITH CAREFUL TACTILE ACCURACY. \nCLOSE-UP OF THE CIRCUIT BREAKER AND THE SCREWDRIVER.\nA WATCH STRAPPED TO THE WRIST OF THE PERSON WORKING ADDS A TOUCH OF PERSONALITY TO THE SETTING. \nACTION LINE:*\nThe individual's focused movements suggest they are either fixing an issue or making a change to the electrical system.\n\n"
+            "Reasoning: I first must look for objects, actions and settings.\n"
+            "I have now identified the following relevant elements: home, hands, electrical circuit breaker, suede handle screwdriver, circuit breaker, watch, wrist, fixing, changing\n"
+            "I am now looking for relevant tags among the tags list that can be assigned given the elements I found"
+            "I found the following relevant tags: house, electronic_devices, hand_tools, personal_accessories, hand_object_interaction, tool_interaction, manual_work\n\n"
+            "Explain your reasoning steps. Start your answer here:"
         )
         return prompt
 

@@ -56,7 +56,7 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
         any_force = force_reencoding or force_video or force_audio or force_caption or force_text
         
         # Check if pickle already exists and load it if not forcing complete re-encoding
-        if os.path.exists(pickle_path) and not (force_reencoding and not any([force_video is False, force_audio is False, force_caption is False, force_text is False])):
+        if os.path.exists(pickle_path) and not force_reencoding:
             print(f"Found existing pickle at {pickle_path}, loading and updating...")
             encoder = MultiModalEncoder(pickle_path=pickle_path, max_workers=4)
             video_dataset = encoder.encode_videos(
@@ -97,7 +97,7 @@ if __name__ == "__main__":
     # force_reencoding = True
     
     # Option 2: Only update missing embeddings (default)
-    force_reencoding = False
+    force_reencoding = True
     
     # Option 3: Fine-grained control - force specific modalities
     # Set individual modality flags to override force_reencoding
