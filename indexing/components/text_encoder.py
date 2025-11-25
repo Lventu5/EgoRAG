@@ -109,13 +109,15 @@ class TextEncoder(BaseEncoder):
             return "[No information available for this scene]"
         
         # Create prompt for LLM
-        prompt = f"""You are an exper writer and journalist. Based on the following information about a video, write a concise report-style description (2-3 sentences) that captures what is happening visually (actions performed, objects used and who performed those - if the person wearing the camera or a different subject), what is being said, and any notable sounds. Format it like a screenplay with action lines and dialogue. Don't add personal considerations or useless descriptions.
+        prompt = f"""You are an exper writer and journalist. Based on the following information about a video, write a concise report-style description (2-3 sentences) 
+                    that captures what is happening visually (actions performed, objects used and who performed those - if the person wearing the camera or a different subject), 
+                    what is being said, and any notable sounds. Format it like a screenplay with action lines and dialogue. 
+                    Don't add personal considerations or useless descriptions, and don't make it a fancy narration, it only has to synthetize the actions mentioned in the input descriptions.
+                    Scene Information:
+                    {chr(10).join(context_parts)}
 
-Scene Information:
-{chr(10).join(context_parts)}
-
-Screenplay description:"""
-        
+                    Screenplay description:"""
+                            
         try:
             messages = [{"role": "user", "content": prompt}]
             text = self.llm_tokenizer.apply_chat_template(
