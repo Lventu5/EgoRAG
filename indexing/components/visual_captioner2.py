@@ -58,21 +58,6 @@ class VisualCaptioner(BaseEncoder):
             pass
         logging.info(f"[{self.__class__.__name__}] Models loaded.")
 
-    # def _cluster_frames_for_captioning(self, frames: np.ndarray) -> np.ndarray:
-    #     """
-    #     Selects representative frames for captioning.
-    #     This uses a simplified clustering (or just subsampling)
-    #     to pick keyframes.
-    #     """
-    #     num_frames = len(frames)
-    #     if num_frames == 0:
-    #         return np.array([])
-        
-    #     # Select k indices evenly spaced
-    #     k = min(self.max_k_clusters, num_frames)
-    #     indices = np.linspace(0, num_frames - 1, k, dtype=int)
-        
-    #     return frames[indices]
 
     def _extract_scene_clip(self, video_path: str, start_time: float, end_time: float, tmp_dir: str) -> str:
         """

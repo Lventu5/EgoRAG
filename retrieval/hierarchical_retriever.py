@@ -23,6 +23,7 @@ from retrieval.rewriter import QueryRewriterLLM
 from .fuser import Fuser
 from .scene_merger import SceneMerger
 from configuration.config import CONFIG
+from indexing.components.tagger import Tagger
 
 import sys
 import os
@@ -107,7 +108,17 @@ class HierarchicalRetriever:
             self.merge_score_aggregation = 'max'
             logging.info("Scene merger disabled")
 
+        # Tagger for query and dataset filtering (lazy load)
+        self.tagger = Tagger(device=self.device)
+        self._tagger_loaded = False
+
+
     def _load_models_for_modality(self, modality: str):
+        """
+        Loads the model specified by a specific modality 
+        Args:
+            modality: the modality to load the model of
+        """
         if self.current_modality == modality:
             return
         
@@ -115,11 +126,13 @@ class HierarchicalRetriever:
         self.embedder = None
         target_modality = modality
 
+        # Text encoder
         if target_modality == "text" or target_modality == "caption":
             self.embedder = SentenceTransformer(
                 self.sizes["text"]["model"], device=self.device
             )
         
+        # Video encoder
         elif target_modality == "video":
             if self.video_model_type == "qwen2-vl":
                     qwen_id = getattr(CONFIG.indexing.video, "qwen2_vl_id", None) or CONFIG.retrieval.video_model_id
@@ -150,6 +163,7 @@ class HierarchicalRetriever:
                 self.processor = XCLIPProcessor.from_pretrained(model_name)
                 self.embedder = XCLIPModel.from_pretrained(model_name).to(self.device) # type: ignore
 
+        # Audio
         elif target_modality == "audio":
             model_name = self.sizes["audio"]["model"]
             logging.info(f"Loading CLAP model for audio retrieval: {model_name}")
@@ -161,19 +175,26 @@ class HierarchicalRetriever:
 
         self.current_modality = target_modality
 
+
     def _rewrite_queries(self, queries: QueryDataset):
+        """
+        Rewrite queries using the LLM rewriter to decompose them into sub-queries per modality
+        Args:
+            queries: the QueryDataset to rewrite
+        """
         rewriter = QueryRewriterLLM(
             model_name=self.rewriter, 
             device=self.device
         )
-
         for query in queries:
             decomposition = rewriter(query.get_query(), modality="decompose")
             query.decomposed = decomposition
 
 
     def _embed_queries(self, queries: QueryDataset) -> torch.Tensor:
-
+        """
+        Embeds the queries in the various modalities
+        """
         if self.embedder is None:
             raise RuntimeError("No model loaded for embedding. Call _load_models_for_modality first.")
         
@@ -182,13 +203,11 @@ class HierarchicalRetriever:
         if self.current_modality == "text" or self.current_modality == "caption":
             embeddings = self.embedder.encode(
                 mod_queries, convert_to_tensor=True, device=self.device
-            ) # type: ignore
+            )
         elif self.current_modality == "video":
             if self.video_model_type == "qwen2-vl":
                 if self.embedder is None:
                     raise RuntimeError("Qwen model not loaded. Call _load_models_for_modality first.")
-
-                # Prefer processor if available, otherwise fallback to tokenizer
                 proc_inputs = None
                 if hasattr(self, "processor") and self.processor is not None:
                     proc_inputs = self.processor(text=mod_queries, return_tensors="pt", padding=True, truncation=True)
@@ -256,31 +275,42 @@ class HierarchicalRetriever:
 
         return embeddings
 
-    def retrieve_queries_list(
+    def _retrieve_top_videos_per_queries(
         self, 
         queries: QueryDataset,
+        candidate_videos: dict[str, str],
         modalities: list[str] | str,
         top_k: int = 1
     )-> types.TopKVideosPerQuery:
+        """
+        Retrieves the top videos for the given queries among the candidate videos
+        Args:
+            queries: the QueryDataset of queries to use
+            candidate_videos: A dictionary containing the candidate videos for each query
+            modalities: the list of modalities to use for retrieval
+            top_k: The number of videos to retrieve
+        """
         if isinstance(modalities, str):
             modalities = [modalities]
 
         final_results = {query.qid: {} for query in queries}
 
         for modality in modalities:
+            logging.info(f"Retrieving for modality {modality}...\n")
             self._load_models_for_modality(modality)
             self._embed_queries(queries)
-            modality_results_batch = self._retrieve_for_modality(
-                queries, modality, top_k
+            modality_results_batch = self._retrieve_by_modality(
+                queries, candidate_videos, modality, top_k
             )
             for i, query in enumerate(queries):
                 final_results[query.qid][modality] = modality_results_batch[i]
                 
         return final_results
 
-    def _retrieve_for_modality(
+    def _retrieve_by_modality(
         self, 
         queries: QueryDataset, 
+        candidate_videos: dict[str, str],
         modality: str,
         top_k: int = 1
     ) -> types.TopKVideosPerModality:
@@ -288,57 +318,101 @@ class HierarchicalRetriever:
         Retrieves the top-k videos for a given modality, and returns them in a format
         List (each element corresponds to a query) of lists (each element corresponds to one of
         the top-k elements) of tuples (video, score)
+        Args:
+            queries: The QueryDataset to use
+            candidate_videos: dict with the query id and the name of the videos available for that query
+            modality: the modality to use for retrieval
+            top_k: the number of videos to retrieve
         """
         logging.info(f"Retrieving top {top_k} results for modality '{modality}'")
 
         query_embeddings = queries.embeddings_by_modality(modality).to(self.device)
-        
-        video_names = []
-        db_embeddings_list = []
-        videos_without_modality = []
-        
-        for dp in self.video_dataset.video_datapoints:
-            emb = dp.global_embeddings.get(modality, None)
-            if emb is not None:
-                video_names.append(dp.video_name)
-                db_embeddings_list.append(emb)
-            else:
-                videos_without_modality.append(dp.video_name)
-        
-        if not db_embeddings_list:
-            logging.warning(f"No embeddings available for modality '{modality}'")
-            return [[] for _ in range(query_embeddings.shape[0])]
-        
-        # Log information about videos without this modality
-        if videos_without_modality and modality == "audio":
-            logging.info(f"{len(videos_without_modality)} video(s) have no audio track and will be excluded from audio-based retrieval")
-        elif videos_without_modality:
-            logging.warning(f"{len(videos_without_modality)} video(s) missing '{modality}' embeddings")
 
-        db_embeddings = torch.stack(db_embeddings_list).to(self.device)
-        
-        query_embeddings_norm = normalize(query_embeddings, p=2, dim=-1)
-        db_embeddings_norm = normalize(db_embeddings, p=2, dim=-1)
-        
-        sim_matrix = torch.matmul(query_embeddings_norm, db_embeddings_norm.T)
-        
         all_results = []
-        for query_idx in range(sim_matrix.shape[0]):
-            scores = sim_matrix[query_idx]
-            
-            top_scores, top_indices = torch.topk(
-                scores, k=min(top_k, len(video_names))
-            )
-            
+
+        # Build a mapping from video_name -> datapoint for fast lookup
+        dp_by_name = {dp.video_name: dp for dp in self.video_dataset.video_datapoints}
+
+        # For each query, use precomputed candidate_videos to
+        # avoid repeated tag inference and to perform the screening exactly once.
+        for q_idx, query in enumerate(queries):
+            q_emb = query_embeddings[q_idx].unsqueeze(0)  # shape (1, D)
+
+            # Take the candidate videos
+            candidate_names = []
+            candidate_embs = []
+            videos_without_modality = []
+
+            names_to_iterate = list(candidate_videos[query.qid])
+
+            for name in names_to_iterate:
+                dp = dp_by_name.get(name)
+                emb = dp.global_embeddings.get(modality, None)
+                
+                candidate_names.append(dp.video_name)
+                candidate_embs.append(emb)
+
+            if not candidate_embs:
+                all_results.append([])
+                continue
+
+            # Log info about videos without modality for this query
+            if videos_without_modality and modality == "audio":
+                logging.info(f"{len(videos_without_modality)} video(s) have no audio track and will be excluded from audio-based retrieval")
+
+            # Create the database for our queries
+            db = torch.stack(candidate_embs).to(self.device)
+
+            # Normalize all embeddings and perform cosine similarity
+            qn = normalize(q_emb, p=2, dim=-1)
+            dbn = normalize(db, p=2, dim=-1)
+
+            scores = torch.matmul(qn, dbn.T).squeeze(0)
+
+            topk = min(top_k, len(candidate_names))
+            top_scores, top_indices = torch.topk(scores, k=topk)
+
             query_results = []
-            for score, db_idx in zip(top_scores, top_indices):
-                query_results.append((video_names[db_idx.item()], score.item())) # type: ignore
-            
+            for score, idx in zip(top_scores, top_indices):
+                query_results.append((candidate_names[idx.item()], score.item()))
+
             all_results.append(query_results)
-            
+
         return all_results
+
+    def _filter_scenes_by_query_tags(self, query: Query, target_dp, modality: str):
+        """
+        Helper that returns (scenes, scene_embeddings_list) for a given video
+        filtered by precomputed scene tags present in `target_dp.scene_embeddings`.
+        Args:
+            query.tags` is expected to be a list of lowercase tags (may be empty).
+            If `query.tags` is empty, all scenes that have an embedding for the
+            requested modality are returned.
+            Scenes lacking precomputed `tags` will be excluded when `query.tags`
+            is non-empty (no on-demand tagging performed here).
+        """
+        query_tag_set = set([t.lower() for t in getattr(query, 'tags', []) or []])
+
+        scenes = []
+        scene_embeddings_list = []
+
+        for scene_id, scene_data in target_dp.scene_embeddings.items():
+            if query_tag_set:
+                scene_tags = scene_data.get("tags") or []
+                scene_tag_set = set([t.lower() for t in scene_tags])
+                if not any(t in scene_tag_set for t in query_tag_set):
+                    continue
+
+            emb = scene_data.get(modality, None)
+            if not isinstance(emb, torch.Tensor):
+                emb = torch.tensor(emb)
+
+            scenes.append(target_dp.get_scene_by_id(scene_id))
+            scene_embeddings_list.append(emb.to(self.device))
+
+        return scenes, scene_embeddings_list
     
-    def retrieve_best_scene(
+    def _retrieve_best_scenes(
         self, 
         query: Query, 
         video_name: str, 
@@ -348,6 +422,11 @@ class HierarchicalRetriever:
         """
         Gets the best scene in a video (we already know it is a top-k video) for the specified query
         Returns a list with the top k scenes and their similarity score
+        Args:
+            query: the Query to use
+            video_name: the video to retrieve from
+            modality: the modality to use
+            top_k: the number of scenes to retrieve
         """
         target_dp = None
         for dp in self.video_dataset.video_datapoints:
@@ -360,20 +439,8 @@ class HierarchicalRetriever:
 
         query_embedding = query.get_embedding(modality).to(self.device)
 
-        scenes = []
-        scene_embeddings_list = []
-        
-        for scene_id, scene_data in target_dp.scene_embeddings.items():
-            emb = scene_data.get(modality, None) 
-            if emb is not None:
-                if not isinstance(emb, torch.Tensor):
-                   try:
-                       emb = torch.tensor(emb)
-                   except Exception as e:
-                       logging.warning(f"Unable to convert embedding of scene {scene_id} to tensor: {e}. Skipping.")
-                       continue
-                scenes.append(target_dp.get_scene_by_id(scene_id))
-                scene_embeddings_list.append(emb.to(self.device))
+        # Use helper to pre-screen scenes by query tags (relies on precomputed scene tags)
+        scenes, scene_embeddings_list = self._filter_scenes_by_query_tags(query, target_dp, modality)
         
         if not scene_embeddings_list:
             # Check if this is expected (e.g., video without audio)
@@ -383,6 +450,7 @@ class HierarchicalRetriever:
                 logging.error(f"No scene embeddings found for video '{video_name}' and modality '{modality}'")
             return []
 
+        # Perform cosine similarity between scenes and queries
         scene_embeddings = torch.stack(scene_embeddings_list)
 
         query_embedding_norm = normalize(query_embedding, p=2, dim=-1)
@@ -406,6 +474,38 @@ class HierarchicalRetriever:
         
         return results
 
+    
+    def _perform_tag_based_filtering_videos(
+        self, 
+        queries: QueryDataset,
+    ):
+        """
+        Takes queries as an input and scans the video dataset looking for videos containing the same tags
+        Args:
+            queries: the queries to retrieve against
+        """
+        filtered = {}
+    
+        if not self._tagger_loaded:
+            self.tagger.load_model()
+            self._tagger_loaded = True
+
+        for query in queries:
+            qtext = query.get_query()
+            qtags = []
+            qtags = self.tagger.infer_tags_from_text(qtext)
+            query.tags = [t.lower() for t in qtags]
+
+            candidates = set()
+            for dp in self.video_dataset.video_datapoints:
+                dp_tags = dp.global_embeddings.get("tags") or []
+                dp_tag_set = set([t.lower() for t in (dp_tags or [])])
+                if any(t in dp_tag_set for t in query.tags):
+                    candidates.add(dp.video_name)
+            filtered[query.qid] = candidates
+            logging.debug(f"[Retriever] Query {query.qid} tags={query.tags} -> {len(filtered[query.qid])} candidate videos")
+
+        return filtered
 
     def retrieve_hierarchically(
         self,
@@ -414,36 +514,50 @@ class HierarchicalRetriever:
         top_k_videos: int = 3, 
         top_k_scenes: int = 1  
     ) -> types.RetrievalResults:
+        """
+        Given a set of queries, retrieves the top scenes and videos for those queries
+        Args:
+            queries: the queries to answer
+            modalities: the modalities to use for retrieval
+            top_k_videos: the number of videos to look for
+            top_k_scenes: the number of scenes to extract from the selected videos
+        """
 
         if isinstance(modalities, str):
             modalities = [modalities]
 
+        # Rewrite queries decomposed into modalities
         self._rewrite_queries(queries)
+
+        # Filter videos based on tags
+        candidate_videos_per_query = self._perform_tag_based_filtering_videos(queries)
         results = types.RetrievalResults()
 
+        # Extract relevant videos
         logging.info(f"Step 1: Retrieving top {top_k_videos} videos globally...")
         results.add_top_level(
-            top_level_results = self.retrieve_queries_list(
+            top_level_results = self._retrieve_top_videos_per_queries(
                 queries=queries, 
+                candidate_videos = candidate_videos_per_query,
                 modalities=modalities, 
                 top_k=top_k_videos
             )
         )
-
+        # Perform fusion of video rankings per query
         for query in queries:
             fused_video_ranking = self.fuser.fuse(results[query.qid])
             results[query.qid]["fused"] = fused_video_ranking[:top_k_videos]
             
-        
+        # Retrieve the top scenes within the top videos
         detailed_results = {query.qid: [] for query in queries}
 
         logging.info(f"Step 2: Retrieving top {top_k_scenes} scenes within top videos...")
         for query in queries:
             fused_video_list = results[query.qid]["fused"]
-            for video_name, global_score in fused_video_list:
+            for video_name, global_score in fused_video_list: # FIXME, da sistemare questa cosa, deve fare topk scene dai video, non topk da ogni video
                 modality_scene_rankings = {}
                 for modality in modalities:
-                    modality_scene_rankings[modality] = self.retrieve_best_scene(
+                    modality_scene_rankings[modality] = self._retrieve_best_scenes(
                         query=query,
                         video_name=video_name,
                         modality=modality,

@@ -46,18 +46,26 @@ class Tagger:
             "Do not add additional commentary.\n\n"
             "Tags list: " + tags_block + "\n\n"
             "Video description:\n" + text + "\n\n"
-            "Example: \n"
-            "Video desctiption:\n *INT. MODERN HOME - DAY\n\nCUT TO A CLOSE-UP SHOT OF HANDS WORKING ON AN ELECTRICAL CIRCUIT BREAKER.\nThe HANDS manipulate a SUEDE HANDLE SCREWDRIVER, ADJUSTING THE SETTINGS ON THE CIRCUIT BREAKER WITH CAREFUL TACTILE ACCURACY. \nCLOSE-UP OF THE CIRCUIT BREAKER AND THE SCREWDRIVER.\nA WATCH STRAPPED TO THE WRIST OF THE PERSON WORKING ADDS A TOUCH OF PERSONALITY TO THE SETTING. \nACTION LINE:*\nThe individual's focused movements suggest they are either fixing an issue or making a change to the electrical system.\n\n"
-            "Reasoning: I first must look for objects, actions and settings.\n"
-            "I have now identified the following relevant elements: home, hands, electrical circuit breaker, suede handle screwdriver, circuit breaker, watch, wrist, fixing, changing\n"
-            "I am now looking for relevant tags among the tags list that can be assigned given the elements I found"
-            "I found the following relevant tags: house, electronic_devices, hand_tools, personal_accessories, hand_object_interaction, tool_interaction, manual_work\n\n"
+            "Example of reasoning: 'I first must look for objects, actions and settings.\n"
+            "I have now identified the following relevant elements: __list of actions, objects, subjects and settings EXPLICITELY mentioned in the text description__\n"
+            "I am now looking for a tag, among the tags list, that encapsulates the elements I found"
+            "I found the following relevant tags: __list of tags__\n"
+            "I now check in the tag list if the tags are present and I replace the absent ones with the ones from the list that best align making sure to only select the ones mentioned in the video without inferring a lot'\n\n"
             "Explain your reasoning steps. Start your answer here:"
         )
         return prompt
 
     def _parse_response(self, response: str) -> List[str]:
         found = []
+
+        print(f"{'-'*70}")
+        print(f"{'-'*70}")
+        print(f"{'-'*70}")
+        print(response)
+        print(f"{'-'*70}")
+        print(f"{'-'*70}")
+        print(f"{'-'*70}")
+
         if not response:
             return found
         resp_low = response.lower()
@@ -94,7 +102,7 @@ class Tagger:
         inputs = self.tokenizer([prompt], return_tensors="pt", padding=True, truncation=True)
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
         with torch.inference_mode():
-            gen_ids = self.model.generate(**inputs, max_new_tokens=256)
+            gen_ids = self.model.generate(**inputs, max_new_tokens=512)
         out = self.tokenizer.batch_decode(gen_ids, skip_special_tokens=True)[0]
         tags = self._parse_response(out)
         dp.global_embeddings["tags"] = tags
@@ -134,6 +142,28 @@ class Tagger:
                 self.tag_datapoint(dp)
             except Exception as e:
                 logging.error(f"[Tagger] Failed to tag datapoint {getattr(dp, 'video_name', '<unknown>')}: {e}")
+
+    def infer_tags_from_text(self, text: str) -> List[str]:
+        """Infer tags from a raw text string using the loaded model.
+
+        Loads the model if not already loaded.
+        """
+        if not text:
+            return []
+        if self.tokenizer is None or self.model is None:
+            try:
+                self.load_model()
+            except Exception as e:
+                logging.warning(f"[Tagger] Could not load model to infer tags: {e}")
+                return []
+
+        prompt = self._build_prompt(text)
+        inputs = self.tokenizer([prompt], return_tensors="pt", padding=True, truncation=True)
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+        with torch.inference_mode():
+            gen_ids = self.model.generate(**inputs, max_new_tokens=128)
+        out = self.tokenizer.batch_decode(gen_ids, skip_special_tokens=True)[0]
+        return self._parse_response(out)
 
     def _truncate(self, text: str, max_len: int = 200, suffix: str = "...") -> str:
         if not text:

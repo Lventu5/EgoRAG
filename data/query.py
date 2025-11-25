@@ -9,6 +9,7 @@ class Query:
             video_uid: Optional[str] = None, 
             decomposed: Optional[dict] = None, 
             embeds: Optional[dict] = None, 
+            tags: Optional[list[str]] = None,
             gt: Optional[Dict[str, Optional[float | int]]] = None
     ):
         self.qid = qid if isinstance(qid, str) else f"query_{qid}"
@@ -24,6 +25,7 @@ class Query:
         }
         if gt:
             self.gt.update(gt)
+        self.tags = tags if tags is not None else None
             
     def __repr__(self):
         return f"Query(qid={self.qid}, query_text={self.query_text.strip()})"
