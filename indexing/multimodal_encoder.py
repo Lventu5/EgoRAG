@@ -10,7 +10,7 @@ from tqdm import tqdm
 from decord import VideoReader, cpu
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from data.video_dataset import VideoDataset, VideoDataPoint, Scene
+from data.video_dataset import VideoDataset, VideoDataPoint, Scene, Window
 from utils.scene_utils import SceneDetector
 from indexing.utils.logging import LevelAwareFormatter
 from indexing.components.video_encoder import VideoEncoder
@@ -373,6 +373,85 @@ class MultiModalEncoder:
                 
         return aggregated
 
+    def _create_windows(
+        self, 
+        dp: VideoDataPoint, 
+        window_size: int = 3, 
+        stride: int = 1,
+        modalities: list = ["video", "text"]
+    ) -> None:
+        """
+        Creates sliding windows over scenes and computes window embeddings using mean pooling.
+        
+        Args:
+            dp: The VideoDataPoint to process
+            window_size: Number of scenes per window
+            stride: Number of scenes to slide between windows
+            modalities: List of modalities to compute window embeddings for
+        """
+        if not dp.scenes:
+            logging.warning(f"No scenes available for window creation in {dp.video_name}")
+            return
+        
+        # Sort scenes by start time
+        sorted_scene_ids = sorted(
+            dp.scenes.keys(), 
+            key=lambda sid: dp.scenes[sid].start_time
+        )
+        
+        num_scenes = len(sorted_scene_ids)
+        if num_scenes < window_size:
+            logging.info(f"Video {dp.video_name} has fewer scenes ({num_scenes}) than window_size ({window_size}), creating single window")
+            window_size = num_scenes
+        
+        dp.windows = []
+        dp.window_embeddings = {}
+        
+        window_idx = 0
+        for i in range(0, num_scenes - window_size + 1, stride):
+            # Get the scene IDs in this window
+            window_scene_ids = sorted_scene_ids[i:i + window_size]
+            
+            # Get start time from first scene and end time from last scene
+            first_scene = dp.scenes[window_scene_ids[0]]
+            last_scene = dp.scenes[window_scene_ids[-1]]
+            
+            window_id = f"window_{window_idx}"
+            
+            # Create Window object
+            window = Window(
+                window_id=window_id,
+                start_time=first_scene.start_time,
+                end_time=last_scene.end_time,
+                scene_ids=window_scene_ids
+            )
+            dp.windows.append(window)
+            
+            # Compute mean pooled embeddings for this window
+            window_embs = {}
+            for modality in modalities:
+                modality_embeddings = []
+                for sid in window_scene_ids:
+                    if sid in dp.scene_embeddings:
+                        emb = dp.scene_embeddings[sid].get(modality)
+                        if emb is not None:
+                            if isinstance(emb, torch.Tensor):
+                                modality_embeddings.append(emb)
+                            else:
+                                modality_embeddings.append(torch.tensor(emb))
+                
+                if modality_embeddings:
+                    # Mean pooling
+                    stacked = torch.stack(modality_embeddings)
+                    window_embs[modality] = stacked.mean(dim=0)
+                else:
+                    window_embs[modality] = None
+            
+            dp.window_embeddings[window_id] = window_embs
+            window_idx += 1
+        
+        logging.info(f"Created {len(dp.windows)} windows for video {dp.video_name} (window_size={window_size}, stride={stride})")
+
     def _get_video_time_bounds(self, dp: VideoDataPoint, video_path: str) -> tuple[float, float]:
         """Return the start and end time for the full video."""
         if dp.scenes:
@@ -614,6 +693,15 @@ class MultiModalEncoder:
                 if aggregated.get("video") is not None:
                     dp.global_embeddings["video"] = aggregated["video"]
                     logging.info(f"[Aggregate] Used mean pooling for global video embedding (XCLIP)")
+
+            # Create sliding windows over scenes and compute window embeddings
+            # Window embeddings are mean-pooled from the scene embeddings within each window
+            self._create_windows(
+                dp, 
+                window_size=CONFIG.indexing.get("window_size", 3),
+                stride=CONFIG.indexing.get("window_stride", 1),
+                modalities=["video", "text"]
+            )
 
         self.dataset.encoded = True
         return self.dataset

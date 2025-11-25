@@ -36,6 +36,32 @@ class Scene:
         )
 
 
+class Window:
+    """
+    Represents a sliding window over multiple consecutive scenes.
+    Contains a unique window ID, start/end times, and the list of scene_ids
+    that fall within this window.
+    """
+    def __init__(
+        self,
+        window_id: str,
+        start_time: float,
+        end_time: float,
+        scene_ids: Optional[List[str]] = None
+    ):
+        self.window_id = window_id
+        self.start_time = start_time
+        self.end_time = end_time
+        self.scene_ids = scene_ids or []
+
+    def __repr__(self):
+        return (
+            f"Window id={self.window_id}, "
+            f"start={self.start_time:.2f}s, end={self.end_time:.2f}s, "
+            f"scenes={self.scene_ids}"
+        )
+
+
 class VideoDataPoint:
     """
     Contiene tutti i dati relativi a un singolo video:
@@ -52,6 +78,12 @@ class VideoDataPoint:
         
         # Flag to indicate if this video has an audio track
         self.has_audio = True  # Assume True until proven otherwise during encoding
+
+        # Windows: intermediate granularity between video and scenes
+        self.windows: List[Window] = []
+        
+        # Embeddings per window (keyed by window_id)
+        self.window_embeddings: Dict[str, Dict[str, Optional[torch.Tensor]]] = {}
 
         # Embeddings globali (media sulle scene)
         self.global_embeddings: Dict[str, Optional[torch.Tensor | str]] = {

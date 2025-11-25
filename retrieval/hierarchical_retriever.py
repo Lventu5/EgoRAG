@@ -13,7 +13,7 @@ from transformers import (
 from sentence_transformers import SentenceTransformer
 from torch.nn.functional import normalize
 
-from data.video_dataset import VideoDataset
+from data.video_dataset import VideoDataset, Window
 from data.query import Query, QueryDataset
 import data.datatypes as types
 from retrieval.rewriter import QueryRewriterLLM
@@ -422,6 +422,175 @@ class HierarchicalRetriever:
         
         return results
 
+    def _retrieve_best_windows(
+        self, 
+        query: Query, 
+        video_name: str, 
+        modality: str, 
+        top_k: int = 1
+    ) -> list[tuple[Window, float]]:
+        """
+        Retrieves the best windows in a video for the specified query.
+        Returns a list with the top k windows and their similarity scores.
+        
+        Args:
+            query: the Query to use
+            video_name: the video to retrieve from
+            modality: the modality to use
+            top_k: the number of windows to retrieve
+        """
+        target_dp = None
+        for dp in self.video_dataset.video_datapoints:
+            if dp.video_name == video_name:
+                target_dp = dp
+                break
+        
+        if target_dp is None:
+            raise RuntimeError(f"Video '{video_name}' not found")
+
+        # Check if video has windows
+        if not hasattr(target_dp, 'windows') or not target_dp.windows:
+            logging.warning(f"Video '{video_name}' has no windows - falling back to scene-level retrieval")
+            return []
+        
+        if not hasattr(target_dp, 'window_embeddings') or not target_dp.window_embeddings:
+            logging.warning(f"Video '{video_name}' has no window embeddings - falling back to scene-level retrieval")
+            return []
+
+        query_embedding = query.get_embedding(modality).to(self.device)
+
+        # Collect window embeddings for the requested modality
+        windows = []
+        window_embeddings_list = []
+        
+        for window in target_dp.windows:
+            wid = window.window_id
+            if wid in target_dp.window_embeddings:
+                emb = target_dp.window_embeddings[wid].get(modality)
+                if emb is not None:
+                    if not isinstance(emb, torch.Tensor):
+                        emb = torch.tensor(emb)
+                    windows.append(window)
+                    window_embeddings_list.append(emb.to(self.device))
+
+        if not window_embeddings_list:
+            logging.warning(f"No window embeddings found for video '{video_name}' and modality '{modality}'")
+            return []
+
+        # Perform cosine similarity between windows and query
+        window_embeddings = torch.stack(window_embeddings_list)
+
+        query_embedding_norm = normalize(query_embedding, p=2, dim=-1)
+        window_embeddings_norm = normalize(window_embeddings, p=2, dim=-1)
+
+        sim_vector = torch.matmul(query_embedding_norm, window_embeddings_norm.T).squeeze(0)
+
+        top_scores, top_indices = torch.topk(
+            sim_vector, k=min(top_k, len(windows))
+        )
+        
+        results = []
+        for score, window_idx in zip(top_scores, top_indices):
+            results.append((windows[window_idx.item()], score.item()))
+        
+        return results
+
+    def _retrieve_best_scenes_from_windows(
+        self, 
+        query: Query, 
+        video_name: str, 
+        windows: list[Window],
+        modality: str, 
+        top_k: int = 1
+    ) -> types.TopKScenes:
+        """
+        Retrieves the best scenes from the given windows for the specified query.
+        Only considers scenes that are contained in the provided windows.
+        
+        Args:
+            query: the Query to use
+            video_name: the video to retrieve from
+            windows: list of Window objects to search within
+            modality: the modality to use
+            top_k: the number of scenes to retrieve
+        """
+        target_dp = None
+        for dp in self.video_dataset.video_datapoints:
+            if dp.video_name == video_name:
+                target_dp = dp
+                break
+        
+        if target_dp is None:
+            raise RuntimeError(f"Video '{video_name}' not found")
+
+        query_embedding = query.get_embedding(modality).to(self.device)
+
+        # Collect scene IDs from all provided windows (deduplicate)
+        candidate_scene_ids = set()
+        for window in windows:
+            candidate_scene_ids.update(window.scene_ids)
+        
+        # Filter scenes based on window membership and query tags
+        query_tag_set = set([t.lower() for t in getattr(query, 'tags', []) or []])
+        
+        scenes = []
+        scene_embeddings_list = []
+
+        for scene_id in candidate_scene_ids:
+            if scene_id not in target_dp.scene_embeddings:
+                continue
+                
+            scene_data = target_dp.scene_embeddings[scene_id]
+            
+            # Apply tag filtering if query has tags
+            if query_tag_set:
+                scene_tags = scene_data.get("tags") or []
+                scene_tag_set = set([t.lower() for t in scene_tags])
+                if not any(t in scene_tag_set for t in query_tag_set):
+                    continue
+
+            emb = scene_data.get(modality, None)
+            if emb is None:
+                continue
+                
+            if not isinstance(emb, torch.Tensor):
+                emb = torch.tensor(emb)
+
+            scenes.append(target_dp.get_scene_by_id(scene_id))
+            scene_embeddings_list.append(emb.to(self.device))
+
+        if not scene_embeddings_list:
+            if modality == "audio" and hasattr(target_dp, 'has_audio') and not target_dp.has_audio:
+                logging.debug(f"Video '{video_name}' has no audio track - skipping audio scene retrieval")
+            else:
+                logging.warning(f"No scene embeddings found in windows for video '{video_name}' and modality '{modality}'")
+            return []
+
+        # Perform cosine similarity between scenes and query
+        scene_embeddings = torch.stack(scene_embeddings_list)
+
+        query_embedding_norm = normalize(query_embedding, p=2, dim=-1)
+        scene_embeddings_norm = normalize(scene_embeddings, p=2, dim=-1)
+
+        sim_vector = torch.matmul(query_embedding_norm, scene_embeddings_norm.T).squeeze(0)
+
+        top_scores, top_indices = torch.topk(
+            sim_vector, k=min(top_k, len(scenes))
+        )
+        
+        results = []
+        for score, scene_idx in zip(top_scores, top_indices):
+            results.append((scenes[scene_idx.item()], score.item()))
+        
+        # Apply scene merging if enabled
+        if self.scene_merger is not None:
+            results = self.scene_merger.merge_top_k_scenes(
+                results,
+                score_aggregation=self.merge_score_aggregation
+            )
+        
+        return results
+
     
     def _perform_tag_based_filtering_videos(
         self, 
@@ -459,16 +628,22 @@ class HierarchicalRetriever:
         self,
         queries: QueryDataset,
         modalities: list[str] | str,
-        top_k_videos: int = 3, 
-        top_k_scenes: int = 1  
+        top_k_videos: int = 3,
+        top_k_windows: int = 2,
+        top_k_scenes: int = 1,
+        use_windows: bool = True
     ) -> types.RetrievalResults:
         """
-        Given a set of queries, retrieves the top scenes and videos for those queries
+        Given a set of queries, retrieves the top scenes and videos for those queries.
+        Uses a hierarchical approach: Videos -> Windows -> Scenes
+        
         Args:
             queries: the queries to answer
             modalities: the modalities to use for retrieval
             top_k_videos: the number of videos to look for
-            top_k_scenes: the number of scenes to extract from the selected videos
+            top_k_windows: the number of windows to retrieve per video (only if use_windows=True)
+            top_k_scenes: the number of scenes to extract from the selected videos/windows
+            use_windows: whether to use intermediate window-level retrieval
         """
 
         if isinstance(modalities, str):
@@ -481,7 +656,7 @@ class HierarchicalRetriever:
         candidate_videos_per_query = self._perform_tag_based_filtering_videos(queries)
         results = types.RetrievalResults()
 
-        # Extract relevant videos
+        # Step 1: Extract relevant videos
         logging.info(f"Step 1: Retrieving top {top_k_videos} videos globally...")
         results.add_top_level(
             top_level_results = self._retrieve_top_videos_per_queries(
@@ -499,23 +674,81 @@ class HierarchicalRetriever:
         # Retrieve the top scenes within the top videos
         detailed_results = {query.qid: [] for query in queries}
 
-        logging.info(f"Step 2: Retrieving top {top_k_scenes} scenes within top videos...")
-        for query in queries:
-            fused_video_list = results[query.qid]["fused"]
-            for video_name, global_score in fused_video_list: # FIXME, da sistemare questa cosa, deve fare topk scene dai video, non topk da ogni video
-                modality_scene_rankings = {}
-                for modality in modalities:
-                    modality_scene_rankings[modality] = self._retrieve_best_scenes(
-                        query=query,
-                        video_name=video_name,
-                        modality=modality,
-                        top_k=top_k_scenes
+        if use_windows:
+            # Hierarchical retrieval: Videos -> Windows -> Scenes
+            logging.info(f"Step 2: Retrieving top {top_k_windows} windows within top videos...")
+            logging.info(f"Step 3: Retrieving top {top_k_scenes} scenes within top windows...")
+            
+            for query in queries:
+                fused_video_list = results[query.qid]["fused"]
+                for video_name, global_score in fused_video_list:
+                    # Step 2: Retrieve top windows within each video
+                    modality_window_rankings = {}
+                    for modality in modalities:
+                        modality_window_rankings[modality] = self._retrieve_best_windows(
+                            query=query,
+                            video_name=video_name,
+                            modality=modality,
+                            top_k=top_k_windows
+                        )
+                    
+                    # Check if any windows were found
+                    has_windows = any(
+                        len(rankings) > 0 
+                        for rankings in modality_window_rankings.values()
                     )
-                fused_scene_ranking = self.fuser.fuse(modality_scene_rankings)
+                    
+                    if has_windows:
+                        # Fuse window rankings across modalities
+                        fused_window_ranking = self.fuser.fuse(modality_window_rankings)
+                        top_windows = [window for window, score in fused_window_ranking[:top_k_windows]]
+                        
+                        # Step 3: Retrieve top scenes from the selected windows
+                        modality_scene_rankings = {}
+                        for modality in modalities:
+                            modality_scene_rankings[modality] = self._retrieve_best_scenes_from_windows(
+                                query=query,
+                                video_name=video_name,
+                                windows=top_windows,
+                                modality=modality,
+                                top_k=top_k_scenes
+                            )
+                        fused_scene_ranking = self.fuser.fuse(modality_scene_rankings)
+                    else:
+                        # Fallback to direct scene retrieval if no windows available
+                        logging.debug(f"No windows found for video {video_name}, falling back to direct scene retrieval")
+                        modality_scene_rankings = {}
+                        for modality in modalities:
+                            modality_scene_rankings[modality] = self._retrieve_best_scenes(
+                                query=query,
+                                video_name=video_name,
+                                modality=modality,
+                                top_k=top_k_scenes
+                            )
+                        fused_scene_ranking = self.fuser.fuse(modality_scene_rankings)
 
-                detailed_results[query.qid].append(
-                    (video_name, global_score, fused_scene_ranking[:top_k_scenes])
-                )
+                    detailed_results[query.qid].append(
+                        (video_name, global_score, fused_scene_ranking[:top_k_scenes])
+                    )
+        else:
+            # Direct scene retrieval (original behavior): Videos -> Scenes
+            logging.info(f"Step 2: Retrieving top {top_k_scenes} scenes within top videos...")
+            for query in queries:
+                fused_video_list = results[query.qid]["fused"]
+                for video_name, global_score in fused_video_list:
+                    modality_scene_rankings = {}
+                    for modality in modalities:
+                        modality_scene_rankings[modality] = self._retrieve_best_scenes(
+                            query=query,
+                            video_name=video_name,
+                            modality=modality,
+                            top_k=top_k_scenes
+                        )
+                    fused_scene_ranking = self.fuser.fuse(modality_scene_rankings)
+
+                    detailed_results[query.qid].append(
+                        (video_name, global_score, fused_scene_ranking[:top_k_scenes])
+                    )
         
         results.add_detailed_results(detailed_results)
 
