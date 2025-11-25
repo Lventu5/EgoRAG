@@ -35,25 +35,66 @@ class Tagger:
         self.model = AutoModelForCausalLM.from_pretrained(self.model_name, dtype=dtype).to(self.device)
         self.model.eval()
 
+    '''
     def _build_prompt(self, text: str) -> str:
         # Build a deterministic prompt listing tags and asking for a comma-separated answer
         tags_block = ", ".join(TAG_LIST)
         prompt = (
             "You are an expert assistant, specialized in tagging video clips. Given the following textual description of a video, "
-            "return which tags from the provided list are present in the video"
+            "return which tags from the provided list are present in the video. "
             "Only use tags from the list and return a comma-separated list of tags. Not all the tags from "
-            "the list need to be used, select only the relevant ones strictly based on the screenplay of that scene."
+            "the list need to be used, select only the relevant ones strictly based on the screenplay of that scene. "
             "Do not add additional commentary.\n\n"
             "Tags list: " + tags_block + "\n\n"
             "Video description:\n" + text + "\n\n"
             "Example of reasoning: 'I first must look for objects, actions and settings.\n"
             "I have now identified the following relevant elements: __list of actions, objects, subjects and settings EXPLICITELY mentioned in the text description__\n"
-            "I am now looking for a tag, among the tags list, that encapsulates the elements I found"
+            "I am now looking for a tag, among the tags list, that encapsulates the elements I found. "
             "I found the following relevant tags: __list of tags__\n"
             "I now check in the tag list if the tags are present and I replace the absent ones with the ones from the list that best align making sure to only select the ones mentioned in the video without inferring a lot'\n\n"
-            "Explain your reasoning steps. Start your answer here:"
+            "Explain your reasoning steps. Start your answer here: "
         )
         return prompt
+    '''
+    def _build_prompt(self, text: str):
+        tags_block = ", ".join(TAG_LIST)
+
+        system_message = (
+            "You are an expert assistant specialized in tagging video clips. "
+            "Follow the instructions and output format precisely."
+        )
+
+        user_message = (
+            "TASK:\n"
+            "Given the following textual description of a video, select ALL and ONLY the tags from the list that are "
+            "directly supported by the description.\n\n"
+
+            "RULES:\n"
+            "1. Use only tags from the list, exactly as written.\n"
+            "2. Select a tag only if it is clearly or explicitly mentioned.\n"
+            "3. Do NOT guess, infer, or hallucinate information.\n"
+            "4. If nothing applies, return an empty set.\n"
+            "5. Prefer specific tags over generic ones.\n\n"
+
+            f"TAGS LIST:\n{tags_block}\n\n"
+
+            "VIDEO DESCRIPTION:\n"
+            f"{text}\n\n"
+
+            "OUTPUT FORMAT (STRICT):\n"
+            "Return EXACTLY one line:\n"
+            "TAGS: tag1, tag2, tag3\n"
+            "If no tag applies, write exactly:\n"
+            "TAGS: none\n"
+            "Do not add anything else.\n\n"
+
+            "=== START OUTPUT ==="
+        )
+
+        return [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": user_message},
+        ]
 
     def _parse_response(self, response: str) -> List[str]:
         found = []
@@ -96,6 +137,9 @@ class Tagger:
         with torch.inference_mode():
             gen_ids = self.model.generate(**inputs, max_new_tokens=512)
         out = self.tokenizer.batch_decode(gen_ids, skip_special_tokens=True)[0]
+        marker = "=== START OUTPUT ==="
+        if marker in out:
+            out = out.split(marker, 1)[1].strip()
         tags = self._parse_response(out)
         dp.global_embeddings["tags"] = tags
         
@@ -119,7 +163,10 @@ class Tagger:
             with torch.inference_mode():
                 gen_ids = self.model.generate(**inputs, max_new_tokens=256)
             outs = self.tokenizer.batch_decode(gen_ids, skip_special_tokens=True)
+            marker = "=== START OUTPUT ==="
             for sid, out_text in zip(batch_ids, outs):
+                if marker in out_text:
+                    out_text = out_text.split(marker, 1)[1].strip()
                 scene_tags = self._parse_response(out_text)
                 scenes[sid]["tags"] = scene_tags
         return tags
