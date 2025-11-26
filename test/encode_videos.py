@@ -28,7 +28,7 @@ from tqdm import tqdm
 
 
 def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_audio=None, 
-           force_caption=None, force_text=None):
+           force_caption=None, force_text=None, window_size=None, window_stride=None):
     """
     Encode videos in a directory.
     
@@ -40,11 +40,22 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
         force_audio: If True, force re-encode audio embeddings. If None, uses force_reencoding.
         force_caption: If True, force re-encode captions. If None, uses force_reencoding.
         force_text: If True, force re-encode text embeddings. If None, uses force_reencoding.
+        window_size: Number of scenes per window (default from config). Set to 0 to disable windows.
+        window_stride: Number of scenes to slide between windows (default from config).
     """
     video_ids = glob.glob(os.path.join(video_dir, "*.mp4"))
     print(f"Found {len(video_ids)} videos")
+    
+    # Log window configuration
+    if window_size is not None:
+        if window_size == 0:
+            print("Window creation disabled (window_size=0)")
+        else:
+            print(f"Using custom window config: window_size={window_size}, window_stride={window_stride}")
+    else:
+        print("Using window config from config.yaml")
 
-    for video in tqdm(video_ids[6:7]):
+    for video in tqdm(video_ids):
         print("-"*50)
         print(f"Encoding video {video}")
         print("-"*50)
@@ -90,8 +101,8 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
         gc.collect()  # Double gc to ensure everything is freed
 
 if __name__ == "__main__":
-    video_dir = "../ego4d_data/v2/full_scale"
-    save_dir = "../ego4d_data/v2/xclip_new_encoded_videos"
+    video_dir = "../../tnanni/ego4d_data/v2/full_scale"
+    save_dir = "./lori_new_encoded_videos"
     
     # Option 1: Re-encode everything
     # force_reencoding = True
@@ -113,12 +124,21 @@ if __name__ == "__main__":
     # force_caption = False
     # force_text = False
     
+    # Window configuration (optional - defaults from config.yaml)
+    # window_size = 3          # Number of scenes per window
+    # window_stride = 1        # Slide between windows
+    # window_size = 0          # Set to 0 to disable window creation
+    
     encode(video_dir, save_dir, force_reencoding=force_reencoding)
     
     # With modality-specific control:
     # encode(video_dir, save_dir, 
     #        force_video=True, force_audio=False, 
     #        force_caption=False, force_text=False)
+    
+    # With custom window configuration:
+    # encode(video_dir, save_dir, force_reencoding=force_reencoding,
+    #        window_size=5, window_stride=2)
     
     # Clean up local cache after encoding
     # cleanup_smart_cache(cache_info, verbose=True)

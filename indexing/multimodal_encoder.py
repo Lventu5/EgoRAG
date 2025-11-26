@@ -381,7 +381,10 @@ class MultiModalEncoder:
         modalities: list = ["video", "text"]
     ) -> None:
         """
-        Creates sliding windows over scenes and computes window embeddings using mean pooling.
+        Creates sliding windows over scenes and computes window embeddings.
+        
+        For video embeddings: uses mean pooling of scene embeddings.
+        For text embeddings: summarizes scene screenplays using the LLM (similar to global text embedding).
         
         Args:
             dp: The VideoDataPoint to process
@@ -427,30 +430,87 @@ class MultiModalEncoder:
             )
             dp.windows.append(window)
             
-            # Compute mean pooled embeddings for this window
+            # Compute embeddings for this window
             window_embs = {}
             for modality in modalities:
-                modality_embeddings = []
-                for sid in window_scene_ids:
-                    if sid in dp.scene_embeddings:
-                        emb = dp.scene_embeddings[sid].get(modality)
-                        if emb is not None:
-                            if isinstance(emb, torch.Tensor):
-                                modality_embeddings.append(emb)
-                            else:
-                                modality_embeddings.append(torch.tensor(emb))
-                
-                if modality_embeddings:
-                    # Mean pooling
-                    stacked = torch.stack(modality_embeddings)
-                    window_embs[modality] = stacked.mean(dim=0)
+                if modality == "text":
+                    # For text: summarize scene screenplays and encode the summary
+                    text_emb, text_raw = self._create_window_text_embedding(dp, window_scene_ids, window_id)
+                    window_embs["text"] = text_emb
+                    window_embs["text_raw"] = text_raw
                 else:
-                    window_embs[modality] = None
+                    # For video and other modalities: use mean pooling
+                    modality_embeddings = []
+                    for sid in window_scene_ids:
+                        if sid in dp.scene_embeddings:
+                            emb = dp.scene_embeddings[sid].get(modality)
+                            if emb is not None:
+                                if isinstance(emb, torch.Tensor):
+                                    modality_embeddings.append(emb)
+                                else:
+                                    modality_embeddings.append(torch.tensor(emb))
+                    
+                    if modality_embeddings:
+                        # Mean pooling
+                        stacked = torch.stack(modality_embeddings)
+                        window_embs[modality] = stacked.mean(dim=0)
+                    else:
+                        window_embs[modality] = None
             
             dp.window_embeddings[window_id] = window_embs
             window_idx += 1
         
         logging.info(f"Created {len(dp.windows)} windows for video {dp.video_name} (window_size={window_size}, stride={stride})")
+
+    def _create_window_text_embedding(
+        self, 
+        dp: VideoDataPoint, 
+        window_scene_ids: list, 
+        window_id: str
+    ) -> tuple[torch.Tensor, str]:
+        """
+        Create a text embedding for a window by summarizing the scene screenplays.
+        Similar approach to generating global video text embeddings.
+        
+        Args:
+            dp: The VideoDataPoint being processed
+            window_scene_ids: List of scene IDs in this window
+            window_id: ID of the window (for logging)
+            
+        Returns:
+            Tuple of (text_embedding, raw_summary_text) for the window
+        """
+        # Collect screenplays from scenes in this window
+        scene_screenplays = []
+        for sid in window_scene_ids:
+            if sid in dp.scene_embeddings:
+                text_raw = dp.scene_embeddings[sid].get("text_raw", "")
+                if text_raw:
+                    scene_screenplays.append((sid, text_raw))
+        
+        if not scene_screenplays:
+            logging.warning(f"No screenplays found for window {window_id}, using mean pooling fallback")
+            # Fallback to mean pooling of text embeddings
+            text_embeddings = []
+            for sid in window_scene_ids:
+                if sid in dp.scene_embeddings:
+                    emb = dp.scene_embeddings[sid].get("text")
+                    if emb is not None:
+                        if isinstance(emb, torch.Tensor):
+                            text_embeddings.append(emb)
+                        else:
+                            text_embeddings.append(torch.tensor(emb))
+            if text_embeddings:
+                return torch.stack(text_embeddings).mean(dim=0), "[Mean pooled - no screenplays available]"
+            return None, ""
+        
+        # Generate summary for this window using the text encoder
+        window_summary = self.text_encoder.generate_window_screenplay(scene_screenplays, window_id)
+        
+        # Encode the summary
+        text_emb = self.text_encoder.encode(window_summary)
+        
+        return text_emb, window_summary
 
     def _get_video_time_bounds(self, dp: VideoDataPoint, video_path: str) -> tuple[float, float]:
         """Return the start and end time for the full video."""
@@ -672,20 +732,15 @@ class MultiModalEncoder:
             self.text_encoder.load_models()
             self._encode_text_stage(dp, force=_force_text)
             # Tagging: run the tagger using the generated screenplay/text
-            try:
-                if not self._tagger_loaded:
-                    self.tagger.load_model()
-                    self._tagger_loaded = True
-                # Tag both global video and individual scenes
-                self.tagger.tag_datapoint(dp, tag_scenes=True)
-            except Exception as e:
-                logging.warning(f"[Tagger] tagging failed for {getattr(dp, 'video_name', '<unknown>')}: {e}")
+            # try:
+            #     if not self._tagger_loaded:
+            #         self.tagger.load_model()
+            #         self._tagger_loaded = True
+            #     # Tag both global video and individual scenes
+            #     self.tagger.tag_datapoint(dp, tag_scenes=True)
+            # except Exception as e:
+            #     logging.warning(f"[Tagger] tagging failed for {getattr(dp, 'video_name', '<unknown>')}: {e}")
 
-            self.unload_model("text")
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
-                gc.collect()
-            
             # For XCLIP video: use mean pooling since we don't call the model on full video
             if CONFIG.indexing.video.model_name == "xclip":
                 aggregated = self._aggregate_embeddings(dp.scene_embeddings)
@@ -695,13 +750,20 @@ class MultiModalEncoder:
                     logging.info(f"[Aggregate] Used mean pooling for global video embedding (XCLIP)")
 
             # Create sliding windows over scenes and compute window embeddings
-            # Window embeddings are mean-pooled from the scene embeddings within each window
+            # Window text embeddings require text_encoder to be loaded for summarization
+            # Video embeddings use mean pooling
             self._create_windows(
                 dp, 
                 window_size=CONFIG.indexing.get("window_size", 3),
                 stride=CONFIG.indexing.get("window_stride", 1),
                 modalities=["video", "text"]
             )
+
+            # Now unload text encoder after window creation
+            self.unload_model("text")
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+                gc.collect()
 
         self.dataset.encoded = True
         return self.dataset

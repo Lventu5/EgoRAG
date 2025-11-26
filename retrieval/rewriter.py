@@ -1,6 +1,6 @@
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 import json, re, logging
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, List
 from indexing.utils.json_parser import JSONParser
 
 class QueryRewriterLLM:
@@ -35,7 +35,7 @@ class QueryRewriterLLM:
         self.pipeline = pipeline("text-generation", model=self.language_model, tokenizer=self.tokenizer, device=pipe_device)
         logging.info("[LLM] Model loaded successfully.")
 
-    def __call__(self, query: str, modality: str = "default") -> Union[str, Dict[str, str]]:
+    def __call__(self, query: str, modality: str = "default") -> Union[str, Dict[str, str], List[Dict[str, str]]]:
         """
         Rewrites the query according to the chosen modality
         """
@@ -43,8 +43,10 @@ class QueryRewriterLLM:
             return self.rewrite(query)
         elif modality == "decompose":
             return self.decompose_to_json(query)
+        elif modality == "sequence":
+            return self.decompose_to_sequence(query)
         else:
-            raise ValueError(f"Unknown modality {modality}. Use 'default' or 'decompose'.")
+            raise ValueError(f"Unknown modality {modality}. Use 'default', 'decompose', or 'sequence'.")
         
     # @staticmethod
     def _strip_prompt_echo(self, text: str, after: Optional[str] = None) -> str:
@@ -140,3 +142,87 @@ class QueryRewriterLLM:
                 else:
                     data[modality] = query # ans
         return data
+
+    def build_sequence_prompt(self, query: str) -> str:
+        """
+        Prompt to decompose the query into a sequential execution plan for Chain of Retrieval.
+        Returns an ordered list of sub-goals with temporal relations.
+        """
+        return (
+            "Decompose this query into a SEQUENTIAL EXECUTION PLAN for video retrieval. "
+            "Return ONLY a valid JSON array of objects, where each object represents a sub-goal.\n"
+            "Each object must have EXACTLY these keys:\n"
+            '  "query_text": string (the search query for this sub-goal),\n'
+            '  "type": string (either "anchor" for reference events or "target" for the main goal),\n'
+            '  "temporal_relation": string (one of: "none", "before", "after", "during", "near")\n\n'
+            "Rules:\n"
+            "- The first sub-goal should typically be the anchor (a known/easy-to-find event)\n"
+            "- The target should have a temporal_relation relative to the anchor\n"
+            "- Use 'none' for temporal_relation when there's no temporal dependency\n"
+            "- Keep queries concise and searchable\n\n"
+            "Examples:\n"
+            '1) Query: "What did I do after I finished cooking dinner?"\n'
+            'JSON: [{"query_text": "cooking dinner, finishing meal preparation", "type": "anchor", "temporal_relation": "none"}, '
+            '{"query_text": "activity after cooking", "type": "target", "temporal_relation": "after"}]\n\n'
+            '2) Query: "What was on the table before I cleaned it?"\n'
+            'JSON: [{"query_text": "cleaning a table", "type": "anchor", "temporal_relation": "none"}, '
+            '{"query_text": "items on table", "type": "target", "temporal_relation": "before"}]\n\n'
+            '3) Query: "Who called me while I was working on the computer?"\n'
+            'JSON: [{"query_text": "working on computer, using laptop", "type": "anchor", "temporal_relation": "none"}, '
+            '{"query_text": "phone call, someone calling", "type": "target", "temporal_relation": "during"}]\n\n'
+            f'Query: "{query}"\n'
+            "Generated JSON:"
+        )
+
+    def decompose_to_sequence(self, query: str) -> List[Dict[str, str]]:
+        """
+        Decompose the query into a sequential execution plan for Chain of Retrieval.
+        Returns a list of sub-goals, each with:
+        - query_text: the search query for this sub-goal
+        - type: "anchor" or "target"
+        - temporal_relation: "none", "before", "after", "during", "near"
+        """
+        prompt = self.build_sequence_prompt(query)
+        raw = self.generate(prompt)
+        raw = self._strip_prompt_echo(raw, after="Generated JSON:")
+        
+        # Try to parse the JSON array
+        try:
+            # Clean up the raw output
+            raw = raw.strip()
+            # Find JSON array boundaries
+            start_idx = raw.find('[')
+            end_idx = raw.rfind(']')
+            if start_idx != -1 and end_idx != -1:
+                raw = raw[start_idx:end_idx + 1]
+            
+            data = json.loads(raw)
+            
+            # Validate the structure
+            if not isinstance(data, list):
+                raise ValueError("Expected a JSON array")
+            
+            valid_types = {"anchor", "target"}
+            valid_relations = {"none", "before", "after", "during", "near"}
+            
+            validated_data = []
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                validated_item = {
+                    "query_text": str(item.get("query_text", query)),
+                    "type": item.get("type", "target") if item.get("type") in valid_types else "target",
+                    "temporal_relation": item.get("temporal_relation", "none") if item.get("temporal_relation") in valid_relations else "none"
+                }
+                validated_data.append(validated_item)
+            
+            if not validated_data:
+                # Fallback: single target query with no temporal relation
+                validated_data = [{"query_text": query, "type": "target", "temporal_relation": "none"}]
+            
+            return validated_data
+            
+        except (json.JSONDecodeError, ValueError) as e:
+            logging.warning(f"Failed to parse sequence JSON: {e}. Raw output: {raw}")
+            # Fallback: return single target query
+            return [{"query_text": query, "type": "target", "temporal_relation": "none"}]

@@ -126,8 +126,8 @@ def merge_pickles(input_dir: str, output_path: str, recursive: bool = False, ded
 
 if __name__ == "__main__":
     # EDIT THESE PATHS as needed (no argparse here - edit and run)
-    input_dir = "../ego4d_data/v2/internvideo_encoded_videos" 
-    output_path = "../ego4d_data/v2/internvideo_encoded_videos/merged_internvideo_videos.pkl"
+    input_dir = "/cluster/project/cvg/students/lventuroli/EgoRAG/lori_new_encoded_videos" 
+    output_path = "/cluster/project/cvg/students/lventuroli/EgoRAG/lori_new_encoded_videos/merged_window_CoR.pkl"
     recursive = False
 
     merged = merge_pickles(input_dir=input_dir, output_path=output_path, recursive=recursive)

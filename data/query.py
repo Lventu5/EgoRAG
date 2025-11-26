@@ -10,7 +10,8 @@ class Query:
             decomposed: Optional[dict] = None, 
             embeds: Optional[dict] = None, 
             tags: Optional[list[str]] = None,
-            gt: Optional[Dict[str, Optional[float | int]]] = None
+            gt: Optional[Dict[str, Optional[float | int]]] = None,
+            execution_plan: Optional[list[dict]] = None
     ):
         self.qid = qid if isinstance(qid, str) else f"query_{qid}"
         self.query_text = query_text
@@ -26,6 +27,8 @@ class Query:
         if gt:
             self.gt.update(gt)
         self.tags = tags if tags is not None else None
+        # Execution plan for Chain of Retrieval: list of sub-goals with query_text, type, and temporal_relation
+        self.execution_plan = execution_plan if execution_plan is not None else []
             
     def __repr__(self):
         return f"Query(qid={self.qid}, query_text={self.query_text.strip()})"
@@ -38,6 +41,7 @@ class Query:
             "decomposed": self.decomposed,
             "embeddings": self.embeddings,
             "gt": self.gt,
+            "execution_plan": self.execution_plan,
         }
     
     def get_query(self, modality: str | None = None) -> str:
@@ -58,6 +62,7 @@ class Query:
             decomposed=data.get("decomposed"),
             embeds=data.get("embeddings"),
             gt=data.get("gt"),
+            execution_plan=data.get("execution_plan"),
         )
 
     # def save_to_pickle(self, file_path: str):
