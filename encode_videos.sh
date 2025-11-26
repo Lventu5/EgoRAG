@@ -2,8 +2,8 @@
 #SBATCH --time=10:00:00
 #SBATCH --account=ls_polle
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=10
-#SBATCH --mem-per-cpu=6G
+#SBATCH --cpus-per-task=15
+#SBATCH --mem-per-cpu=8G
 #SBATCH --gpus=1
 #SBATCH --gres=gpumem:30G
 #SBATCH --job-name=encode_videos

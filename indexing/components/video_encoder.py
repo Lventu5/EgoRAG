@@ -118,19 +118,59 @@ class VideoEncoder(BaseEncoder):
         # Load CLIP Vision for XCLIP frame clustering
         if self.model_name == "xclip":
             self.image_model_id = CONFIG.indexing.video.clip_id
+            # Keep CLIP vision on the same device as the video model (usually GPU),
+            # but ensure we free intermediate tensors after clustering to avoid accumulation.
             self.image_model = CLIPVisionModel.from_pretrained(self.image_model_id).to(self.device).eval()
             self.image_processor = CLIPImageProcessor.from_pretrained(self.image_model_id)
-            logging.info(f"[{self.__class__.__name__}] CLIP Vision loaded for clustering.")
+            # Track the device used for the image model (match self.device)
+            self.image_model_device = self.device
+            logging.info(f"[{self.__class__.__name__}] CLIP Vision loaded on {self.image_model_device} for clustering.")
         
         logging.info(f"[{self.__class__.__name__}] Models loaded.")
 
     def _embed_frames_clip(self, frames: np.ndarray) -> np.ndarray:
         """Embed frames with CLIP for clustering (XCLIP only)"""
-        inputs = self.image_processor(images=list(frames), return_tensors="pt").to(self.device)
-        with torch.no_grad():
-            outputs = self.image_model(**inputs)
-            img_embs = outputs.pooler_output
-        return img_embs.cpu().numpy()
+        # Run CLIP image model on the configured image model device (usually GPU).
+        device = getattr(self, "image_model_device", self.device)
+        inputs = self.image_processor(images=list(frames), return_tensors="pt")
+        # Move processor tensors to the correct device
+        if isinstance(inputs, dict):
+            for k, v in inputs.items():
+                if isinstance(v, torch.Tensor):
+                    inputs[k] = v.to(device)
+        else:
+            inputs = inputs.to(device)
+
+        outputs = None
+        img_embs_cpu = None
+        try:
+            with torch.no_grad():
+                outputs = self.image_model(**inputs)
+                img_embs = outputs.pooler_output
+
+                # Move embeddings to CPU numpy immediately to avoid keeping GPU tensors
+                if isinstance(img_embs, torch.Tensor):
+                    img_embs_cpu = img_embs.detach().cpu().numpy()
+                else:
+                    img_embs_cpu = np.asarray(img_embs)
+
+            return img_embs_cpu
+        finally:
+            # Free intermediate tensors and clear CUDA cache if needed
+            try:
+                del inputs
+            except Exception:
+                pass
+            try:
+                del outputs
+            except Exception:
+                pass
+            try:
+                del img_embs
+            except Exception:
+                pass
+            if device != "cpu" and torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     def _select_frames_by_clustering(self, frames: np.ndarray, k: int = 8) -> np.ndarray:
         """Select k representative frames using clustering (for XCLIP)"""
