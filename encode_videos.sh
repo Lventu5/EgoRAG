@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --time=2:00:00
+#SBATCH --time=10:00:00
 #SBATCH --account=ls_polle
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=15
+#SBATCH --cpus-per-task=10
 #SBATCH --mem-per-cpu=6G
 #SBATCH --gpus=1
 #SBATCH --gres=gpumem:30G
@@ -13,7 +13,7 @@
 module load stack/2024-06 python_cuda/3.11.6 cuda/12.1.1 eth_proxy cudnn
 module load ffmpeg
 
-conda activate RAGu
+conda activate video_encoding
 module load cudnn
 
 echo "=== GPU STATUS ==="

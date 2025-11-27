@@ -5,7 +5,7 @@ data:
   video_dataset: "../ego4d_data/v2/internvideo_encoded_videos/internvideo_10_videos.pkl"
 indexing:
   video:
-    model_name: "internvideo2" # Options: "xclip", "internvideo2"
+    model_name: "xclip" # Options: "xclip", "internvideo2"
     xclip_id: "microsoft/xclip-base-patch16"
     llava_id: "llava-hf/LLaVA-NeXT-Video-7B-hf"
     internvideo2_id: "OpenGVLab/InternVideo2-Stage2-1B-224p-f8"
@@ -30,7 +30,7 @@ indexing:
     tagger_model_id: "Qwen/Qwen2.5-3B-Instruct" # LLM for tagging
   # Window configuration for intermediate granularity between video and scenes
   window_size: 12 # Number of scenes per window
-  window_stride: 6 # Number of scenes to slide between windows
+  window_stride: 4 # Number of scenes to slide between windows
 retrieval:
   text_model_id: "google/embeddinggemma-300m"
   video_model_id: "OpenGVLab/InternVideo2-Stage2_6B" #"OpenGVLab/InternVideo2-Stage1-1B-224p-f8"  # Options: "OpenGVLab/InternVideo2-Stage1-1B-224p-f8"
@@ -41,7 +41,6 @@ retrieval:
   top_k_windows: 10 # Number of windows to retrieve per video (only used if use_windows=true)
   top_k_scenes: 10
   use_windows: true # Enable/disable window-level retrieval
-  use_chain_retrieval: true # Enable/disable Chain of Retrieval (sequential anchor-target retrieval)
   modalities: ["video", "text"]
   fusion: "rrf"
   scene_merger:

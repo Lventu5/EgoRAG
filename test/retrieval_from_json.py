@@ -84,11 +84,8 @@ def main(
         video_pickle: str, 
         annotations: str, 
         modalities: list[str], 
-        topk_videos: int = 3,
-        topk_windows: int = 2,
-        topk_scenes: int = 1,
-        use_windows: bool = True,
-        use_chain_retrieval: bool = False,
+        topk_videos: int = 3, 
+        topk_scenes: int = 1, 
         device: str = "cuda"
     ):
     logging.basicConfig(level=logging.INFO)
@@ -118,24 +115,13 @@ def main(
     # Instantiate retriever
     retriever = HierarchicalRetriever(video_dataset=video_dataset, device=device)
 
-    if use_chain_retrieval:
-        logging.info("Running Chain of Retrieval...")
-        retrieval_results = retriever.retrieve_chain_batch(
-            queries=query_dataset,
-            modalities=modalities,
-            top_k_videos=topk_videos,
-            top_k_scenes=topk_scenes,
-        )
-    else:
-        logging.info(f"Running hierarchical retrieval (use_windows={use_windows})...")
-        retrieval_results = retriever.retrieve_hierarchically(
-            queries=query_dataset,
-            modalities=modalities,
-            top_k_videos=topk_videos,
-            top_k_windows=topk_windows,
-            top_k_scenes=topk_scenes,
-            use_windows=use_windows,
-        )
+    logging.info("Running hierarchical retrieval...")
+    retrieval_results = retriever.retrieve_hierarchically(
+        queries=query_dataset,
+        modalities=modalities,
+        top_k_videos=topk_videos,
+        top_k_scenes=topk_scenes,
+    )
 
     logging.info("Running evaluation...")
     evaluator = RetrievalEvaluator()
@@ -151,20 +137,7 @@ if __name__ == "__main__":
     annotations = CONFIG.data.annotation_path
     modalities = CONFIG.retrieval.modalities
     topk_videos = CONFIG.retrieval.top_k_videos
-    topk_windows = getattr(CONFIG.retrieval, 'top_k_windows', 2)
     topk_scenes = CONFIG.retrieval.top_k_scenes
-    use_windows = getattr(CONFIG.retrieval, 'use_windows', True)
-    use_chain_retrieval = getattr(CONFIG.retrieval, 'use_chain_retrieval', False)
     device = CONFIG.device
 
-    main(
-        video_pickle, 
-        annotations, 
-        modalities, 
-        topk_videos, 
-        topk_windows,
-        topk_scenes, 
-        use_windows,
-        use_chain_retrieval,
-        device
-    )
+    main(video_pickle, annotations, modalities, topk_videos, topk_scenes, device)

@@ -60,8 +60,7 @@ def find_video_files_for_ids(video_ids, video_dir):
 
 
 def encode(json_path, video_dir, save_dir, limit=None, force_reencoding=False,
-           force_video=None, force_audio=None, force_caption=None, force_text=None,
-           window_size=None, window_stride=None):
+           force_video=None, force_audio=None, force_caption=None, force_text=None):
     """
     Encode videos referenced in an Ego4D NLQ JSON file.
     
@@ -75,8 +74,6 @@ def encode(json_path, video_dir, save_dir, limit=None, force_reencoding=False,
         force_audio: If True, force re-encode audio embeddings. If None, uses force_reencoding.
         force_caption: If True, force re-encode captions. If None, uses force_reencoding.
         force_text: If True, force re-encode text embeddings. If None, uses force_reencoding.
-        window_size: Number of scenes per window (default from config). Set to 0 to disable windows.
-        window_stride: Number of scenes to slide between windows (default from config).
     """
     os.makedirs(save_dir, exist_ok=True)
 
@@ -91,15 +88,6 @@ def encode(json_path, video_dir, save_dir, limit=None, force_reencoding=False,
         video_files = video_files[:limit]
 
     print(f"Found {len(video_files)} matching video files for {len(video_ids)} ids")
-    
-    # Log window configuration
-    if window_size is not None:
-        if window_size == 0:
-            print("Window creation disabled (window_size=0)")
-        else:
-            print(f"Using custom window config: window_size={window_size}, window_stride={window_stride}")
-    else:
-        print("Using window config from config.yaml")
 
     print("="*80)
     MemoryMonitor.log_memory("[INITIAL STATE] ")
@@ -174,11 +162,6 @@ if __name__ == "__main__":
     # force_caption = False
     # force_text = False
     
-    # Window configuration (optional - defaults from config.yaml)
-    # window_size = 3          # Number of scenes per window
-    # window_stride = 1        # Slide between windows  
-    # window_size = 0          # Set to 0 to disable window creation
-    
     try:
         encode(nlq_val_directory, video_directory, save_directory, 
                limit=None, force_reencoding=force_reencoding)
@@ -187,11 +170,6 @@ if __name__ == "__main__":
         # encode(nlq_val_directory, video_directory, save_directory,
         #        limit=None, force_video=True, force_audio=False,
         #        force_caption=False, force_text=False)
-        
-        # With custom window configuration:
-        # encode(nlq_val_directory, video_directory, save_directory,
-        #        limit=None, force_reencoding=force_reencoding,
-        #        window_size=5, window_stride=2)
     finally:
         cleanup_smart_cache(cache_info, verbose=True)
 

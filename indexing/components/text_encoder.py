@@ -186,7 +186,7 @@ class TextEncoder(BaseEncoder):
             return "\n\n".join(formatted_scenes)
         
         # For longer videos, ask LLM to summarize
-        prompt = f"""You are an exper writer and journalist. Summarize the following descriptions, captions and transcripts into a coherent 3-4 sentence narrative that captures the overall story of the video. Write it as a report, focusing on capturing what concretely is happening and being said. Specify actions, subjects, speakers, sounds and objects. Avoid personal considerations or fancy narrations.
+        prompt = f"""You are an exper writer and journalist. Summarize the following descriptions, captions and transcripts into a coherent 3-4 sentence narrative that captures the overall story of the video. Write it in report style, focusing on capturing what concretely is happening and being said. Specify actions, subjects, speakers, sounds and objects.
 
 Scenes:
 {chr(10).join(formatted_scenes)}
@@ -233,79 +233,5 @@ Overall narrative:"""
             logging.error(f"[Global Screenplay] Generation failed: {e}")
             import traceback
             logging.error(traceback.format_exc())
-            # Fallback to concatenation
-            return "\n\n".join(formatted_scenes)
-
-    def generate_window_screenplay(self, scene_screenplays: list, window_id: str = "") -> str:
-        """
-        Generate a screenplay summary for a window of scenes.
-        Similar to generate_global_screenplay but optimized for shorter windows.
-        
-        Args:
-            scene_screenplays: List of tuples (scene_id, screenplay_text)
-            window_id: ID of the window (for logging)
-        
-        Returns:
-            Window screenplay summary
-        """
-        if not scene_screenplays:
-            return "[No information available for this window]"
-        
-        # Format scene screenplays
-        formatted_scenes = [f"Scene {sid}: {text}" for sid, text in scene_screenplays if text]
-        
-        if not formatted_scenes:
-            return "[No information available for this window]"
-        
-        # For very short windows (< 3 scenes), just concatenate
-        if len(formatted_scenes) <= 2:
-            return "\n\n".join(formatted_scenes)
-        
-        # For longer windows, ask LLM to summarize
-        prompt = f"""Summarize the following scene descriptions into a concise 2-3 sentence narrative that captures what happens in this video segment. Focus on concrete actions, subjects, objects, and any dialogue or sounds.
-
-Scenes:
-{chr(10).join(formatted_scenes)}
-
-Summary:"""
-        
-        try:
-            messages = [{"role": "user", "content": prompt}]
-            text = self.llm_tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True
-            )
-            
-            model_inputs = self.llm_tokenizer([text], return_tensors="pt").to(self.device)
-            
-            with torch.inference_mode():
-                with torch.amp.autocast("cuda", enabled=True, dtype=torch.bfloat16):
-                    gen_ids = self.llm_model.generate(
-                        **model_inputs,
-                        max_new_tokens=256,  # Shorter than global summary
-                        do_sample=False,
-                        pad_token_id=self.llm_tokenizer.eos_token_id
-                    )
-            
-            # Decode only the generated part (skip input prompt)
-            gen_ids = gen_ids[:, model_inputs.input_ids.shape[1]:]
-            summary = self.llm_tokenizer.batch_decode(
-                gen_ids,
-                skip_special_tokens=True,
-                clean_up_tokenization_spaces=True
-            )[0].strip()
-            
-            # Cleanup
-            summary = re.sub(r"\n[-]{3,}.*$", "", summary, flags=re.DOTALL).strip()
-            
-            del model_inputs, gen_ids
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
-            
-            return summary
-            
-        except Exception as e:
-            logging.warning(f"[Window Screenplay] Generation failed for {window_id}: {e}")
             # Fallback to concatenation
             return "\n\n".join(formatted_scenes)
