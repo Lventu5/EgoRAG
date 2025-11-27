@@ -462,6 +462,56 @@ class MultiModalEncoder:
         
         logging.info(f"Created {len(dp.windows)} windows for video {dp.video_name} (window_size={window_size}, stride={stride})")
 
+    def _create_window_text_embedding(
+        self, 
+        dp: VideoDataPoint, 
+        window_scene_ids: list, 
+        window_id: str
+    ) -> tuple[torch.Tensor, str]:
+        """
+        Create a text embedding for a window by summarizing the scene screenplays.
+        Similar approach to generating global video text embeddings.
+        
+        Args:
+            dp: The VideoDataPoint being processed
+            window_scene_ids: List of scene IDs in this window
+            window_id: ID of the window (for logging)
+            
+        Returns:
+            Tuple of (text_embedding, raw_summary_text) for the window
+        """
+        # Collect screenplays from scenes in this window
+        scene_screenplays = []
+        for sid in window_scene_ids:
+            if sid in dp.scene_embeddings:
+                text_raw = dp.scene_embeddings[sid].get("text_raw", "")
+                if text_raw:
+                    scene_screenplays.append((sid, text_raw))
+        
+        if not scene_screenplays:
+            logging.warning(f"No screenplays found for window {window_id}, using mean pooling fallback")
+            # Fallback to mean pooling of text embeddings
+            text_embeddings = []
+            for sid in window_scene_ids:
+                if sid in dp.scene_embeddings:
+                    emb = dp.scene_embeddings[sid].get("text")
+                    if emb is not None:
+                        if isinstance(emb, torch.Tensor):
+                            text_embeddings.append(emb)
+                        else:
+                            text_embeddings.append(torch.tensor(emb))
+            if text_embeddings:
+                return torch.stack(text_embeddings).mean(dim=0), "[Mean pooled - no screenplays available]"
+            return None, ""
+        
+        # Generate summary for this window using the text encoder
+        window_summary = self.text_encoder.generate_window_screenplay(scene_screenplays, window_id)
+        
+        # Encode the summary
+        text_emb = self.text_encoder.encode(window_summary)
+        
+        return text_emb, window_summary
+
     def _get_video_time_bounds(self, dp: VideoDataPoint, video_path: str) -> tuple[float, float]:
         """Return the start and end time for the full video."""
         if dp.scenes:
