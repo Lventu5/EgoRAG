@@ -382,6 +382,9 @@ class MultiModalEncoder:
     ) -> None:
         """
         Creates sliding windows over scenes and computes window embeddings using mean pooling.
+
+        For video embeddings: uses mean pooling of scene embeddings.
+        For text embeddings: summarizes scene screenplays using the LLM (similar to global text embedding).
         
         Args:
             dp: The VideoDataPoint to process
@@ -427,25 +430,32 @@ class MultiModalEncoder:
             )
             dp.windows.append(window)
             
-            # Compute mean pooled embeddings for this window
+            # Compute embeddings for this window
             window_embs = {}
             for modality in modalities:
-                modality_embeddings = []
-                for sid in window_scene_ids:
-                    if sid in dp.scene_embeddings:
-                        emb = dp.scene_embeddings[sid].get(modality)
-                        if emb is not None:
-                            if isinstance(emb, torch.Tensor):
-                                modality_embeddings.append(emb)
-                            else:
-                                modality_embeddings.append(torch.tensor(emb))
-                
-                if modality_embeddings:
-                    # Mean pooling
-                    stacked = torch.stack(modality_embeddings)
-                    window_embs[modality] = stacked.mean(dim=0)
+                if modality == "text":
+                    # For text: summarize scene screenplays and encode the summary
+                    text_emb, text_raw = self._create_window_text_embedding(dp, window_scene_ids, window_id)
+                    window_embs["text"] = text_emb
+                    window_embs["text_raw"] = text_raw
                 else:
-                    window_embs[modality] = None
+                    # For video and other modalities: use mean pooling
+                    modality_embeddings = []
+                    for sid in window_scene_ids:
+                        if sid in dp.scene_embeddings:
+                            emb = dp.scene_embeddings[sid].get(modality)
+                            if emb is not None:
+                                if isinstance(emb, torch.Tensor):
+                                    modality_embeddings.append(emb)
+                                else:
+                                    modality_embeddings.append(torch.tensor(emb))
+                    
+                    if modality_embeddings:
+                        # Mean pooling
+                        stacked = torch.stack(modality_embeddings)
+                        window_embs[modality] = stacked.mean(dim=0)
+                    else:
+                        window_embs[modality] = None
             
             dp.window_embeddings[window_id] = window_embs
             window_idx += 1
@@ -702,6 +712,12 @@ class MultiModalEncoder:
                 stride=CONFIG.indexing.get("window_stride", 1),
                 modalities=["video", "text"]
             )
+
+            # Now unload text encoder after window creation
+            self.unload_model("text")
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+                gc.collect()
 
         self.dataset.encoded = True
         return self.dataset

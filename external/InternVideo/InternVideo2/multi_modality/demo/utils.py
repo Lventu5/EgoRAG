@@ -93,15 +93,33 @@ def setup_internvideo2(config: dict):
     model = model.to(torch.device(config.device))
     model_without_ddp = model
 
-    if (config.pretrained_path.strip() and (os.path.isfile(config.pretrained_path)) or "s3://" in config.pretrained_path):
-        checkpoint = torch.load(config.pretrained_path, map_location="cpu")
-        try:
-            if "model" in checkpoint.keys():
-                state_dict = checkpoint["model"]
-            else:
-                state_dict = checkpoint["module"] # This is a deepspeed stage 1 model
-        except:  
+    pretrained_path = config.pretrained_path.strip() if hasattr(config, 'pretrained_path') and config.pretrained_path else ""
+    
+    # Handle relative paths - resolve from current working directory
+    if pretrained_path and not os.path.isabs(pretrained_path):
+        pretrained_path = os.path.abspath(pretrained_path)
+    
+    if pretrained_path and os.path.isfile(pretrained_path):
+        print(f"[setup_internvideo2] Loading checkpoint from: {pretrained_path}")
+        checkpoint = torch.load(pretrained_path, map_location="cpu")
+        
+        # DeepSpeed checkpoint structure:
+        # checkpoint = {"module": {model_state_dict}, "optimizer": {...}, ...}
+        # The "module" key contains the actual model weights with proper prefixes
+        if isinstance(checkpoint, dict) and "module" in checkpoint:
+            state_dict = checkpoint["module"]
+            print(f"[setup_internvideo2] Loaded state_dict from checkpoint['module'] with {len(state_dict)} keys")
+        elif isinstance(checkpoint, dict) and "model" in checkpoint:
+            state_dict = checkpoint["model"]
+            print(f"[setup_internvideo2] Loaded state_dict from checkpoint['model'] with {len(state_dict)} keys")
+        else:
             state_dict = checkpoint
+            print(f"[setup_internvideo2] Using checkpoint directly as state_dict with {len(state_dict)} keys")
+        
+        # Filter to only include tensor values (skip any metadata that might have slipped in)
+        state_dict = {k: v for k, v in state_dict.items() if isinstance(v, torch.Tensor)}
+        print(f"[setup_internvideo2] After filtering non-tensors: {len(state_dict)} keys")
+        print(f"[setup_internvideo2] Sample keys: {list(state_dict.keys())[:5]}")
 
         if config.get('origin_num_frames', None) is not None:
             a = len(state_dict)
@@ -109,7 +127,15 @@ def setup_internvideo2(config: dict):
             assert a == len(state_dict), state_dict.keys()
 
         msg = model_without_ddp.load_state_dict(state_dict, strict=False)
-        print(f"load_state_dict: {msg}")
+        print(f"[setup_internvideo2] load_state_dict result:")
+        print(f"  Missing keys: {len(msg.missing_keys)} - {msg.missing_keys[:5] if msg.missing_keys else 'None'}...")
+        print(f"  Unexpected keys: {len(msg.unexpected_keys)} - {msg.unexpected_keys[:5] if msg.unexpected_keys else 'None'}...")
+    else:
+        print(f"[setup_internvideo2] WARNING: No pretrained weights loaded!")
+        if pretrained_path:
+            print(f"[setup_internvideo2] Checkpoint path not found: {pretrained_path}")
+        else:
+            print(f"[setup_internvideo2] pretrained_path is empty")
     
     if config.get('use_bf16', False):
         model_without_ddp = model_without_ddp.to(torch.bfloat16)

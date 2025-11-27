@@ -50,7 +50,7 @@ model = dict(
         clip_norm_type='l2',
         clip_return_layer=6,
         clip_student_return_interval=1,
-        pretrained='/cluster/project/cvg/students/mronconi/EgoRAG/external/InternVideo/InternVideo2/checkpoints/InternVideo2-stage2_1b-224p-f4.pt',
+        pretrained=None,  # Weights loaded via pretrained_path in setup_internvideo2
         use_checkpoint=True,
         checkpoint_num=40,
         use_flash_attn=use_half_precision,
@@ -105,7 +105,7 @@ seed = 42
 save_latest = False
 auto_resume = True
 jump_evaluate = False
-pretrained_path = ""
+pretrained_path = "external/InternVideo/InternVideo2/checkpoints/InternVideo2-stage2_1b-224p-f4.pt"
 
 deepspeed = dict(
     enable=True,

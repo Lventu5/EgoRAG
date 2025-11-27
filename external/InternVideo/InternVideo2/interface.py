@@ -14,7 +14,11 @@ import torch
 def load_model(config_path, model_path, device='cuda'):
     config = Config.from_file(config_path)
     config = eval_dict_leaf(config)
-    config.model.vision_encoder.pretrained = model_path
+    # IMPORTANT: Set vision_encoder.pretrained = None to prevent the vision encoder builder
+    # from trying to load the DeepSpeed checkpoint directly (it doesn't handle the format).
+    # The checkpoint loading is handled properly by setup_internvideo2 via pretrained_path,
+    # which correctly extracts weights from DeepSpeed Stage 1 checkpoint format.
+    config.model.vision_encoder.pretrained = None
     config['pretrained_path'] = model_path
 
     model, _ = setup_internvideo2(config)

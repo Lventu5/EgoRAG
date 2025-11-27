@@ -34,6 +34,15 @@ class Scene:
             f"start={self.start_time:.2f}s, end={self.end_time:.2f}s, "
             f"frames={self.start_frame}-{self.end_frame}, total_frames={len(self.frames)}"
         )
+    
+    def __hash__(self):
+        # Use scene_id for hashing - scenes with same ID should hash the same
+        return hash(self.scene_id)
+    
+    def __eq__(self, other):
+        if not isinstance(other, Scene):
+            return False
+        return self.scene_id == other.scene_id
 
 
 class Window:
@@ -60,6 +69,14 @@ class Window:
             f"start={self.start_time:.2f}s, end={self.end_time:.2f}s, "
             f"scenes={self.scene_ids}"
         )
+    
+    def __hash__(self):
+        return hash(self.window_id)
+    
+    def __eq__(self, other):
+        if not isinstance(other, Window):
+            return False
+        return self.window_id == other.window_id
 
 
 class VideoDataPoint:

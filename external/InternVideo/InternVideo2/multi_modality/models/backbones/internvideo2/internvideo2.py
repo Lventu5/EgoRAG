@@ -719,7 +719,9 @@ def pretrain_internvideo2_1b_patch14_224(config):
         message = model.load_state_dict(state_dict, strict=False)
         logger.info(message)
     else:
-        logger.info("No pretrained weights!!!")
+        # Note: When pretrained=None, weights are loaded later by setup_internvideo2()
+        # This is the expected path when using DeepSpeed checkpoints
+        logger.debug("Vision encoder weights will be loaded by setup_internvideo2()")
     return model
 
 
@@ -757,7 +759,8 @@ def pretrain_internvideo2_6b_patch14_224(config):
         msg = model.load_state_dict(state_dict, strict=False)
         logger.info(msg)
     else:
-        logger.info("No pretrained weights!!!")
+        # Note: When pretrained=None, weights are loaded later by setup_internvideo2()
+        logger.debug("Vision encoder weights will be loaded by setup_internvideo2()")
     return model
 
 

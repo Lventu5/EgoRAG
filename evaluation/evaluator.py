@@ -16,6 +16,8 @@ from .metrics import (
     IoUAtThreshold,
     RecallAtKIoU,
     CumulativeIoUAtThreshold,
+    MeanIoU,
+    MeanIoUAtK,
 )
 
 class Evaluator(ABC):
@@ -71,6 +73,12 @@ class RetrievalEvaluator(Evaluator):
         self.r5_iou05 = RecallAtKIoU(k=5, iou_threshold=0.5, name="R@5_IoU@0.5")
         self.r10_iou05 = RecallAtKIoU(k=10, iou_threshold=0.5, name="R@10_IoU@0.5")
 
+        # === Mean IoU (Ego4D-style) ===
+        self.miou = MeanIoU(name="mIoU")
+        self.miou1 = MeanIoUAtK(k=1, name="mIoU@1")
+        self.miou3 = MeanIoUAtK(k=3, name="mIoU@3")
+        self.miou5 = MeanIoUAtK(k=5, name="mIoU@5")
+
     def forward_pass(
         self,
         pred: list[list[tuple[str, Scene]]], 
@@ -106,6 +114,12 @@ class RetrievalEvaluator(Evaluator):
         results["R@3_IoU@0.5"] = self.r3_iou05(pred=pred, true=true)
         results["R@5_IoU@0.5"] = self.r5_iou05(pred=pred, true=true)
         results["R@10_IoU@0.5"] = self.r10_iou05(pred=pred, true=true)
+
+        # === Mean IoU (Ego4D-style) ===
+        results["mIoU"] = self.miou(pred=pred, true=true)
+        results["mIoU@1"] = self.miou1(pred=pred, true=true)
+        results["mIoU@3"] = self.miou3(pred=pred, true=true)
+        results["mIoU@5"] = self.miou5(pred=pred, true=true)
 
         return results
 

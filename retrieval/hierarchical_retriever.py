@@ -13,7 +13,7 @@ from transformers import (
 from sentence_transformers import SentenceTransformer
 from torch.nn.functional import normalize
 
-from data.video_dataset import VideoDataset, Window
+from data.video_dataset import VideoDataset, Window, Scene
 from data.query import Query, QueryDataset
 import data.datatypes as types
 from retrieval.rewriter import QueryRewriterLLM
@@ -298,7 +298,18 @@ class HierarchicalRetriever:
 
             for name in names_to_iterate:
                 dp = dp_by_name.get(name)
+                if dp is None:
+                    continue
                 emb = dp.global_embeddings.get(modality, None)
+                
+                # Skip videos without embedding for this modality
+                if emb is None:
+                    videos_without_modality.append(name)
+                    continue
+                
+                # Convert to tensor if needed
+                if not isinstance(emb, torch.Tensor):
+                    emb = torch.tensor(emb)
                 
                 candidate_names.append(dp.video_name)
                 candidate_embs.append(emb)
@@ -319,6 +330,12 @@ class HierarchicalRetriever:
             dbn = normalize(db, p=2, dim=-1)
 
             scores = torch.matmul(qn, dbn.T).squeeze(0)
+            
+            # Debug logging for video-level retrieval
+            if logging.getLogger().isEnabledFor(logging.DEBUG):
+                logging.debug(f"[Video Retrieval] query={query.qid}, modality={modality}")
+                logging.debug(f"  query_emb shape: {q_emb.shape}, candidates: {len(candidate_names)}")
+                logging.debug(f"  scores: min={scores.min().item():.4f}, max={scores.max().item():.4f}, mean={scores.mean().item():.4f}")
 
             topk = min(top_k, len(candidate_names))
             top_scores, top_indices = torch.topk(scores, k=topk)
@@ -356,10 +373,17 @@ class HierarchicalRetriever:
                         continue
 
             emb = scene_data.get(modality, None)
+            if emb is None:
+                continue
             if not isinstance(emb, torch.Tensor):
                 emb = torch.tensor(emb)
 
-            scenes.append(target_dp.get_scene_by_id(scene_id))
+            scene_obj = target_dp.get_scene_by_id(scene_id)
+            if scene_obj is None:
+                logging.warning(f"Scene {scene_id} has embedding but no Scene object in video {target_dp.video_name}")
+                continue
+            
+            scenes.append(scene_obj)
             scene_embeddings_list.append(emb.to(self.device))
 
         return scenes, scene_embeddings_list
@@ -409,6 +433,13 @@ class HierarchicalRetriever:
         scene_embeddings_norm = normalize(scene_embeddings, p=2, dim=-1)
 
         sim_vector = torch.matmul(query_embedding_norm, scene_embeddings_norm.T).squeeze(0)
+        
+        # Debug logging for similarity scores
+        if logging.getLogger().isEnabledFor(logging.DEBUG):
+            logging.debug(f"[Scene Retrieval] video={video_name}, modality={modality}")
+            logging.debug(f"  query_emb shape: {query_embedding.shape}, norm: {query_embedding.norm().item():.4f}")
+            logging.debug(f"  scene_embs shape: {scene_embeddings.shape}")
+            logging.debug(f"  sim_vector: min={sim_vector.min().item():.4f}, max={sim_vector.max().item():.4f}, mean={sim_vector.mean().item():.4f}")
 
         top_scores, top_indices = torch.topk(
             sim_vector, k=min(top_k, len(scenes))
@@ -560,7 +591,12 @@ class HierarchicalRetriever:
             if not isinstance(emb, torch.Tensor):
                 emb = torch.tensor(emb)
 
-            scenes.append(target_dp.get_scene_by_id(scene_id))
+            scene_obj = target_dp.get_scene_by_id(scene_id)
+            if scene_obj is None:
+                logging.warning(f"Scene {scene_id} has embedding but no Scene object in video {target_dp.video_name}")
+                continue
+            
+            scenes.append(scene_obj)
             scene_embeddings_list.append(emb.to(self.device))
 
         if not scene_embeddings_list:
@@ -684,10 +720,13 @@ class HierarchicalRetriever:
         if use_windows:
             # Hierarchical retrieval: Videos -> Windows -> Scenes
             logging.info(f"Step 2: Retrieving top {top_k_windows} windows within top videos...")
-            logging.info(f"Step 3: Retrieving top {top_k_scenes} scenes within top windows...")
+            logging.info(f"Step 3: Retrieving top {top_k_scenes} scenes GLOBALLY across all videos...")
             
             for query in queries:
                 fused_video_list = results[query.qid]["fused"]
+                # Collect ALL scenes from ALL top videos, then rank globally
+                all_scenes_with_scores: list[tuple[str, Scene, float]] = []  # (video_name, scene, score)
+                
                 for video_name, global_score in fused_video_list:
                     # Step 2: Retrieve top windows within each video
                     modality_window_rankings = {}
@@ -710,7 +749,7 @@ class HierarchicalRetriever:
                         fused_window_ranking = self.fuser.fuse(modality_window_rankings)
                         top_windows = [window for window, score in fused_window_ranking[:top_k_windows]]
                         
-                        # Step 3: Retrieve top scenes from the selected windows
+                        # Step 3: Retrieve scenes from the selected windows (get more for global ranking)
                         modality_scene_rankings = {}
                         for modality in modalities:
                             modality_scene_rankings[modality] = self._retrieve_best_scenes_from_windows(
@@ -718,7 +757,7 @@ class HierarchicalRetriever:
                                 video_name=video_name,
                                 windows=top_windows,
                                 modality=modality,
-                                top_k=top_k_scenes
+                                top_k=top_k_scenes * 2  # Get more candidates for global ranking
                             )
                         fused_scene_ranking = self.fuser.fuse(modality_scene_rankings)
                     else:
@@ -730,18 +769,40 @@ class HierarchicalRetriever:
                                 query=query,
                                 video_name=video_name,
                                 modality=modality,
-                                top_k=top_k_scenes
+                                top_k=top_k_scenes * 2  # Get more candidates for global ranking
                             )
                         fused_scene_ranking = self.fuser.fuse(modality_scene_rankings)
 
+                    # Collect all scenes with their scores and video name
+                    for scene, score in fused_scene_ranking:
+                        all_scenes_with_scores.append((video_name, scene, score))
+                
+                # Global ranking: sort ALL scenes by score and take top_k_scenes
+                all_scenes_with_scores.sort(key=lambda x: x[2], reverse=True)
+                top_global_scenes = all_scenes_with_scores[:top_k_scenes]
+                
+                # Group by video for the detailed_results format
+                video_scenes: dict[str, list[tuple[Scene, float]]] = {}
+                for video_name, scene, score in top_global_scenes:
+                    if video_name not in video_scenes:
+                        video_scenes[video_name] = []
+                    video_scenes[video_name].append((scene, score))
+                
+                # Store in detailed_results with original video scores
+                video_scores = {v: s for v, s in fused_video_list}
+                for video_name, scenes in video_scenes.items():
+                    global_score = video_scores.get(video_name, 0.0)
                     detailed_results[query.qid].append(
-                        (video_name, global_score, fused_scene_ranking[:top_k_scenes])
+                        (video_name, global_score, scenes)
                     )
         else:
             # Direct scene retrieval (original behavior): Videos -> Scenes
-            logging.info(f"Step 2: Retrieving top {top_k_scenes} scenes within top videos...")
+            logging.info(f"Step 2: Retrieving top {top_k_scenes} scenes GLOBALLY across all videos...")
             for query in queries:
                 fused_video_list = results[query.qid]["fused"]
+                # Collect ALL scenes from ALL top videos, then rank globally
+                all_scenes_with_scores: list[tuple[str, Scene, float]] = []  # (video_name, scene, score)
+                
                 for video_name, global_score in fused_video_list:
                     modality_scene_rankings = {}
                     for modality in modalities:
@@ -749,12 +810,31 @@ class HierarchicalRetriever:
                             query=query,
                             video_name=video_name,
                             modality=modality,
-                            top_k=top_k_scenes
+                            top_k=top_k_scenes * 2  # Get more candidates for global ranking
                         )
                     fused_scene_ranking = self.fuser.fuse(modality_scene_rankings)
 
+                    # Collect all scenes with their scores and video name
+                    for scene, score in fused_scene_ranking:
+                        all_scenes_with_scores.append((video_name, scene, score))
+                
+                # Global ranking: sort ALL scenes by score and take top_k_scenes
+                all_scenes_with_scores.sort(key=lambda x: x[2], reverse=True)
+                top_global_scenes = all_scenes_with_scores[:top_k_scenes]
+                
+                # Group by video for the detailed_results format
+                video_scenes: dict[str, list[tuple[Scene, float]]] = {}
+                for video_name, scene, score in top_global_scenes:
+                    if video_name not in video_scenes:
+                        video_scenes[video_name] = []
+                    video_scenes[video_name].append((scene, score))
+                
+                # Store in detailed_results with original video scores
+                video_scores = {v: s for v, s in fused_video_list}
+                for video_name, scenes in video_scenes.items():
+                    global_score = video_scores.get(video_name, 0.0)
                     detailed_results[query.qid].append(
-                        (video_name, global_score, fused_scene_ranking[:top_k_scenes])
+                        (video_name, global_score, scenes)
                     )
         
         results.add_detailed_results(detailed_results)

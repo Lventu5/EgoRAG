@@ -8,11 +8,31 @@ from rouge_score import rouge_scorer
 # from bleurt import score as bleurt_score # FIXME, to install
 
 def iou(pred_scene, gt_start, gt_end):
-    p_start, p_end = pred_scene.start_time, pred_scene.end_time
-    intersection = max(0.0, min(p_end, gt_end) - max(p_start, gt_start))
+    """
+    Compute Intersection over Union between a predicted scene and ground truth interval.
     
+    Args:
+        pred_scene: Scene object with start_time and end_time attributes
+        gt_start: Ground truth start time in seconds
+        gt_end: Ground truth end time in seconds
+    
+    Returns:
+        IoU value between 0.0 and 1.0
+        Returns 0.0 if either segment has zero or negative length
+    """
+    if pred_scene is None:
+        return 0.0
+        
+    p_start, p_end = pred_scene.start_time, pred_scene.end_time
+    
+    # Check for invalid segments (zero or negative length)
     area_pred = p_end - p_start
     area_gt = gt_end - gt_start
+    
+    if area_pred <= 0 or area_gt <= 0:
+        return 0.0
+    
+    intersection = max(0.0, min(p_end, gt_end) - max(p_start, gt_start))
     union = area_pred + area_gt - intersection
     
     return intersection / union if union > 0 else 0.0
@@ -451,6 +471,8 @@ class CumulativeIoUAtThreshold(Metric):
 class RecallAtKIoU(Metric):
     """
     Recall@K con requisito IoU >= τ (metrica standard nei paper di moment retrieval).
+    
+    This is the OFFICIAL Ego4D NLQ metric (R@K,IoU=τ).
 
     Per ogni query:
       - guardo solo le top-K predizioni
@@ -507,3 +529,104 @@ class RecallAtKIoU(Metric):
                 hits += 1
 
         return hits / n if n > 0 else 0.0
+
+
+class MeanIoU(Metric):
+    """
+    Mean IoU (mIoU) - Ego4D NLQ metric.
+    
+    For each query, computes the best IoU among predictions that match the correct video,
+    then returns the average across all queries.
+    
+    This is similar to topKAccuracyScene but directly reports the mean IoU value.
+    """
+    def __init__(self, name: str | None = None):
+        if name is None:
+            name = "mIoU"
+        super().__init__(name)
+
+    def compute(self, pred: list[list[tuple[str, Scene]]],
+                true: list[tuple[str, float, float]]) -> float:
+        def _unpack_true(t):
+            if len(t) == 2:
+                vid, moment = t
+                return vid, float(moment) - 0.5, float(moment) + 0.5
+            elif len(t) >= 3:
+                vid, start, end = t[0], t[1], t[2]
+                gt_start = float(start) if start is not None else 0.0
+                if end is not None:
+                    gt_end = float(end)
+                else:
+                    gt_end = gt_start
+                return vid, gt_start, gt_end
+            else:
+                raise ValueError("Unsupported true format")
+
+        assert len(pred) == len(true), "The predictions and the ground truths must have the same length"
+
+        n = len(pred)
+        total_iou = 0.0
+
+        for i in range(n):
+            candidates = pred[i]
+            gt_video, gt_start, gt_end = _unpack_true(true[i])
+
+            best_iou = 0.0
+            for video_name, prediction in candidates:
+                if video_name != gt_video:
+                    continue
+                best_iou = max(best_iou, iou(prediction, gt_start, gt_end))
+            
+            total_iou += best_iou
+
+        return total_iou / n if n > 0 else 0.0
+
+
+class MeanIoUAtK(Metric):
+    """
+    Mean IoU at K (mIoU@K) - Ego4D NLQ metric variant.
+    
+    For each query, computes the best IoU among the top-K predictions
+    that match the correct video, then returns the average across all queries.
+    """
+    def __init__(self, k: int = 1, name: str | None = None):
+        self.k = k
+        if name is None:
+            name = f"mIoU@{k}"
+        super().__init__(name)
+
+    def compute(self, pred: list[list[tuple[str, Scene]]],
+                true: list[tuple[str, float, float]]) -> float:
+        def _unpack_true(t):
+            if len(t) == 2:
+                vid, moment = t
+                return vid, float(moment) - 0.5, float(moment) + 0.5
+            elif len(t) >= 3:
+                vid, start, end = t[0], t[1], t[2]
+                gt_start = float(start) if start is not None else 0.0
+                if end is not None:
+                    gt_end = float(end)
+                else:
+                    gt_end = gt_start
+                return vid, gt_start, gt_end
+            else:
+                raise ValueError("Unsupported true format")
+
+        assert len(pred) == len(true), "The predictions and the ground truths must have the same length"
+
+        n = len(pred)
+        total_iou = 0.0
+
+        for i in range(n):
+            top_k = pred[i][:self.k]
+            gt_video, gt_start, gt_end = _unpack_true(true[i])
+
+            best_iou = 0.0
+            for video_name, prediction in top_k:
+                if video_name != gt_video:
+                    continue
+                best_iou = max(best_iou, iou(prediction, gt_start, gt_end))
+            
+            total_iou += best_iou
+
+        return total_iou / n if n > 0 else 0.0

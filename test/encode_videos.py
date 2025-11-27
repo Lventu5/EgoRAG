@@ -44,7 +44,7 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
     video_ids = glob.glob(os.path.join(video_dir, "*.mp4"))
     print(f"Found {len(video_ids)} videos")
 
-    for video in tqdm(video_ids):
+    for video in tqdm(video_ids[-2:]):
         print("-"*50)
         print(f"Encoding video {video}")
         print("-"*50)
@@ -90,8 +90,8 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
         gc.collect()  # Double gc to ensure everything is freed
 
 if __name__ == "__main__":
-    video_dir = "../ego4d_data/v2/full_scale"
-    save_dir = "../ego4d_data/v2/xclip_new_encoded_videos"
+    video_dir = "../../tnanni/ego4d_data/v2/full_scale"
+    save_dir = "./lori_new_encoded_videos"
     
     # Option 1: Re-encode everything
     # force_reencoding = True

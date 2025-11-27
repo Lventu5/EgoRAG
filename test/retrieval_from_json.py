@@ -46,36 +46,70 @@ def convert_and_evaluate(retrieval_results: dict, queries, evaluator: RetrievalE
         else:
             fused_list = []
 
-        # flatten scenes: produce list of (video_name, Scene)
-        query_preds = []
+        # Flatten scenes with their scores: produce list of (video_name, Scene, score)
+        # We need to track scores for global ranking
+        query_preds_with_scores = []
         for video_name, global_score, scene_ranking in fused_list:
             if scene_ranking is None:
                 continue
             for scene_item in scene_ranking:
                 # scene_item may be (Scene, score) or Scene
-                if isinstance(scene_item, (list, tuple)) and len(scene_item) >= 1:
+                if isinstance(scene_item, (list, tuple)) and len(scene_item) >= 2:
                     scene_obj = scene_item[0]
+                    scene_score = scene_item[1]
+                elif isinstance(scene_item, (list, tuple)) and len(scene_item) == 1:
+                    scene_obj = scene_item[0]
+                    scene_score = global_score  # fallback to video score
                 else:
                     scene_obj = scene_item
-                query_preds.append((video_name, scene_obj))
+                    scene_score = global_score  # fallback to video score
+                
+                if scene_obj is None:
+                    continue
+                    
+                query_preds_with_scores.append((video_name, scene_obj, scene_score))
+
+        # Sort by scene score (descending) for proper global ranking
+        query_preds_with_scores.sort(key=lambda x: x[2], reverse=True)
+        
+        # Extract (video_name, Scene) tuples for evaluation
+        query_preds = [(v, s) for v, s, _ in query_preds_with_scores]
 
         preds.append(query_preds)
 
-        # Ground truth: try start_sec, else end_sec, else None
+        # Ground truth: extract start_sec and end_sec
         gt_video = q.video_uid
-        gt_moment_start = 0.0
-        gt_moment_end = 0.0
+        gt_moment_start = None
+        gt_moment_end = None
         
         # Safely extract GT
         if getattr(q, "gt", None):
-            gt_moment_start = q.gt.get("start_sec", 0.0)
-            gt_moment_end = q.gt.get("end_sec", 0.0)
-            
-            # Handle cases where end might be None or -1 in your data
-            if gt_moment_end is None: 
-                gt_moment_end = gt_moment_start
+            gt_moment_start = q.gt.get("start_sec")
+            gt_moment_end = q.gt.get("end_sec")
+        
+        # Validate GT times: must be non-negative real numbers
+        # If invalid, log a warning as IoU metrics will be meaningless for this query
+        has_valid_gt = True
+        if gt_moment_start is None or gt_moment_start < 0:
+            has_valid_gt = False
+            gt_moment_start = 0.0
+        if gt_moment_end is None or gt_moment_end < 0:
+            has_valid_gt = False
+            gt_moment_end = gt_moment_start  # At least make it non-zero if start is valid
+        
+        if not has_valid_gt:
+            logging.debug(f"Query {q.qid} has invalid GT times (start={q.gt.get('start_sec') if q.gt else None}, "
+                         f"end={q.gt.get('end_sec') if q.gt else None}). IoU metrics will be 0.")
 
-        trues.append((gt_video, gt_moment_start, gt_moment_end))
+        trues.append((gt_video, float(gt_moment_start), float(gt_moment_end)))
+
+    # Log statistics about the evaluation data
+    num_empty_preds = sum(1 for p in preds if len(p) == 0)
+    num_invalid_gt = sum(1 for t in trues if t[1] >= t[2])  # start >= end means invalid
+    avg_preds_per_query = sum(len(p) for p in preds) / len(preds) if preds else 0
+    
+    logging.info(f"Evaluation stats: {len(preds)} queries, {num_empty_preds} with empty predictions, "
+                 f"{num_invalid_gt} with invalid GT times, avg {avg_preds_per_query:.1f} predictions/query")
 
     return evaluator.forward_pass(pred=preds, true=trues)
 

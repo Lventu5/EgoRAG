@@ -2,7 +2,7 @@ device: "cuda"
 data:
   video_path: "../../tnanni/ego4d_data/v2/full_scale/"
   annotation_path: "../../tnanni/ego4d_data/v2/annotations/nlq_train.json"
-  video_dataset: "../ego4d_data/v2/correct_internvideo_encoded_videos/merged_correct_internvideo_videos.pkl"
+  video_dataset: "/cluster/project/cvg/students/lventuroli/EgoRAG/lori_new_encoded_videos/merged_window_CoR.pkl"
 indexing:
   video:
     model_name: "internvideo2" # Options: "xclip", "internvideo2"
