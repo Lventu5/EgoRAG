@@ -34,6 +34,7 @@ class HierarchicalRetriever:
     def __init__(
         self, 
         video_dataset: VideoDataset,
+        use_tagging: bool = False,
         fuser: Fuser | None = None,
         device: str = "cuda",
     ):
@@ -74,6 +75,8 @@ class HierarchicalRetriever:
         self.current_modality = None
         self.processor = None
         self.embedder = None
+        self.use_tagging = use_tagging
+        logging.info(f"[INFO] Use of tagging set to {use_tagging}")
         
         if fuser is None:
             logging.warning("Fuser not specified, using a RRF fuser")
@@ -349,7 +352,8 @@ class HierarchicalRetriever:
                 scene_tags = scene_data.get("tags") or []
                 scene_tag_set = set([t.lower() for t in scene_tags])
                 if not any(t in scene_tag_set for t in query_tag_set):
-                    continue
+                    if self.use_tagging:
+                        continue
 
             emb = scene_data.get(modality, None)
             if not isinstance(emb, torch.Tensor):
@@ -617,7 +621,10 @@ class HierarchicalRetriever:
             for dp in self.video_dataset.video_datapoints:
                 dp_tags = dp.global_embeddings.get("tags") or []
                 dp_tag_set = set([t.lower() for t in (dp_tags or [])])
-                if any(t in dp_tag_set for t in query.tags):
+                if self.use_tagging:
+                    if any(t in dp_tag_set for t in query.tags):
+                        candidates.add(dp.video_name)
+                else:
                     candidates.add(dp.video_name)
             filtered[query.qid] = candidates
             logging.debug(f"[Retriever] Query {query.qid} tags={query.tags} -> {len(filtered[query.qid])} candidate videos")
