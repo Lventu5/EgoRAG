@@ -30,7 +30,7 @@ indexing:
     tagger_model_id: "Qwen/Qwen2.5-3B-Instruct" # LLM for tagging
 retrieval:
   text_model_id: "google/embeddinggemma-300m"
-  video_model_id: "OpenGVLab/InternVideo2-Stage2_6B" #"OpenGVLab/InternVideo2-Stage1-1B-224p-f8"  # Options: "OpenGVLab/InternVideo2-Stage1-1B-224p-f8"
+  video_model_id: "OpenGVLab/InternVideo2-Stage2-1B-224p-f8" #"OpenGVLab/InternVideo2-Stage1-1B-224p-f8"  # Options: "OpenGVLab/InternVideo2-Stage1-1B-224p-f8"
   audio_model_id: "laion/clap-htsat-unfused"
   caption_model_id: "google/embeddinggemma-300m"
   rewriter_model_id: "Qwen/Qwen2.5-7B-Instruct"
