@@ -614,7 +614,7 @@ class MultiModalEncoder:
                 if aggregated.get("video") is not None:
                     dp.global_embeddings["video"] = aggregated["video"]
                     logging.info(f"[Aggregate] Used mean pooling for global video embedding (XCLIP)")
-
+        
         self.dataset.encoded = True
         return self.dataset
 

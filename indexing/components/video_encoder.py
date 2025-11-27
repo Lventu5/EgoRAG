@@ -110,6 +110,8 @@ class VideoEncoder(BaseEncoder):
             model_path = "external/InternVideo/InternVideo2/checkpoints/InternVideo2-stage2_1b-224p-f4.pt"
 
             model = interface.load_model(config_path, model_path)
+            print("CHECK pos_embed:", model.vision_encoder.pos_embed.shape)
+
             self.video_model = model.to(self.device).eval()
             
         else:
@@ -196,19 +198,7 @@ class VideoEncoder(BaseEncoder):
         - XCLIP: expects exactly 8 frames (uses frames parameter)
         - InternVideo2: uses video_path, vid2tensor samples frames automatically
         """
-        if self.model_name == "qwen2-vl" and video_path is None:
-            raise ValueError("Qwen2-VL requires video_path parameter")
-        
-        if self.model_name != "qwen2-vl" and (frames is None or len(frames) == 0):
-            # Return zero embedding
-            if self.model_name == "xclip":
-                embed_dim = 768
-            elif self.model_name == "internvideo2":
-                embed_dim = 512
-            else:
-                embed_dim = 768
-            return np.zeros(embed_dim, dtype=np.float32)
-        
+
         # XCLIP: select 8 frames via clustering
         if self.model_name == "xclip":
             if len(frames) > 8:
@@ -253,7 +243,10 @@ class VideoEncoder(BaseEncoder):
             # return video_embedding.numpy()
 
             # Internvideo 1B
-            return interface.extract_video_features([video_path], self.video_model, )        
+            feat_dict = interface.extract_video_features([video_path], self.video_model, fn=4)
+            video_emb = next(iter(feat_dict.values()))
+            print("DEBUG internvideo shape:", video_emb.shape, "mean:", video_emb.mean(), "std:", video_emb.std())
+            return video_emb.squeeze()        
         else:
             raise ValueError(f"Unknown model {self.model_name}")
 

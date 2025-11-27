@@ -91,10 +91,8 @@ class Tagger:
             "=== START OUTPUT ==="
         )
 
-        return [
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": user_message},
-        ]
+        # 
+        return system_message + "\n" + user_message
 
     def _parse_response(self, response: str) -> List[str]:
         found = []

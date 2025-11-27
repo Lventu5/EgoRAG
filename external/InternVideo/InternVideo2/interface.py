@@ -28,8 +28,7 @@ def load_model(config_path, model_path, device='cuda'):
 def extract_video_features(video_paths, model, device='cuda', fn=4, size_t=224):
     results = {}
 
-    for video_id in tqdm(video_paths):
-        video_path = os.path.join(video_dir, video_id)
+    for video_path in tqdm(video_paths):
         if not video_path.endswith(('.mp4', '.webm')):
             print(f'[WARNING] Video path does not end with .mp4 or .webm: {video_path}')
             continue
@@ -48,10 +47,12 @@ def extract_video_features(video_paths, model, device='cuda', fn=4, size_t=224):
 
         indices = [x + (total_frames // fn) // 2 for x in range(0, total_frames, total_frames // fn)[:fn]]
         indices[-1] = min(indices[-1], total_frames - 1)
-        frames = [x[..., ::-1] for x in vr.get_batch(indices).asnumpy()]
+        frames = [cv2.resize(x[..., ::-1], (size_t, size_t)) for x in vr.get_batch(indices).asnumpy()]
         frames_tensor = frames2tensor(frames, fnum=fn, target_size=(size_t, size_t), device=device)
+
         video_feature = model.get_vid_feat(frames_tensor).cpu().numpy()
-        results[video_id.split('.')[0]] = video_feature
+        key = os.path.splitext(os.path.basename(video_path))[0]
+        results[key] = video_feature
 
     return results
 
@@ -59,7 +60,6 @@ def extract_video_features(video_paths, model, device='cuda', fn=4, size_t=224):
 def extract_query_features(queries_list, model):
     embeddings_list = []
     for i, query in enumerate(queries_list):
-        print(f"DEBUG Processing query #{i}: {query!r}")
         feature_dict = get_text_feat_dict([query], model)
         feat = next(iter(feature_dict.values()))
         embeddings_list.append(feat.squeeze(0))
