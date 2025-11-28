@@ -43,8 +43,9 @@ retrieval:
   use_windows: true # Enable/disable window-level retrieval
   modalities: ["text"]
   fusion: "rrf"
+  skip_video_retrieval: true
   scene_merger:
-    enabled: true # Enable/disable scene merging
+    enabled: false # Enable/disable scene merging
     max_gap: 1.0 # Maximum time gap (seconds) between scenes to consider them consecutive
     min_scenes_to_merge: 2 # Minimum number of scenes required to create a merge
     max_scenes_to_merge: 5 # Maximum number of scenes to merge into one

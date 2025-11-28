@@ -13,12 +13,8 @@ from .metrics import (
     MeanTemporalIoU,
     Overlap,
     RecallAtKIoU,
+    SimpleRecallAtK,
     evaluate_retrieval,
-    # Generation metrics
-    BLEUScore,
-    ROUGEScore,
-    METEOR,
-    BERTScore,
 )
 
 
@@ -77,6 +73,10 @@ class RetrievalEvaluator(Evaluator):
                     iou_threshold=iou_thresh, 
                     name=metric_name
                 )
+            simple_recall = SimpleRecallAtK(k = k)
+            results[f"SimpleRecall@{k}"] = simple_recall.compute(pred=predictions, true=ground_truths)
+    
+            
 
     def forward_pass(
         self,
