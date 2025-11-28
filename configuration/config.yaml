@@ -41,8 +41,7 @@ retrieval:
   top_k_windows: 10 # Number of windows to retrieve per video (only used if use_windows=true)
   top_k_scenes: 10
   use_windows: true # Enable/disable window-level retrieval
-  skip_video_retrieval: false # If true, skip video retrieval and use GT video (for scene-only evaluation)
-  modalities: ["video", "text"]
+  modalities: ["text"]
   fusion: "rrf"
   scene_merger:
     enabled: true # Enable/disable scene merging
