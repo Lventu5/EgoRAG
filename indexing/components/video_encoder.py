@@ -245,7 +245,6 @@ class VideoEncoder(BaseEncoder):
             # Internvideo 1B
             feat_dict = interface.extract_video_features([video_path], self.video_model, fn=4)
             video_emb = next(iter(feat_dict.values()))
-            print("DEBUG internvideo shape:", video_emb.shape, "mean:", video_emb.mean(), "std:", video_emb.std())
             return video_emb.squeeze()        
         else:
             raise ValueError(f"Unknown model {self.model_name}")

@@ -43,6 +43,7 @@ class MultiModalEncoder:
         device: str = "cuda",
         max_workers: int = 2,
         pickle_path: str = None,
+        use_tagging: bool = False,
     ):
         # Load from pickle if provided
         if pickle_path and os.path.exists(pickle_path):
@@ -75,6 +76,7 @@ class MultiModalEncoder:
         self.captioner = VisualCaptioner(device=self.device)
         logging.info(f"MultiModalEncoder initialized with {max_workers} workers.")
         # Tagger (lazy-load model on first use)
+        self.use_tagging = use_tagging
         self.tagger = Tagger(device=self.device)
         self._tagger_loaded = False
         
@@ -654,11 +656,10 @@ class MultiModalEncoder:
         _force_text = force if force_text is None else force_text
         
         for dp in tqdm(self.dataset.video_datapoints, desc="Encoding Videos", disable=False):
-            # GPU monitor semplice dopo ogni video
-            if torch.cuda.is_available():
-                mem = torch.cuda.memory_allocated() / 1024**3
-                mem_free = torch.cuda.get_device_properties(0).total_memory / 1024**3 - mem
-                print(f"[GPU] Allocated: {mem:.2f} GB, Free: {mem_free:.2f} GB")
+            # if torch.cuda.is_available():
+            #     mem = torch.cuda.memory_allocated() / 1024**3
+            #     mem_free = torch.cuda.get_device_properties(0).total_memory / 1024**3 - mem
+            #     print(f"[GPU] Allocated: {mem:.2f} GB, Free: {mem_free:.2f} GB")
 
             video_path = dp.video_path
             logging.info(f"Processing video: {video_path}")
@@ -676,7 +677,7 @@ class MultiModalEncoder:
                 )
             
             if not dp.scenes:
-                logging.warning(f"No scenes detected for {video_path}. Skipping.")
+                logging.error(f"No scenes detected for {video_path}. Skipping.")
                 continue
 
             video_model_name = CONFIG.indexing.video.model_name
@@ -685,7 +686,7 @@ class MultiModalEncoder:
             self._encode_video_stage(video_path, dp)
             
             if not dp.scene_embeddings:
-                logging.warning(f"No scenes were successfully encoded for {video_path} (video stage).")
+                logging.error(f"No scenes were successfully encoded for {video_path} (video stage).")
                 self.unload_model("video")
                 if self.device == "cuda":
                     torch.cuda.empty_cache()
@@ -731,17 +732,19 @@ class MultiModalEncoder:
             # Stage 3: Text Encoding
             self.text_encoder.load_models()
             self._encode_text_stage(dp, force=_force_text)
-            # Tagging: run the tagger using the generated screenplay/text
-            try:
-                if not self._tagger_loaded:
-                    self.tagger.load_model()
-                    self._tagger_loaded = True
-                # Tag both global video and individual scenes
-                self.tagger.tag_datapoint(dp, tag_scenes=True)
-            except Exception as e:
-                logging.warning(f"[Tagger] tagging failed for {getattr(dp, 'video_name', '<unknown>')}: {e}")
 
-            self.unload_model("text")
+            # Tagging: run the tagger using the generated screenplay/text
+            if self.use_tagging:
+                try:
+                    if not self._tagger_loaded:
+                        self.tagger.load_model()
+                        self._tagger_loaded = True
+                    # Tag both global video and individual scenes
+                    self.tagger.tag_datapoint(dp, tag_scenes=True)
+                except Exception as e:
+                    logging.warning(f"[Tagger] tagging failed for {getattr(dp, 'video_name', '<unknown>')}: {e}")
+                self.unload_model("tagger")
+
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 gc.collect()
@@ -782,6 +785,8 @@ class MultiModalEncoder:
             del self.audio_encoder
         if modality == "caption" and hasattr(self, "captioner"):
             del self.captioner
+        if modality == "tagger" and hasattr(self, "tagger"):
+            del self.tagger
         if self.device == "cuda":
             torch.cuda.empty_cache()
         gc.collect()

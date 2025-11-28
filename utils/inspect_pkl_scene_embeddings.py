@@ -52,9 +52,15 @@ def print_first_scene_video_embedding(pkl_path: str):
 
     # Access scene_embeddings
     se = getattr(dp, 'scene_embeddings', None)
+    we = getattr(dp, "window_embeddings", None)
+    windows = getattr(dp, "windows", None)
     if not se:
         print("No `scene_embeddings` found or empty for the first video datapoint.")
         return
+    if not we:
+        print("No window_embeddings key")
+    print([window.window_id for window in windows])
+    print(we.keys())
 
     # Get first scene key
     try:
@@ -74,5 +80,5 @@ def print_first_scene_video_embedding(pkl_path: str):
 if __name__ == '__main__':
     # Edit this path to point to your pickle file and run the script.
     # Example: pkl_path = '/path/to/my_video_dataset.pkl'
-    pkl_path = '/cluster/project/cvg/students/tnanni/ego4d_data/v2/internvideo_encoded_videos/9f28e782-417c-4c8b-a7ae-42fc96a0e94f_encoded.pkl'
+    pkl_path = '/cluster/project/cvg/students/tnanni/ego4d_data/v2/redone_internvideo_encoded/9f28e782-417c-4c8b-a7ae-42fc96a0e94f_encoded.pkl'
     print_first_scene_video_embedding(pkl_path)
