@@ -11,11 +11,7 @@ Ground truth format supports multiple valid windows per query.
 
 from abc import ABC, abstractmethod
 import numpy as np
-import bert_score
 from data.video_dataset import Scene
-from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
-from nltk.translate.meteor_score import meteor_score
-from rouge_score import rouge_scorer
 
 
 # =============================================================================
