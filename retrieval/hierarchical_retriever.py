@@ -674,7 +674,8 @@ class HierarchicalRetriever:
         top_k_videos: int = 3,
         top_k_windows: int = 2,
         top_k_scenes: int = 1,
-        use_windows: bool = True
+        use_windows: bool = True,
+        skip_video_retrieval: bool = False
     ) -> types.RetrievalResults:
         """
         Given a set of queries, retrieves the top scenes and videos for those queries.
@@ -687,6 +688,9 @@ class HierarchicalRetriever:
             top_k_windows: the number of windows to retrieve per video (only if use_windows=True)
             top_k_scenes: the number of scenes to extract from the selected videos/windows
             use_windows: whether to use intermediate window-level retrieval
+            skip_video_retrieval: if True, skip video retrieval and use the ground truth video
+                                  (query.video_uid) directly. Useful for testing scene-level 
+                                  retrieval in isolation. Requires each query to have video_uid set.
         """
 
         if isinstance(modalities, str):
@@ -699,20 +703,39 @@ class HierarchicalRetriever:
         candidate_videos_per_query = self._perform_tag_based_filtering_videos(queries)
         results = types.RetrievalResults()
 
-        # Step 1: Extract relevant videos
-        logging.info(f"Step 1: Retrieving top {top_k_videos} videos globally...")
-        results.add_top_level(
-            top_level_results = self._retrieve_top_videos_per_queries(
-                queries=queries, 
-                candidate_videos = candidate_videos_per_query,
-                modalities=modalities, 
-                top_k=top_k_videos
+        if skip_video_retrieval:
+            # Skip video retrieval: use ground truth video directly
+            logging.info("Skipping video retrieval - using ground truth videos directly for scene-only evaluation")
+            
+            # Validate that all queries have video_uid
+            missing_video_uid = [q.qid for q in queries if not q.video_uid]
+            if missing_video_uid:
+                raise ValueError(
+                    f"skip_video_retrieval=True requires all queries to have video_uid set. "
+                    f"Missing for: {missing_video_uid[:5]}{'...' if len(missing_video_uid) > 5 else ''}"
+                )
+            
+            # Set the ground truth video as the only "retrieved" video with score 1.0
+            for query in queries:
+                results[query.qid] = {}
+                for modality in modalities:
+                    results[query.qid][modality] = [(query.video_uid, 1.0)]
+                results[query.qid]["fused"] = [(query.video_uid, 1.0)]
+        else:
+            # Step 1: Extract relevant videos
+            logging.info(f"Step 1: Retrieving top {top_k_videos} videos globally...")
+            results.add_top_level(
+                top_level_results = self._retrieve_top_videos_per_queries(
+                    queries=queries, 
+                    candidate_videos = candidate_videos_per_query,
+                    modalities=modalities, 
+                    top_k=top_k_videos
+                )
             )
-        )
-        # Perform fusion of video rankings per query
-        for query in queries:
-            fused_video_ranking = self.fuser.fuse(results[query.qid])
-            results[query.qid]["fused"] = fused_video_ranking[:top_k_videos]
+            # Perform fusion of video rankings per query
+            for query in queries:
+                fused_video_ranking = self.fuser.fuse(results[query.qid])
+                results[query.qid]["fused"] = fused_video_ranking[:top_k_videos]
             
         # Retrieve the top scenes within the top videos
         detailed_results = {query.qid: [] for query in queries}

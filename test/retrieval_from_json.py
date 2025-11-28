@@ -120,7 +120,8 @@ def main(
         modalities: list[str], 
         topk_videos: int = 3, 
         topk_scenes: int = 1, 
-        device: str = "cuda"
+        device: str = "cuda",
+        skip_video_retrieval: bool = False
     ):
     logging.basicConfig(level=logging.INFO)
     if not torch.cuda.is_available() and device == "cuda":
@@ -149,12 +150,17 @@ def main(
     # Instantiate retriever
     retriever = HierarchicalRetriever(video_dataset=video_dataset, device=device)
 
-    logging.info("Running hierarchical retrieval...")
+    if skip_video_retrieval:
+        logging.info("Running scene-only retrieval (using ground truth videos)...")
+    else:
+        logging.info("Running hierarchical retrieval...")
+    
     retrieval_results = retriever.retrieve_hierarchically(
         queries=query_dataset,
         modalities=modalities,
         top_k_videos=topk_videos,
         top_k_scenes=topk_scenes,
+        skip_video_retrieval=skip_video_retrieval,
     )
 
     logging.info("Running evaluation...")
@@ -173,5 +179,6 @@ if __name__ == "__main__":
     topk_videos = CONFIG.retrieval.top_k_videos
     topk_scenes = CONFIG.retrieval.top_k_scenes
     device = CONFIG.device
+    skip_video_retrieval = getattr(CONFIG.retrieval, 'skip_video_retrieval', False)
 
-    main(video_pickle, annotations, modalities, topk_videos, topk_scenes, device)
+    main(video_pickle, annotations, modalities, topk_videos, topk_scenes, device, skip_video_retrieval)
