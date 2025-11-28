@@ -123,7 +123,6 @@ class QueryRewriterLLM:
             raw,
             default_keys={"text": "", "audio": "", "video": ""}
         )
-        print(f"{'-'*50}\n original query {query} \n\n")
         for modality in ["text", "audio", "video"]:
             if modality in ["text", "video"]:
                 ans = " ".join(data["text"].split()).strip()

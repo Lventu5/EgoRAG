@@ -34,9 +34,9 @@ class HierarchicalRetriever:
     def __init__(
         self, 
         video_dataset: VideoDataset,
-        use_tagging: bool = False,
         fuser: Fuser | None = None,
         device: str = "cuda",
+        use_tagging: bool = False,
     ):
         self.video_dataset = video_dataset
         self.device = device
@@ -137,7 +137,6 @@ class HierarchicalRetriever:
                 model_path = "external/InternVideo/InternVideo2/checkpoints/InternVideo2-stage2_1b-224p-f4.pt"
 
                 model = interface.load_model(config_path, model_path)
-                print("DEBUG after load_model, type(model.tokenizer) =", type(model.tokenizer))
                 self.embedder = model.to(self.device).eval()
 
             else:  # xclip
@@ -507,9 +506,11 @@ class HierarchicalRetriever:
                         emb = torch.tensor(emb)
                     windows.append(window)
                     window_embeddings_list.append(emb.to(self.device))
+            else:
+                logging.warning(f"Window id {wid} not found in {target_dp.window_embeddings.keys()}")
 
         if not window_embeddings_list:
-            logging.warning(f"No window embeddings found for video '{video_name}' and modality '{modality}'")
+            logging.error(f"No window embeddings found for video '{video_name}' and modality '{modality}'")
             return []
 
         # Perform cosine similarity between windows and query
@@ -642,29 +643,30 @@ class HierarchicalRetriever:
             queries: the queries to retrieve against
         """
         filtered = {}
-    
-        if not self._tagger_loaded:
-            self.tagger.load_model()
-            self._tagger_loaded = True
+        if self.use_tagging:
+            if not self._tagger_loaded:
+                self.tagger.load_model()
+                self._tagger_loaded = True
 
         for query in queries:
-            qtext = query.get_query()
-            qtags = []
-            qtags = self.tagger.infer_tags_from_text(qtext)
-            query.tags = [t.lower() for t in qtags]
+            if self.use_tagging:
+                qtext = query.get_query()
+                qtags = []
+                qtags = self.tagger.infer_tags_from_text(qtext)
+                query.tags = [t.lower() for t in qtags]
 
             candidates = set()
             for dp in self.video_dataset.video_datapoints:
-                dp_tags = dp.global_embeddings.get("tags") or []
-                dp_tag_set = set([t.lower() for t in (dp_tags or [])])
                 if self.use_tagging:
+                    dp_tags = dp.global_embeddings.get("tags") or []
+                    dp_tag_set = set([t.lower() for t in (dp_tags or [])])
                     if any(t in dp_tag_set for t in query.tags):
                         candidates.add(dp.video_name)
                 else:
                     candidates.add(dp.video_name)
             filtered[query.qid] = candidates
             logging.debug(f"[Retriever] Query {query.qid} tags={query.tags} -> {len(filtered[query.qid])} candidate videos")
-
+    
         return filtered
 
     def retrieve_hierarchically(
