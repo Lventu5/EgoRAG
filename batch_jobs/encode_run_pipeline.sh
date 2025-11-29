@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --time=45:00
+#SBATCH --time=6:00:00
 #SBATCH --account=ls_polle
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=15
 #SBATCH --mem-per-cpu=8G
 #SBATCH --gpus=1
 #SBATCH --gres=gpumem:30G
-#SBATCH --job-name=retrieve_results
+#SBATCH --job-name=run_pipeline
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
 
@@ -31,6 +31,7 @@ export PYTHONNOUSERSITE=1
 export HUGGINGFACE_HUB_TOKEN=$(cat ~/.huggingface/token)
 export HF_TOKEN=$HUGGINGFACE_HUB_TOKEN
 
-# Cache setup is now handled by encode_videos.py
-/cluster/project/cvg/students/lventuroli/miniconda3/envs/RAGu/bin/python -m test.retrieval_from_json
+# Use -u for unbuffered output so logs appear in real-time
+/cluster/project/cvg/students/lventuroli/miniconda3/envs/RAGu/bin/python -m core_tests.run_pipeline
+
 echo "========================="

@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --time=5:00:00
+#SBATCH --time=45:00
 #SBATCH --account=ls_polle
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=15
 #SBATCH --mem-per-cpu=8G
 #SBATCH --gpus=1
 #SBATCH --gres=gpumem:30G
-#SBATCH --job-name=encode_videos
+#SBATCH --job-name=retrieve_results
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
 
@@ -32,5 +32,5 @@ export HUGGINGFACE_HUB_TOKEN=$(cat ~/.huggingface/token)
 export HF_TOKEN=$HUGGINGFACE_HUB_TOKEN
 
 # Cache setup is now handled by encode_videos.py
-/cluster/project/cvg/students/lventuroli/miniconda3/envs/RAGu/bin/python -m test.encode_videos
+/cluster/project/cvg/students/lventuroli/miniconda3/envs/RAGu/bin/python -m core_tests.retrieval_from_json
 echo "========================="
