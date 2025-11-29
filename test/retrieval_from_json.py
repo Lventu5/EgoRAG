@@ -159,12 +159,12 @@ def main(
     else:
         logging.info("Running hierarchical retrieval...")
 
-    for exp_name, current_modalities in experiments:
+    for exp_name, current_modalities in modalities:
         print(f" Running experiment {exp_name} with modalities {current_modalities}")
     
         retrieval_results = retriever.retrieve_hierarchically(
             queries=query_dataset,
-            modalities=modalities,
+            modalities=current_modalities,
             top_k_videos=topk_videos,
             top_k_scenes=topk_scenes,
             use_windows= False,
@@ -192,7 +192,8 @@ def main(
     print("FINAL RESULTS TABLE")
     print("="*60)
     print(df.to_string(index=False))
-    
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
     df.to_csv(save_path, index=False)
     print(f"\nSaved results to {save_path}")
 

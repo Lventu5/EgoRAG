@@ -2,7 +2,7 @@ device: "cuda"
 data:
   video_path: "../../tnanni/ego4d_data/v2/full_scale/"
   annotation_path: "../../tnanni/ego4d_data/v2/annotations/nlq_train.json"
-  video_dataset: "/cluster/project/cvg/students/tnanni/ego4d_data/v2/internvideo6b_encoded_videos/internvideo_10_videos.pkl"
+  video_dataset: "/cluster/project/cvg/students/tnanni/ego4d_data/v2/window_5s_encoded/merged_window_5s_videos.pkl"
 indexing:
   scene_length: 5.0
   video:
@@ -31,8 +31,9 @@ indexing:
   tag:
     tagger_model_id: "Qwen/Qwen2.5-3B-Instruct" # LLM for tagging
   # Window configuration for intermediate granularity between video and scenes
+  use_windows: true
   window_size: 12 # Number of scenes per window
-  window_stride: 4 # Number of scenes to slide between windows
+  window_stride: 12 # Number of scenes to slide between windows
 retrieval:
   text_model_id: "google/embeddinggemma-300m"
   video_model_id: "OpenGVLab/InternVideo2-Stage2-1B-224p-f8" # Options: "OpenGVLab/InternVideo2-Stage1-1B-224p-f8", "OpenGVLab/InternVideo2-Stage2_6B"
