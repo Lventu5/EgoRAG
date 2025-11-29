@@ -6,10 +6,11 @@ data:
 indexing:
   scene_length: 5.0
   video:
-    model_name: "internvideo2" # Options: "xclip", "internvideo2"
+    model_name: "internvideo2-1b" # Options: "xclip", "internvideo2-1b", "internvideo2-6b"
     xclip_id: "microsoft/xclip-base-patch16"
     llava_id: "llava-hf/LLaVA-NeXT-Video-7B-hf"
-    internvideo2_id: "OpenGVLab/InternVideo2-Stage2-1B-224p-f8"
+    internvideo2_1b_id: "OpenGVLab/InternVideo2-Stage2-1B-224p-f8"
+    internvideo2_6b_id: "OpenGVLab/InternVideo2-Stage2_6B"
     clip_id: "openai/clip-vit-base-patch32" # For XCLIP clustering only
   audio:
     audio_sample_rate: 48000
@@ -34,7 +35,7 @@ indexing:
   window_stride: 4 # Number of scenes to slide between windows
 retrieval:
   text_model_id: "google/embeddinggemma-300m"
-  video_model_id: "OpenGVLab/InternVideo2-Stage2-1B-224p-f8" #"OpenGVLab/InternVideo2-Stage1-1B-224p-f8"  # Options: "OpenGVLab/InternVideo2-Stage1-1B-224p-f8"
+  video_model_id: "OpenGVLab/InternVideo2-Stage2-1B-224p-f8" # Options: "OpenGVLab/InternVideo2-Stage1-1B-224p-f8", "OpenGVLab/InternVideo2-Stage2_6B"
   audio_model_id: "laion/clap-htsat-unfused"
   caption_model_id: "google/embeddinggemma-300m"
   rewriter_model_id: "Qwen/Qwen2.5-7B-Instruct"
@@ -44,7 +45,7 @@ retrieval:
   use_windows: true # Enable/disable window-level retrieval
   modalities: ["text"]
   fusion: "rrf"
-  skip_video_retrieval: true
+  skip_video_retrieval: true # Skip video-level retrieval and only do scene-level retrieval using the correct video
   scene_merger:
     enabled: false # Enable/disable scene merging
     max_gap: 1.0 # Maximum time gap (seconds) between scenes to consider them consecutive

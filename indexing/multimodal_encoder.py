@@ -155,15 +155,9 @@ class MultiModalEncoder:
                     raise ValueError("Failed")
         
         # Generate global video embedding for the entire video (except XCLIP)
-        if self.video_encoder.model_name == "qwen2-vl":
-            logging.info(f"[Video Stage] Encoding global video embedding for entire video ({dp.video_name})...")
-            video_data = self.video_encoder.encode_full_video(video_path)
-            if video_data:
-                dp.global_embeddings["video"] = video_data["video"]
-                logging.info(f"[Video Stage] Global video embedding generated for {dp.video_name}")
-        elif self.video_encoder.model_name == "xclip":
+        if self.video_encoder.model_name == "xclip":
             logging.info(f"[Video Stage] Using mean pooling for global video embedding (XCLIP)")
-        elif self.video_encoder.model_name == "internvideo2":
+        elif self.video_encoder.model_name in ["internvideo2-1b", "internvideo2-6b"]:
             logging.info(f"[Video Stage] Encoding global video embedding for entire video ({dp.video_name})...")
             video_data = self.video_encoder.encode_full_video(video_path)
             if video_data:

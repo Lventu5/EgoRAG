@@ -53,10 +53,10 @@ class VideoEncoder(BaseEncoder):
         # Simple logic:
         # Configurazione basata sul modello
         # - XCLIP: 8 frames selezionati tramite clustering
-        # - InternVideo2: vid2tensor automatically samples 8 frames uniformly
+        # - InternVideo2 (1b or 6b): vid2tensor automatically samples 8 frames uniformly
         if self.model_name == "xclip":
             self.max_frames = 8  # XCLIP usa esattamente 8 frame selezionati tramite clustering
-        elif self.model_name == "internvideo2":
+        elif self.model_name in ["internvideo2-1b", "internvideo2-6b"]:
             self.max_frames = 8  # InternVideo2 uses 8 frames
         else:
             raise ValueError(f"Unknown model: {self.model_name}")
@@ -94,31 +94,7 @@ class VideoEncoder(BaseEncoder):
             self.model_id = CONFIG.indexing.video.xclip_id
             self.video_model = XCLIPModel.from_pretrained(self.model_id).to(self.device).eval()
             self.video_processor = XCLIPProcessor.from_pretrained(self.model_id)
-            
-        elif self.model_name == "internvideo2":
-            # InternVideo2 6B model
-            # self.model_id = CONFIG.indexing.video.internvideo2_id
-            # logging.info(f"Loading InternVideo2 model: {self.model_id}...")
-            # self.video_model = AutoModel.from_pretrained(
-            #     self.model_id,
-            #     trust_remote_code=True
-            # ).to(self.device).eval()
-            # logging.info(f"InternVideo2 model loaded successfully")
 
-            # Internvideo 1B
-            config_path = "external/InternVideo/InternVideo2/multi_modality/demo/internvideo2_stage2_config.py"
-            model_path = "external/InternVideo/InternVideo2/checkpoints/InternVideo2-stage2_1b-224p-f4.pt"
-
-            model = interface.load_model(config_path, model_path)
-            print("CHECK pos_embed:", model.vision_encoder.pos_embed.shape)
-
-            self.video_model = model.to(self.device).eval()
-            
-        else:
-            raise ValueError(f"Unsupported model_name: {self.model_name}. Choose 'xclip', 'qwen2-vl', or 'internvideo2'.")
-        
-        # Load CLIP Vision for XCLIP frame clustering
-        if self.model_name == "xclip":
             self.image_model_id = CONFIG.indexing.video.clip_id
             # Keep CLIP vision on the same device as the video model (usually GPU),
             # but ensure we free intermediate tensors after clustering to avoid accumulation.
@@ -127,6 +103,27 @@ class VideoEncoder(BaseEncoder):
             # Track the device used for the image model (match self.device)
             self.image_model_device = self.device
             logging.info(f"[{self.__class__.__name__}] CLIP Vision loaded on {self.image_model_device} for clustering.")
+            
+        elif self.model_name == "internvideo2-1b":
+            # Internvideo 1B
+            config_path = "external/InternVideo/InternVideo2/multi_modality/demo/internvideo2_stage2_config.py"
+            model_path = "external/InternVideo/InternVideo2/checkpoints/InternVideo2-stage2_1b-224p-f4.pt"
+
+            model = interface.load_model(config_path, model_path)
+
+            self.video_model = model.to(self.device).eval()
+
+        elif self.model_name == "internvideo2-6b":
+            self.model_id = CONFIG.indexing.video.internvideo2_6b_id
+            logging.info(f"Loading InternVideo2 model: {self.model_id}...")
+            self.video_model = AutoModel.from_pretrained(
+                self.model_id,
+                trust_remote_code=True
+            ).to(self.device).eval()
+            logging.info(f"InternVideo2 model loaded successfully")
+            
+        else:
+            raise ValueError(f"Unsupported model_name: {self.model_name}. Choose 'xclip', 'qwen2-vl', or 'internvideo2'.")
         
         logging.info(f"[{self.__class__.__name__}] Models loaded.")
 
@@ -222,30 +219,29 @@ class VideoEncoder(BaseEncoder):
                 torch.cuda.empty_cache()
                 return video_embedding.numpy()
                     
-        elif self.model_name == "internvideo2":
+        elif self.model_name == "internvideo2-1b":
             # InternVideo2 - uses vid2tensor which handles frame sampling automatically
             if video_path is None:
                 raise ValueError("InternVideo2 requires video_path parameter")
-            
-            # vid2tensor automatically samples frames uniformly
-            # frames_tensor = vid2tensor(
-            #     video_path, 
-            #     fnum=8,
-            #     device=self.device
-            # )
-            # with torch.inference_mode():
-            #     # Get video features using InternVideo2
-            #     video_feat = self.video_model.get_vid_feat(frames_tensor)
-            #     # video_feat shape: [1, 512]
-            #     video_embedding = video_feat.squeeze(0).detach().cpu().to(torch.float32)
-            # del frames_tensor
-            # torch.cuda.empty_cache()
-            # return video_embedding.numpy()
-
-            # Internvideo 1B
             feat_dict = interface.extract_video_features([video_path], self.video_model, fn=4)
             video_emb = next(iter(feat_dict.values()))
             return video_emb.squeeze()        
+
+        elif self.model_name == "internvideo2-6b":
+            # vid2tensor automatically samples frames uniformly
+            frames_tensor = vid2tensor(
+                video_path, 
+                fnum=8,
+                device=self.device
+            )
+            with torch.inference_mode():
+                # Get video features using InternVideo2
+                video_feat = self.video_model.get_vid_feat(frames_tensor)
+                # video_feat shape: [1, 512]
+                video_embedding = video_feat.squeeze(0).detach().cpu().to(torch.float32)
+            del frames_tensor
+            torch.cuda.empty_cache()
+            return video_embedding.numpy()
         else:
             raise ValueError(f"Unknown model {self.model_name}")
 
@@ -389,7 +385,7 @@ class VideoEncoder(BaseEncoder):
                 "keyframes": keyframes
             }
         
-        elif self.model_name == "internvideo2":
+        elif self.model_name in ["internvideo2-1b", "internvideo2-6b"]:
             # InternVideo2: create scene clip and let vid2tensor handle frame sampling
             tmp_dir = tempfile.mkdtemp(prefix="internvideo2_scene_")
             try:
@@ -431,10 +427,10 @@ class VideoEncoder(BaseEncoder):
                 - "video": torch.Tensor (embedding)
                 - "keyframes": np.ndarray (empty, not used)
         """
-        if self.model_name != "qwen2-vl" and self.model_name != "internvideo2":
-            raise ValueError("encode_full_video is only supported for Qwen2-VL and InternVideo2")
+        if self.model_name not in ["internvideo2-1b", "internvideo2-6b"]:
+            raise ValueError("encode_full_video is only supported for InternVideo2")
 
-        if self.model_name == "internvideo2":
+        if self.model_name in ["internvideo2-1b", "internvideo2-6b"]:
             logging.info("[VideoEncoder] embedding the whole video")
             video_emb = self._embed_frames(video_path=video_path)
             return {
