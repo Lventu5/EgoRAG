@@ -9,7 +9,7 @@ import os
 import logging
 import traceback
 from typing import Dict, List, Tuple
-
+from configuration.config import CONFIG
 
 class SceneDetector:
     """
@@ -109,7 +109,7 @@ class SceneDetector:
             return {}
     
     @staticmethod
-    def _temporal_window(video_path: str, Scene, window_size: float = 20.0) -> Dict:
+    def _temporal_window(video_path: str, Scene) -> Dict:
         """
         Split video into fixed temporal windows (scenes of equal duration).
         
@@ -125,7 +125,8 @@ class SceneDetector:
         RAG systems requiring uniform granularity. The last scene may be shorter
         than window_size if the video duration is not evenly divisible.
         """
-        print(f"Splitting video into fixed temporal windows of {window_size} seconds.")
+        window_size = CONFIG.indexing.scene_length
+
         try:
             # Get video duration
             from moviepy.editor import VideoFileClip
@@ -135,8 +136,9 @@ class SceneDetector:
                 fps = video.fps
             
             # Calculate number of scenes
-            num_scenes = int(duration / window_size) + (1 if duration % window_size > 0 else 0)
-            
+            # FIXME, This could create very short final clips with less than 4 frames. Here it creates a last scene that is at least approx 9 frames long
+            # This might lose a bit of information, but it is just less than half a second, so no big deal I guess
+            num_scenes = int(duration / window_size) + (1 if duration % window_size > 0.3 else 0) 
             logging.info(
                 f"Temporal window scene detection for video {os.path.basename(video_path)}: "
                 f"duration={duration:.2f}s, window={window_size}s, scenes={num_scenes}"

@@ -91,7 +91,7 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
 
 if __name__ == "__main__":
     video_dir = "../../tnanni/ego4d_data/v2/full_scale"
-    save_dir = "./lori_new_encoded_videos"
+    save_dir = "../../tnanni/ego4d_data/v2/window_4s_encoded"
     
     # Option 1: Re-encode everything
     # force_reencoding = True

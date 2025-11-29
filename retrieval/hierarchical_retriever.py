@@ -1,6 +1,7 @@
 import torch
 import logging
 import numpy as np
+from tqdm import tqdm
 from transformers import (
     XCLIPProcessor,
     XCLIPModel,
@@ -168,7 +169,7 @@ class HierarchicalRetriever:
             model_name=self.rewriter, 
             device=self.device
         )
-        for query in queries:
+        for query in tqdm(queries, desc = "Rewriting queries"):
             decomposition = rewriter(query.get_query(), modality="decompose")
             query.decomposed = decomposition
 
@@ -706,7 +707,10 @@ class HierarchicalRetriever:
         results = types.RetrievalResults()
 
         if skip_video_retrieval:
-            # Skip video retrieval: use ground truth video directly
+            for modality in modalities:
+                logging.info(f"Embedding queries for modality {modality}...\n")
+                self._load_models_for_modality(modality)
+                self._embed_queries(queries)
             logging.info("Skipping video retrieval - using ground truth videos directly for scene-only evaluation")
             
             # Validate that all queries have video_uid
@@ -719,10 +723,10 @@ class HierarchicalRetriever:
             
             # Set the ground truth video as the only "retrieved" video with score 1.0
             for query in queries:
-                results[query.qid] = {}
+                results.results[query.qid] = {}
                 for modality in modalities:
-                    results[query.qid][modality] = [(query.video_uid, 1.0)]
-                results[query.qid]["fused"] = [(query.video_uid, 1.0)]
+                    results.results[query.qid][modality] = [(query.video_uid, 1.0)]
+                results.results[query.qid]["fused"] = [(query.video_uid, 1.0)]
         else:
             # Step 1: Extract relevant videos
             logging.info(f"Step 1: Retrieving top {top_k_videos} videos globally...")

@@ -65,6 +65,7 @@ class RetrievalEvaluator(Evaluator):
         
         # Initialize Recall@K metrics for all combinations
         self.recall_metrics = {}
+        self.simple_recalls = {}
         for k in k_values:
             for iou_thresh in iou_thresholds:
                 metric_name = f"R@{k}_IoU={iou_thresh}"
@@ -73,9 +74,8 @@ class RetrievalEvaluator(Evaluator):
                     iou_threshold=iou_thresh, 
                     name=metric_name
                 )
-            simple_recall = SimpleRecallAtK(k = k)
-            results[f"SimpleRecall@{k}"] = simple_recall.compute(pred=predictions, true=ground_truths)
-    
+            metric_name = f"SimpleRecall@{k}"
+            self.simple_recalls[metric_name] = SimpleRecallAtK(k = k)    
             
 
     def forward_pass(
@@ -108,7 +108,9 @@ class RetrievalEvaluator(Evaluator):
         # Compute Recall@K with IoU thresholds
         for metric_name, metric in self.recall_metrics.items():
             results[metric_name] = metric.compute(pred=pred, true=true)
-        
+        for metric_name, simple_recall in self.simple_recalls.items():
+            results[metric_name] = simple_recall.compute(pred=pred, true=true)
+
         return results
 
 

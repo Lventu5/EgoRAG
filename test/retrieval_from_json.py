@@ -1,6 +1,8 @@
 from __future__ import annotations
+from pathlib import Path
 
 import torch
+import pandas as pd
 import os
 import sys
 import logging
@@ -117,11 +119,12 @@ def convert_and_evaluate(retrieval_results: dict, queries, evaluator: RetrievalE
 def main(
         video_pickle: str, 
         annotations: str, 
-        modalities: list[str], 
+        modalities: list[tuple[str, list[str]]], 
         topk_videos: int = 3, 
         topk_scenes: int = 1, 
         device: str = "cuda",
-        skip_video_retrieval: bool = False
+        skip_video_retrieval: bool = False,
+        save_path: str = "./results/retrieval_results.csv",
     ):
     logging.basicConfig(level=logging.INFO)
     if not torch.cuda.is_available() and device == "cuda":
@@ -141,7 +144,6 @@ def main(
     dataset = Ego4DDataset(video_pickle, annotations)
     video_dataset = dataset.load_videos(is_pickle=True)
     video_ids = video_dataset.get_uids()
-    annotations_dict = dataset.load_annotations(video_ids)
     query_dataset = dataset.load_queries(video_ids)
 
     logging.info(f"Loaded {len(video_dataset.video_datapoints)} videos from pickle")
@@ -149,36 +151,66 @@ def main(
 
     # Instantiate retriever
     retriever = HierarchicalRetriever(video_dataset=video_dataset, device=device)
+    all_results = []
 
+    logging.info(f"Starting {len(modalities)} experiments ... \n")
     if skip_video_retrieval:
         logging.info("Running scene-only retrieval (using ground truth videos)...")
     else:
         logging.info("Running hierarchical retrieval...")
+
+    for exp_name, current_modalities in experiments:
+        print(f" Running experiment {exp_name} with modalities {current_modalities}")
     
-    retrieval_results = retriever.retrieve_hierarchically(
-        queries=query_dataset,
-        modalities=modalities,
-        top_k_videos=topk_videos,
-        top_k_scenes=topk_scenes,
-        skip_video_retrieval=skip_video_retrieval,
-    )
+        retrieval_results = retriever.retrieve_hierarchically(
+            queries=query_dataset,
+            modalities=modalities,
+            top_k_videos=topk_videos,
+            top_k_scenes=topk_scenes,
+            use_windows= False,
+            skip_video_retrieval=skip_video_retrieval,
+        )
 
-    logging.info("Running evaluation...")
-    evaluator = RetrievalEvaluator()
-    metrics = convert_and_evaluate(retrieval_results, query_dataset, evaluator)
+        logging.info("Running evaluation...")
+        evaluator = RetrievalEvaluator()
+        metrics = convert_and_evaluate(retrieval_results, query_dataset, evaluator)
 
-    print("Evaluation results:")
-    for k, v in metrics.items():
-        print(f"  {k}: {v:.4f}")
+        print(f"--- Results ({exp_name}) ---")
+        for k, v in metrics.items():
+            print(f"  {k}: {v:.4f}")
+        print("-" * 30)
+
+        metrics["Experiment"] = exp_name
+        metrics["Modalities"] = str(current_modalities)
+        all_results.append(metrics)
+
+    df = pd.DataFrame(all_results)
+    cols = ["Experiment", "Modalities"] + [c for c in df.columns if c not in ["Experiment", "Modalities"]]
+    df = df[cols]
+
+    print("\n" + "="*60)
+    print("FINAL RESULTS TABLE")
+    print("="*60)
+    print(df.to_string(index=False))
+    
+    df.to_csv(save_path, index=False)
+    print(f"\nSaved results to {save_path}")
 
 
 if __name__ == "__main__":
     video_pickle = CONFIG.data.video_dataset
     annotations = CONFIG.data.annotation_path
-    modalities = CONFIG.retrieval.modalities
+    modalities = [
+        ("text_only", ["text"]),
+        ("video_only", ["video"]),
+        ("video_text", ["video", "text"])
+    ]
     topk_videos = CONFIG.retrieval.top_k_videos
     topk_scenes = CONFIG.retrieval.top_k_scenes
     device = CONFIG.device
     skip_video_retrieval = getattr(CONFIG.retrieval, 'skip_video_retrieval', False)
+    video_pkl_path = Path(video_pickle)
+    save_filename = video_pkl_path.parent.name
+    save_path = f"./results/{save_filename}_retrieval_results.csv"
 
-    main(video_pickle, annotations, modalities, topk_videos, topk_scenes, device, skip_video_retrieval)
+    main(video_pickle, annotations, modalities, topk_videos, topk_scenes, device, skip_video_retrieval, save_path)
