@@ -747,19 +747,21 @@ class HierarchicalRetriever:
         detailed_results = {query.qid: [] for query in queries}
 
         if use_windows:
-            # Hierarchical retrieval: Videos -> Windows -> Scenes
-            logging.info(f"Step 2: Retrieving top {top_k_windows} windows within top videos...")
-            logging.info(f"Step 3: Retrieving top {top_k_scenes} scenes GLOBALLY across all videos...")
+            # Hierarchical retrieval: Videos -> Windows (globally ranked) -> Scenes (from selected windows only)
+            logging.info(f"Step 2: Retrieving top {top_k_windows} windows GLOBALLY across top videos...")
+            logging.info(f"Step 3: Retrieving top {top_k_scenes} scenes ONLY from selected windows...")
             
             for query in queries:
-                logging.info("Using windows for retrieval")
+                logging.info("Using windows for hierarchical retrieval")
                 fused_video_list = results[query.qid]["fused"]
-                # Collect ALL scenes from ALL top videos, then rank globally
-                all_scenes_with_scores: list[tuple[str, Scene, float]] = []  # (video_name, scene, score)
                 
-                for video_name, global_score in fused_video_list:
-                    logging.info("Retrieving best windows for video: " + video_name)
-                    # Step 2: Retrieve top windows within each video
+                # Step 2: Collect windows from ALL top videos, then rank globally
+                all_windows_with_scores: list[tuple[str, Window, float]] = []  # (video_name, window, score)
+                
+                for video_name, video_score in fused_video_list:
+                    logging.debug(f"Retrieving windows for video: {video_name}")
+                    
+                    # Get window rankings for each modality
                     modality_window_rankings = {}
                     for modality in modalities:
                         modality_window_rankings[modality] = self._retrieve_best_windows(
@@ -769,49 +771,73 @@ class HierarchicalRetriever:
                             top_k=top_k_windows
                         )
                     
-                    # Check if any windows were found
-                    has_windows = any(
-                        len(rankings) > 0 
-                        for rankings in modality_window_rankings.values()
-                    )
-                    
-                    if has_windows:
-                        logging.info("Retrieving best scene from the top windows")
-                        # Fuse window rankings across modalities
+                    # Fuse window rankings across modalities for this video
+                    if any(len(rankings) > 0 for rankings in modality_window_rankings.values()):
                         fused_window_ranking = self.fuser.fuse(modality_window_rankings)
-                        top_windows = [window for window, score in fused_window_ranking[:top_k_windows]]
+                        for window, score in fused_window_ranking:
+                            all_windows_with_scores.append((video_name, window, score))
+                
+                # Global ranking of windows: sort ALL windows by score and take top_k_windows
+                all_windows_with_scores.sort(key=lambda x: x[2], reverse=True)
+                top_global_windows = all_windows_with_scores[:top_k_windows]
+                
+                logging.info(f"Selected {len(top_global_windows)} windows globally for query {query.qid}")
+                for video_name, window, score in top_global_windows:
+                    logging.debug(f"  Window {window.window_id} from {video_name}: score={score:.4f}, scenes={window.scene_ids}")
+                
+                # Step 3: Retrieve scenes ONLY from the globally selected windows
+                if top_global_windows:
+                    # Group selected windows by video
+                    windows_by_video: dict[str, list[Window]] = {}
+                    for video_name, window, score in top_global_windows:
+                        if video_name not in windows_by_video:
+                            windows_by_video[video_name] = []
+                        windows_by_video[video_name].append(window)
+                    
+                    # Collect scenes from the selected windows only
+                    all_scenes_with_scores: list[tuple[str, Scene, float]] = []
+                    
+                    for video_name, selected_windows in windows_by_video.items():
+                        logging.debug(f"Retrieving scenes from {len(selected_windows)} selected windows in {video_name}")
                         
-                        # Step 3: Retrieve scenes from the selected windows (get more for global ranking)
                         modality_scene_rankings = {}
                         for modality in modalities:
                             modality_scene_rankings[modality] = self._retrieve_best_scenes_from_windows(
                                 query=query,
                                 video_name=video_name,
-                                windows=top_windows,
+                                windows=selected_windows,
                                 modality=modality,
                                 top_k=top_k_scenes * 2  # Get more candidates for global ranking
                             )
                         fused_scene_ranking = self.fuser.fuse(modality_scene_rankings)
-                    else:
-                        # Fallback to direct scene retrieval if no windows available
-                        logging.debug(f"No windows found for video {video_name}, falling back to direct scene retrieval")
+                        
+                        for scene, score in fused_scene_ranking:
+                            all_scenes_with_scores.append((video_name, scene, score))
+                    
+                    # Global ranking of scenes from selected windows
+                    all_scenes_with_scores.sort(key=lambda x: x[2], reverse=True)
+                    top_global_scenes = all_scenes_with_scores[:top_k_scenes]
+                else:
+                    # Fallback: no windows found, use direct scene retrieval
+                    logging.warning(f"No windows found for query {query.qid}, falling back to direct scene retrieval")
+                    all_scenes_with_scores: list[tuple[str, Scene, float]] = []
+                    
+                    for video_name, video_score in fused_video_list:
                         modality_scene_rankings = {}
                         for modality in modalities:
                             modality_scene_rankings[modality] = self._retrieve_best_scenes(
                                 query=query,
                                 video_name=video_name,
                                 modality=modality,
-                                top_k=top_k_scenes * 2  # Get more candidates for global ranking
+                                top_k=top_k_scenes * 2
                             )
                         fused_scene_ranking = self.fuser.fuse(modality_scene_rankings)
-
-                    # Collect all scenes with their scores and video name
-                    for scene, score in fused_scene_ranking:
-                        all_scenes_with_scores.append((video_name, scene, score))
-                
-                # Global ranking: sort ALL scenes by score and take top_k_scenes
-                all_scenes_with_scores.sort(key=lambda x: x[2], reverse=True)
-                top_global_scenes = all_scenes_with_scores[:top_k_scenes]
+                        
+                        for scene, score in fused_scene_ranking:
+                            all_scenes_with_scores.append((video_name, scene, score))
+                    
+                    all_scenes_with_scores.sort(key=lambda x: x[2], reverse=True)
+                    top_global_scenes = all_scenes_with_scores[:top_k_scenes]
                 
                 # Group by video for the detailed_results format
                 video_scenes: dict[str, list[tuple[Scene, float]]] = {}

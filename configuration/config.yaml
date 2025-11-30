@@ -41,8 +41,8 @@ retrieval:
   caption_model_id: "google/embeddinggemma-300m"
   rewriter_model_id: "Qwen/Qwen2.5-7B-Instruct"
   top_k_videos: 3
-  top_k_windows: 5 # Number of windows to retrieve per video (only used if use_windows=true)
-  top_k_scenes: 10
+  top_k_windows: 3 # Number of windows to retrieve per video (only used if use_windows=true)
+  top_k_scenes: 20
   use_windows: true # Enable/disable window-level retrieval
   modalities: ["text"]
   fusion: "rrf"
