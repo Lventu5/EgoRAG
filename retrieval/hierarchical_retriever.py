@@ -752,11 +752,13 @@ class HierarchicalRetriever:
             logging.info(f"Step 3: Retrieving top {top_k_scenes} scenes GLOBALLY across all videos...")
             
             for query in queries:
+                logging.info("Using windows for retrieval")
                 fused_video_list = results[query.qid]["fused"]
                 # Collect ALL scenes from ALL top videos, then rank globally
                 all_scenes_with_scores: list[tuple[str, Scene, float]] = []  # (video_name, scene, score)
                 
                 for video_name, global_score in fused_video_list:
+                    logging.info("Retrieving best windows for video: " + video_name)
                     # Step 2: Retrieve top windows within each video
                     modality_window_rankings = {}
                     for modality in modalities:
@@ -774,6 +776,7 @@ class HierarchicalRetriever:
                     )
                     
                     if has_windows:
+                        logging.info("Retrieving best scene from the top windows")
                         # Fuse window rankings across modalities
                         fused_window_ranking = self.fuser.fuse(modality_window_rankings)
                         top_windows = [window for window, score in fused_window_ranking[:top_k_windows]]

@@ -20,7 +20,7 @@ from pathlib import Path
 from data.video_dataset import VideoDataset
 from indexing.multimodal_encoder import MultiModalEncoder
 from utils.merge_pickles import merge_pickles
-from test.retrieval_from_json import main as retrieval_main
+from core_test.retrieval_from_json import main as retrieval_main
 from configuration.config import CONFIG
 
 # ---------------- CONFIGURATION (edit as needed) ----------------
