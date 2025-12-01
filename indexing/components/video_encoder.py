@@ -120,7 +120,12 @@ class VideoEncoder(BaseEncoder):
                 self.model_id,
                 trust_remote_code=True
             ).to(self.device).eval()
-            logging.info(f"InternVideo2 model loaded successfully")
+            
+            # Get expected input size from model config
+            model_config = self.video_model.config
+            self.internvideo2_size_t = getattr(model_config, 'size_t', 224)
+            self.internvideo2_num_frames = getattr(model_config, 'num_frames', 8)
+            logging.info(f"InternVideo2 model loaded successfully (size_t={self.internvideo2_size_t}, num_frames={self.internvideo2_num_frames})")
             
         else:
             raise ValueError(f"Unsupported model_name: {self.model_name}. Choose 'xclip', 'qwen2-vl', or 'internvideo2'.")
@@ -228,17 +233,23 @@ class VideoEncoder(BaseEncoder):
             return video_emb.squeeze()        
 
         elif self.model_name == "internvideo2-6b":
-            # vid2tensor automatically samples frames uniformly
+            # Get size from model config (set during load_models)
+            size_t = getattr(self, 'internvideo2_size_t', 224)
+            num_frames = getattr(self, 'internvideo2_num_frames', 8)
+            
+            # vid2tensor samples frames uniformly and resizes to target_size
             frames_tensor = vid2tensor(
                 video_path, 
-                fnum=8,
+                fnum=num_frames,
+                target_size=(size_t, size_t),
                 device=self.device
             )
-            print(frames_tensor.shape)
+            logging.debug(f"InternVideo2-6B frames_tensor shape: {frames_tensor.shape} (expected size_t={size_t})")
+            
             with torch.inference_mode():
                 # Get video features using InternVideo2
                 video_feat = self.video_model.get_vid_feat(frames_tensor)
-                # video_feat shape: [1, 512]
+                # video_feat shape: [1, embed_dim]
                 video_embedding = video_feat.squeeze(0).detach().cpu().to(torch.float32)
             del frames_tensor
             torch.cuda.empty_cache()
