@@ -42,21 +42,11 @@ class HierarchicalRetriever:
         self.video_dataset = video_dataset
         self.device = device
         logging.info(f"Retriever running on {self.device}")
-        video_model_name = CONFIG.retrieval.video_model_id
+        video_model_name = CONFIG.retrieval.video_model_name
         audio_model_name = CONFIG.retrieval.audio_model_id
         text_model_name = CONFIG.retrieval.text_model_id
-        
-        # Determine video model type from model name or indexing config
-        if "InternVideo2" in video_model_name or CONFIG.indexing.video.model_name == "internvideo2":
-            self.video_model_type = "internvideo2"
-        else:
-            self.video_model_type = CONFIG.indexing.video.model_name  # "xclip" or other
-        
-        # Set video embedding size based on model type
-        if self.video_model_type == "internvideo2":
-            video_embed_size = 512  # InternVideo2 outputs 512-dim embeddings
-        else:  # xclip
-            video_embed_size = 512  # XCLIP outputs 512-dim embeddings
+    
+        video_embed_size = 512  # XCLIP outputs 512-dim embeddings
         
         self.sizes = {
             "video": {
@@ -126,14 +116,15 @@ class HierarchicalRetriever:
         
         # Video encoder
         elif target_modality == "video":
-            if self.video_model_type == "internvideo2":
-                # model_name = self.sizes["video"]["model"]
-                # logging.info(f"Loading InternVideo2 model for retrieval: {model_name}")
-                # self.embedder = AutoModel.from_pretrained(
-                    # model_name,
-                    # trust_remote_code=True
-                # ).to(self.device).eval()
+            if self.video_model_name == "internvideo2-6b":
+                model_name = self.sizes["video"]["model"]
+                logging.info(f"Loading InternVideo2 model for retrieval: {model_name}")
+                self.embedder = AutoModel.from_pretrained(
+                    model_name,
+                    trust_remote_code=True
+                ).to(self.device).eval()
 
+            elif self.video_model_name == "internvideo2-1b"
                 config_path = "external/InternVideo/InternVideo2/multi_modality/demo/internvideo2_stage2_config.py"
                 model_path = "external/InternVideo/InternVideo2/checkpoints/InternVideo2-stage2_1b-224p-f4.pt"
 
@@ -188,21 +179,23 @@ class HierarchicalRetriever:
                 mod_queries, convert_to_tensor=True, device=self.device
             )
         elif self.current_modality == "video":
-            if self.video_model_type == "xclip":
+            logging.info(f"Embedding queries using model {self.video_model_name}")
+            if self.video_model_name == "xclip":
                 inputs = self.processor(
                     text=mod_queries, return_tensors="pt", padding=True # type: ignore
                 ).to(self.device)
                 with torch.no_grad():
                     embeddings = self.embedder.get_text_features(**inputs) # type: ignore
             
-            elif self.video_model_type == "internvideo2":
+            elif self.video_model_name == "internvideo2-6b":
                 # InternVideo2 uses get_txt_feat for text encoding
-                # embeddings_list = []
-                # for query_text in mod_queries:
-                    # text_feat = self.embedder.get_txt_feat(query_text)
-                    # embeddings_list.append(text_feat.squeeze(0))
-                # embeddings = torch.stack(embeddings_list)
+                embeddings_list = []
+                for query_text in mod_queries:
+                    text_feat = self.embedder.get_txt_feat(query_text)
+                    embeddings_list.append(text_feat.squeeze(0))
+                embeddings = torch.stack(embeddings_list)
 
+            elif self.video_model_name == "internvideo2-1b":
                 # Internvideo 1B
                 embeddings = interface.extract_query_features(
                      # base_dataset, 
@@ -210,7 +203,7 @@ class HierarchicalRetriever:
                      self.embedder
                 )
             else:
-                raise ValueError(f"Model type not supported: {self.video_model_type}")        
+                raise ValueError(f"Model type not supported: {self.video_model_name}")        
             
         elif self.current_modality == "audio":
             inputs = self.processor(
@@ -752,13 +745,11 @@ class HierarchicalRetriever:
             logging.info(f"Step 3: Retrieving top {top_k_scenes} scenes GLOBALLY across all videos...")
             
             for query in queries:
-                logging.info("Using windows for retrieval")
                 fused_video_list = results[query.qid]["fused"]
                 # Collect ALL scenes from ALL top videos, then rank globally
                 all_scenes_with_scores: list[tuple[str, Scene, float]] = []  # (video_name, scene, score)
                 
                 for video_name, global_score in fused_video_list:
-                    logging.info("Retrieving best windows for video: " + video_name)
                     # Step 2: Retrieve top windows within each video
                     modality_window_rankings = {}
                     for modality in modalities:
@@ -776,7 +767,6 @@ class HierarchicalRetriever:
                     )
                     
                     if has_windows:
-                        logging.info("Retrieving best scene from the top windows")
                         # Fuse window rankings across modalities
                         fused_window_ranking = self.fuser.fuse(modality_window_rankings)
                         top_windows = [window for window, score in fused_window_ranking[:top_k_windows]]

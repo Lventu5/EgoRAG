@@ -167,7 +167,7 @@ def main(
             modalities=current_modalities,
             top_k_videos=topk_videos,
             top_k_scenes=topk_scenes,
-            use_windows= False,
+            use_windows= CONFIG.retrieval.use_windows,
             skip_video_retrieval=skip_video_retrieval,
         )
 
