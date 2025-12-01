@@ -394,10 +394,24 @@ class MultiModalEncoder:
         dp.windows = []
         dp.window_embeddings = {}
         
-        window_idx = 0
-        for i in range(0, num_scenes - window_size + 1, stride):
+        # Generate window ranges
+        window_ranges = []
+        
+        if num_scenes > 0:
+            # Standard sliding windows
+            for i in range(0, num_scenes - window_size + 1, stride):
+                window_ranges.append((i, i + window_size))
+            
+            # Ensure the tail is covered if the last window didn't reach the end
+            last_end = window_ranges[-1][1] if window_ranges else 0
+            if last_end < num_scenes:
+                logging.info(f"Adding final window to cover tail scenes for {dp.video_name}")
+                start = max(0, num_scenes - window_size)
+                window_ranges.append((start, num_scenes))
+        
+        for window_idx, (start_idx, end_idx) in enumerate(window_ranges):
             # Get the scene IDs in this window
-            window_scene_ids = sorted_scene_ids[i:i + window_size]
+            window_scene_ids = sorted_scene_ids[start_idx:end_idx]
             
             # Get start time from first scene and end time from last scene
             first_scene = dp.scenes[window_scene_ids[0]]
@@ -437,8 +451,7 @@ class MultiModalEncoder:
             window_embs["text_raw"] = ""
 
             dp.window_embeddings[window_id] = window_embs
-            window_idx += 1
-        
+            
         logging.info(f"Created {len(dp.windows)} windows for video {dp.video_name} (window_size={window_size}, stride={stride})")
 
     def _create_window_text_embedding(

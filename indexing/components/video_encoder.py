@@ -234,6 +234,7 @@ class VideoEncoder(BaseEncoder):
                 fnum=8,
                 device=self.device
             )
+            print(frames_tensor.shape)
             with torch.inference_mode():
                 # Get video features using InternVideo2
                 video_feat = self.video_model.get_vid_feat(frames_tensor)
