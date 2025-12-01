@@ -12,7 +12,7 @@ from transformers import (
     AutoTokenizer,
 )
 from sentence_transformers import SentenceTransformer
-from torch.nn.functional import normalize
+from torch.nn.functional import normalize, cosine_similarity
 
 from data.video_dataset import VideoDataset, Window, Scene
 from data.query import Query, QueryDataset
@@ -42,24 +42,24 @@ class HierarchicalRetriever:
         self.video_dataset = video_dataset
         self.device = device
         logging.info(f"Retriever running on {self.device}")
-        video_model_name = CONFIG.retrieval.video_model_name
-        audio_model_name = CONFIG.retrieval.audio_model_id
-        text_model_name = CONFIG.retrieval.text_model_id
+        self.video_model_name = CONFIG.retrieval.video_model_name
+        self.audio_model_name = CONFIG.retrieval.audio_model_id
+        self.text_model_name = CONFIG.retrieval.text_model_id
     
         video_embed_size = 512  # XCLIP outputs 512-dim embeddings
         
         self.sizes = {
             "video": {
                 "size": video_embed_size,  
-                "model": video_model_name
+                "model": self.video_model_name
             },
             "audio": {
                 "size": 512,
-                "model": audio_model_name
+                "model": self.audio_model_name
             },
             "text": {
                 "size": 768,
-                "model": text_model_name
+                "model": self.text_model_name
             },
         }
         self.rewriter = CONFIG.retrieval.rewriter_model_id
@@ -124,7 +124,8 @@ class HierarchicalRetriever:
                     trust_remote_code=True
                 ).to(self.device).eval()
 
-            elif self.video_model_name == "internvideo2-1b"
+            elif self.video_model_name == "internvideo2-1b":
+                logging.info(f"Loading InternVideo2 1B model for retrieval: {self.video_model_name}")
                 config_path = "external/InternVideo/InternVideo2/multi_modality/demo/internvideo2_stage2_config.py"
                 model_path = "external/InternVideo/InternVideo2/checkpoints/InternVideo2-stage2_1b-224p-f4.pt"
 
@@ -318,11 +319,7 @@ class HierarchicalRetriever:
             # Create the database for our queries
             db = torch.stack(candidate_embs).to(self.device)
 
-            # Normalize all embeddings and perform cosine similarity
-            qn = normalize(q_emb, p=2, dim=-1)
-            dbn = normalize(db, p=2, dim=-1)
-
-            scores = torch.matmul(qn, dbn.T).squeeze(0)
+            scores = cosine_similarity(q_emb, db, dim=-1)
             
             # Debug logging for video-level retrieval
             if logging.getLogger().isEnabledFor(logging.DEBUG):
@@ -419,21 +416,26 @@ class HierarchicalRetriever:
                 logging.error(f"No scene embeddings found for video '{video_name}' and modality '{modality}'")
             return []
 
-        # Perform cosine similarity between scenes and queries
-        scene_embeddings = torch.stack(scene_embeddings_list)
-
-        query_embedding_norm = normalize(query_embedding, p=2, dim=-1)
-        scene_embeddings_norm = normalize(scene_embeddings, p=2, dim=-1)
-
-        sim_vector = torch.matmul(query_embedding_norm, scene_embeddings_norm.T).squeeze(0)
+        # Perform cosine similarity between query and scenes
+        scene_embeddings = torch.stack(scene_embeddings_list)  # Shape: (N, D)
+        
+        # Ensure query_embedding is 2D: (1, D) for proper broadcasting
+        if query_embedding.dim() == 1:
+            query_embedding = query_embedding.unsqueeze(0)  # (D,) -> (1, D)
+        
+        # cosine_similarity with dim=-1 computes similarity along feature dimension
+        # query_embedding: (1, D), scene_embeddings: (N, D) -> broadcasts to (N,)
+        sim_vector = cosine_similarity(query_embedding, scene_embeddings, dim=-1)  # Shape: (N,)
         
         # Debug logging for similarity scores
         if logging.getLogger().isEnabledFor(logging.DEBUG):
             logging.debug(f"[Scene Retrieval] video={video_name}, modality={modality}")
-            logging.debug(f"  query_emb shape: {query_embedding.shape}, norm: {query_embedding.norm().item():.4f}")
+            logging.debug(f"  query_emb shape: {query_embedding.shape}")
             logging.debug(f"  scene_embs shape: {scene_embeddings.shape}")
+            logging.debug(f"  sim_vector shape: {sim_vector.shape}")
             logging.debug(f"  sim_vector: min={sim_vector.min().item():.4f}, max={sim_vector.max().item():.4f}, mean={sim_vector.mean().item():.4f}")
 
+        # topk on 1D tensor (N,) returns indices 0..N-1 corresponding to scenes
         top_scores, top_indices = torch.topk(
             sim_vector, k=min(top_k, len(scenes))
         )
@@ -507,14 +509,17 @@ class HierarchicalRetriever:
             logging.error(f"No window embeddings found for video '{video_name}' and modality '{modality}'")
             return []
 
-        # Perform cosine similarity between windows and query
-        window_embeddings = torch.stack(window_embeddings_list)
+        # Perform cosine similarity between query and windows
+        window_embeddings = torch.stack(window_embeddings_list)  # Shape: (N, D)
+        
+        # Ensure query_embedding is 2D: (1, D) for proper broadcasting
+        if query_embedding.dim() == 1:
+            query_embedding = query_embedding.unsqueeze(0)  # (D,) -> (1, D)
+        
+        # cosine_similarity with dim=-1 computes similarity along feature dimension
+        sim_vector = cosine_similarity(query_embedding, window_embeddings, dim=-1)  # Shape: (N,)
 
-        query_embedding_norm = normalize(query_embedding, p=2, dim=-1)
-        window_embeddings_norm = normalize(window_embeddings, p=2, dim=-1)
-
-        sim_vector = torch.matmul(query_embedding_norm, window_embeddings_norm.T).squeeze(0)
-
+        # topk on 1D tensor (N,) returns indices 0..N-1 corresponding to windows
         top_scores, top_indices = torch.topk(
             sim_vector, k=min(top_k, len(windows))
         )
@@ -601,14 +606,17 @@ class HierarchicalRetriever:
                 logging.warning(f"No scene embeddings found in windows for video '{video_name}' and modality '{modality}'")
             return []
 
-        # Perform cosine similarity between scenes and query
-        scene_embeddings = torch.stack(scene_embeddings_list)
+        # Perform cosine similarity between query and scenes from windows
+        scene_embeddings = torch.stack(scene_embeddings_list)  # Shape: (N, D)
+        
+        # Ensure query_embedding is 2D: (1, D) for proper broadcasting
+        if query_embedding.dim() == 1:
+            query_embedding = query_embedding.unsqueeze(0)  # (D,) -> (1, D)
+        
+        # cosine_similarity with dim=-1 computes similarity along feature dimension
+        sim_vector = cosine_similarity(query_embedding, scene_embeddings, dim=-1)  # Shape: (N,)
 
-        query_embedding_norm = normalize(query_embedding, p=2, dim=-1)
-        scene_embeddings_norm = normalize(scene_embeddings, p=2, dim=-1)
-
-        sim_vector = torch.matmul(query_embedding_norm, scene_embeddings_norm.T).squeeze(0)
-
+        # topk on 1D tensor (N,) returns indices 0..N-1 corresponding to scenes
         top_scores, top_indices = torch.topk(
             sim_vector, k=min(top_k, len(scenes))
         )
