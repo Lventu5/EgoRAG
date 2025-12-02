@@ -55,3 +55,16 @@ retrieval:
     min_scenes_to_merge: 2 # Minimum number of scenes required to create a merge
     max_scenes_to_merge: 5 # Maximum number of scenes to merge into one
     score_aggregation: "max" # How to aggregate scores: "max", "mean", or "sum"
+  # Multi-resolution retrieval: Search at multiple scene granularities
+  multi_resolution:
+    enabled: true # Enable multi-resolution scene retrieval
+    # Multipliers for creating virtual scenes from base resolution
+    # e.g., if scene_length=12.0, multipliers [2.0, 3.0] create 24s and 36s virtual scenes
+    resolution_multipliers: [2.0, 3.0]
+    overlap_factor: 0.5 # Overlap between virtual scenes (0.5 = 50% overlap)
+    fusion_strategy: "rrf" # How to fuse results: "rrf", "max", or "weighted"
+    # Resolution weights (only used if fusion_strategy="weighted")
+    resolution_weights:
+      12.0: 1.0  # Base resolution weight
+      24.0: 0.8  # 2x resolution weight
+      36.0: 0.6  # 3x resolution weight
