@@ -124,7 +124,7 @@ class VideoEncoder(BaseEncoder):
             # Get expected input size from model config
             model_config = self.video_model.config
             self.internvideo2_size_t = getattr(model_config, 'size_t', 224)
-            self.internvideo2_num_frames = getattr(model_config, 'num_frames', 4)
+            self.internvideo2_num_frames = getattr(model_config, 'num_frames', 8)
             logging.info(f"InternVideo2 model loaded successfully (size_t={self.internvideo2_size_t}, num_frames={self.internvideo2_num_frames})")
             
         else:
@@ -235,7 +235,7 @@ class VideoEncoder(BaseEncoder):
         elif self.model_name == "internvideo2-6b":
             # Get size from model config (set during load_models)
             size_t = 224
-            num_frames = 8
+            num_frames = 4
             
             # vid2tensor samples frames uniformly and resizes to target_size
             frames_tensor = vid2tensor(
