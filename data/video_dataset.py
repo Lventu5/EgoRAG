@@ -162,24 +162,6 @@ class VideoDataset(Dataset):
     def __getitem__(self, idx):
         return self.video_datapoints[idx]
     
-    def get_datapoint_by_name(self, video_name: str) -> Optional[VideoDataPoint]:
-        """
-        Get a VideoDataPoint by its video name.
-        
-        Args:
-            video_name: The name of the video (without extension)
-            
-        Returns:
-            VideoDataPoint if found, None otherwise
-        """
-        # Remove extension if present
-        video_name_clean = os.path.splitext(video_name)[0]
-        
-        for dp in self.video_datapoints:
-            if dp.video_name == video_name_clean or dp.video_uid == video_name_clean:
-                return dp
-        return None
-    
     def get_uids(self) -> List[str]:
         return [os.path.splitext(os.path.basename(v))[0] for v in self.video_files]
     
