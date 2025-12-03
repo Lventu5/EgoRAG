@@ -16,7 +16,7 @@ from .metrics import (
     SimpleRecallAtK,
     evaluate_retrieval,
 )
-from configuration.config import Config
+from configuration.config import CONFIG
 
 
 class Evaluator(ABC):
@@ -58,8 +58,8 @@ class RetrievalEvaluator(Evaluator):
         super().__init__(name=name)
         self.k_values = k_values
         self.iou_thresholds = iou_thresholds
-        if Config.retrieval.top_k_scenes not in self.k_values:
-            self.k_values.append(Config.retrieval.top_k_scenes)
+        if CONFIG.retrieval.top_k_scenes not in self.k_values:
+            self.k_values.append(CONFIG.retrieval.top_k_scenes)
         # Initialize metrics
         self.tiou = TemporalIoU(name="tIoU")
         self.miou = MeanTemporalIoU(name="mIoU")

@@ -58,7 +58,7 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
         # Check if pickle already exists and load it if not forcing complete re-encoding
         if os.path.exists(pickle_path) and not force_reencoding:
             print(f"Found existing pickle at {pickle_path}, loading and updating...")
-            encoder = MultiModalEncoder(pickle_path=pickle_path, max_workers=4)
+            encoder = MultiModalEncoder(pickle_path=pickle_path, max_workers=2)
             video_dataset = encoder.encode_videos(
                 force=force_reencoding,
                 force_video=force_video,
@@ -91,7 +91,7 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
 
 if __name__ == "__main__":
     video_dir = "../../tnanni/ego4d_data/v2/full_scale"
-    save_dir = "../../tnanni/ego4d_data/v2/internvideo6b_12s_window"
+    save_dir = "../../tnanni/ego4d_data/v2/internvideo6b_20s_5window"
     
     # Option 1: Re-encode everything
     # force_reencoding = True

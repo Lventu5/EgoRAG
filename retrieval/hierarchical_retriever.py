@@ -26,6 +26,7 @@ from indexing.components.tagger import Tagger
 
 import sys
 import os
+import gc
 from pathlib import Path
 sys.path.append(os.path.join(Path(os.getcwd()), 'external/InternVideo/InternVideo2'))
 sys.path.append(os.path.join(Path(os.getcwd()), 'external/InternVideo/InternVideo2/multi_modality'))
@@ -139,8 +140,14 @@ class HierarchicalRetriever:
         if self.current_modality == modality:
             return
         
+        del self.embedder
+        del self.processor
         self.processor = None
         self.embedder = None
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
+
         target_modality = modality
 
         # Text encoder
@@ -152,7 +159,7 @@ class HierarchicalRetriever:
         # Video encoder
         elif target_modality == "video":
             if self.video_model_name == "internvideo2-6b":
-                model_name = self.sizes["video"]["model"]
+                model_name = CONFIG.retrieval.internvideo2_6b_id
                 logging.info(f"Loading InternVideo2 model for retrieval: {model_name}")
                 self.embedder = AutoModel.from_pretrained(
                     model_name,
@@ -211,11 +218,12 @@ class HierarchicalRetriever:
         mod_queries = queries.group_by_modality(self.current_modality)
 
         if self.current_modality == "text":
+            logging.info(f"Embedding queries for text using model {self.text_model_name}")
             embeddings = self.embedder.encode(
                 mod_queries, convert_to_tensor=True, device=self.device
             )
         elif self.current_modality == "video":
-            logging.info(f"Embedding queries using model {self.video_model_name}")
+            logging.info(f"Embedding queries for video using model {self.video_model_name}")
             if self.video_model_name == "xclip":
                 inputs = self.processor(
                     text=mod_queries, return_tensors="pt", padding=True # type: ignore
@@ -226,7 +234,7 @@ class HierarchicalRetriever:
             elif self.video_model_name == "internvideo2-6b":
                 # InternVideo2 uses get_txt_feat for text encoding
                 embeddings_list = []
-                for query_text in mod_queries:
+                for query_text in tqdm(mod_queries, desc = "Encoding queries internvideo2-6b"):
                     text_feat = self.embedder.get_txt_feat(query_text)
                     embeddings_list.append(text_feat.squeeze(0))
                 embeddings = torch.stack(embeddings_list)

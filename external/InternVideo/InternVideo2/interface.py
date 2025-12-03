@@ -63,7 +63,7 @@ def extract_video_features(video_paths, model, device='cuda', fn=4, size_t=224):
 
 def extract_query_features(queries_list, model):
     embeddings_list = []
-    for i, query in enumerate(queries_list):
+    for i, query in enumerate(tqdm(queries_list, desc = "Encoding queries internvideo2-1b")):
         feature_dict = get_text_feat_dict([query], model)
         feat = next(iter(feature_dict.values()))
         embeddings_list.append(feat.squeeze(0))
