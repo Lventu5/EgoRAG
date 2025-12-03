@@ -44,7 +44,7 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
     video_ids = glob.glob(os.path.join(video_dir, "*.mp4"))
     print(f"Found {len(video_ids)} videos")
 
-    for video in tqdm(video_ids[6:7]):
+    for video in tqdm(video_ids):
         print("-"*50)
         print(f"Encoding video {video}")
         print("-"*50)
@@ -58,7 +58,7 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
         # Check if pickle already exists and load it if not forcing complete re-encoding
         if os.path.exists(pickle_path) and not force_reencoding:
             print(f"Found existing pickle at {pickle_path}, loading and updating...")
-            encoder = MultiModalEncoder(pickle_path=pickle_path, max_workers=2)
+            encoder = MultiModalEncoder(pickle_path=pickle_path, max_workers=2, use_tagging=False)
             video_dataset = encoder.encode_videos(
                 force=force_reencoding,
                 force_video=force_video,
