@@ -17,7 +17,7 @@ from indexing.components.video_encoder import VideoEncoder
 from indexing.components.audio_encoder import AudioEncoder
 from indexing.components.text_encoder import TextEncoder
 from indexing.components.visual_captioner import VisualCaptioner
-from indexing.components.tagger import Tagger
+from indexing.components.video_tagger import VisionTagger
 from configuration.config import CONFIG
 
 
@@ -43,7 +43,7 @@ class MultiModalEncoder:
         device: str = "cuda",
         max_workers: int = 2,
         pickle_path: str = None,
-        use_tagging: bool = False,
+        use_tagging: bool = True,
     ):
         # Load from pickle if provided
         if pickle_path and os.path.exists(pickle_path):
@@ -75,10 +75,15 @@ class MultiModalEncoder:
         
         self.captioner = VisualCaptioner(device=self.device)
         logging.info(f"MultiModalEncoder initialized with {max_workers} workers.")
-        # Tagger (lazy-load model on first use)
+        
+        # VisionTagger initialization
         self.use_tagging = use_tagging
-        self.tagger = Tagger(device=self.device)
+        self.tagger = None 
         self._tagger_loaded = False
+        
+        if self.use_tagging:
+            self.tagger = VisionTagger(device=self.device)
+            logging.info("VisionTagger initialized (model will be loaded on first use).")
         
 
     def _should_encode_stage(self, dp: VideoDataPoint, stage: str) -> bool:
@@ -757,7 +762,6 @@ class MultiModalEncoder:
 
             # Stage 2: Caption generation
             self.captioner.load_models()
-            
             self._encode_caption_stage(video_path, dp, force=_force_caption)
 
             self.unload_model("caption")
@@ -765,11 +769,10 @@ class MultiModalEncoder:
                 torch.cuda.empty_cache()
                 gc.collect()
             
-            
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 gc.collect()
-            
+
             # Stage 3: Audio Encoding
             # Fast-check if the video has an audio track before loading heavy models
             """
@@ -791,18 +794,28 @@ class MultiModalEncoder:
             self.text_encoder.load_models()
             self._encode_text_stage(dp, force=_force_text)
 
-            # Tagging: run the tagger using the generated screenplay/text
+            # Tagging: run VisionTagger using the generated screenplay/text
             if self.use_tagging:
                 try:
                     if not self._tagger_loaded:
+                        logging.info(f"[Tagger] Loading VisionTagger model for {dp.video_name}...")
                         self.tagger.load_model()
                         self._tagger_loaded = True
+                    
                     # Tag both global video and individual scenes
+                    logging.info(f"[Tagger] Tagging video {dp.video_name} (global + scenes)...")
                     self.tagger.tag_datapoint(dp, tag_scenes=True)
+                    logging.info(f"[Tagger] Successfully tagged {dp.video_name}")
+                    
+                    # Print tags immediately for this video
+                    self.tagger.pretty_print_datapoint(dp, show_scenes=True, color=True)
+                    
                 except Exception as e:
-                    logging.warning(f"[Tagger] tagging failed for {getattr(dp, 'video_name', '<unknown>')}: {e}")
-                self.unload_model("tagger")
+                    logging.error(f"[Tagger] Tagging failed for {dp.video_name}: {e}")
+                    logging.error(traceback.format_exc())
 
+            # Unload text encoder after text stage
+            self.unload_model("text")
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 gc.collect()
@@ -834,6 +847,20 @@ class MultiModalEncoder:
                 torch.cuda.empty_cache()
                 gc.collect()
 
+        # Unload tagger at the very end after all videos are processed
+        if self.use_tagging and self._tagger_loaded:
+            # Pretty print the tagging results before unloading
+            logging.info("[Tagger] Printing tagging results...")
+            self.tagger.pretty_print_dataset(
+                self.dataset,
+                max_text_len=200,
+                show_scenes=True,
+                color=True
+            )
+            
+            logging.info("[Tagger] Unloading VisionTagger model after processing all videos")
+            self.unload_model("tagger")
+
         self.dataset.encoded = True
         return self.dataset
 
@@ -847,8 +874,12 @@ class MultiModalEncoder:
             del self.audio_encoder
         if modality == "caption" and hasattr(self, "captioner"):
             del self.captioner
-        if modality == "tagger" and hasattr(self, "tagger"):
+        if modality == "tagger" and hasattr(self, "tagger") and self.tagger is not None:
+            if hasattr(self.tagger, 'unload_model'):
+                self.tagger.unload_model()
             del self.tagger
+            self.tagger = None
+            self._tagger_loaded = False
         if self.device == "cuda":
             torch.cuda.empty_cache()
         gc.collect()
