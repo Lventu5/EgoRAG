@@ -43,7 +43,8 @@ class MultiModalEncoder:
         device: str = "cuda",
         max_workers: int = 2,
         pickle_path: str = None,
-        use_tagging: bool = True,
+        use_tagging: bool = False,
+        global_video_embed: bool = False
     ):
         # Load from pickle if provided
         if pickle_path and os.path.exists(pickle_path):
@@ -84,6 +85,12 @@ class MultiModalEncoder:
         if self.use_tagging:
             self.tagger = VisionTagger(device=self.device)
             logging.info("VisionTagger initialized (model will be loaded on first use).")
+
+        self.global_video_embed = global_video_embed
+        if self.global_video_embed:
+            logging.info("Global video embedding will be computed, make sure to have enough memory")
+        else:
+            logging.info("Global video embedding will not be ccomputed")
         
 
     def _should_encode_stage(self, dp: VideoDataPoint, stage: str) -> bool:
@@ -160,16 +167,17 @@ class MultiModalEncoder:
                     raise ValueError("Failed")
         
         # Generate global video embedding for the entire video (except XCLIP)
-        if self.video_encoder.model_name == "xclip":
-            logging.info(f"[Video Stage] Using mean pooling for global video embedding (XCLIP)")
-        elif self.video_encoder.model_name in ["internvideo2-1b", "internvideo2-6b"]:
-            logging.info(f"[Video Stage] Encoding global video embedding for entire video ({dp.video_name})...")
-            video_data = self.video_encoder.encode_full_video(video_path)
-            if video_data:
-                dp.global_embeddings["video"] = video_data["video"]
-                logging.info(f"[Video Stage] Global video embedding generated for {dp.video_name}")
-        else:
-            raise ValueError(f"Unknown model {self.video_encoder.model_name}")
+        if self.global_video_embed:
+            if self.video_encoder.model_name == "xclip":
+                logging.info(f"[Video Stage] Using mean pooling for global video embedding (XCLIP)")
+            elif self.video_encoder.model_name in ["internvideo2-1b", "internvideo2-6b"]:
+                logging.info(f"[Video Stage] Encoding global video embedding for entire video ({dp.video_name})...")
+                video_data = self.video_encoder.encode_full_video(video_path)
+                if video_data:
+                    dp.global_embeddings["video"] = video_data["video"]
+                    logging.info(f"[Video Stage] Global video embedding generated for {dp.video_name}")
+            else:
+                raise ValueError(f"Unknown model {self.video_encoder.model_name}")
 
     def _encode_audio_stage(self, video_path: str, dp: VideoDataPoint, force: bool = False) -> None:
         """
@@ -234,7 +242,7 @@ class MultiModalEncoder:
         dp.has_audio = video_has_audio if video_has_audio is not None else False
         
         # Generate global audio embedding for the entire video
-        if video_has_audio:
+        if video_has_audio and self.global_video_embed:
             logging.info(f"[Caption Stage] Encoding global audio embedding for entire video ({dp.video_name})...")
             start_time, end_time = self._get_video_time_bounds(dp, video_path)
             if end_time > start_time:
@@ -287,12 +295,13 @@ class MultiModalEncoder:
                     logging.error(traceback.format_exc())
         
         # Generate global caption for the entire video
-        logging.info(f"[Caption Stage] Generating global caption for entire video ({dp.video_name})...")
-        global_caption = self._generate_full_video_caption(dp)
-        # Store as temporary data for screenplay generation
-        dp._temp_global_caption = global_caption
-        logging.info(f"[Caption Stage] Global caption generated for {dp.video_name}")
-        
+        if self.global_video_embed:
+            logging.info(f"[Caption Stage] Generating global caption for entire video ({dp.video_name})...")
+            global_caption = self._generate_full_video_caption(dp)
+            # Store as temporary data for screenplay generation
+            dp._temp_global_caption = global_caption
+            logging.info(f"[Caption Stage] Global caption generated for {dp.video_name}")
+            
         if hasattr(dp, "_temp_keyframes"):
             del dp._temp_keyframes
             logging.info(f"[Caption Stage] Keyframes cleaned up for {dp.video_name}")
@@ -821,7 +830,7 @@ class MultiModalEncoder:
                 gc.collect()
             
             # For XCLIP video: use mean pooling since we don't call the model on full video
-            if CONFIG.indexing.video.model_name == "xclip":
+            if CONFIG.indexing.video.model_name == "xclip" and self.global_video_embed:
                 aggregated = self._aggregate_embeddings(dp.scene_embeddings)
                 # Only override video embedding, keep the rest (audio, text were computed globally)
                 if aggregated.get("video") is not None:
@@ -836,10 +845,16 @@ class MultiModalEncoder:
             )
 
             # Window-level text generation and embeddings
+            self.text_encoder = TextEncoder(
+            device=self.device
+            )
+            self.text_encoder.load_models()
             self._encode_window_text_stage(dp)
+            self.unload_model("text")
 
             # Global-level text generation (uses windows or scenes per config)
-            self._encode_global_text_stage(dp)
+            if self.global_video_embed:
+                self._encode_global_text_stage(dp)
 
             # Unload text encoder after all text-related stages are complete
             self.unload_model("text")

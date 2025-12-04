@@ -1,6 +1,7 @@
 import warnings
 import os
 import gc
+import logging
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -12,7 +13,7 @@ os.environ["TORCHVISION_DISABLE_TORCHCODEC"] = "1"
 
 # CRITICAL: Setup cache BEFORE importing transformers!
 from utils.cache_manager import setup_smart_cache, cleanup_smart_cache
-
+from utils.merge_pickles import merge_pickles
 # Setup smart cache (only copies large models like LLaVA)
 # cache_info = setup_smart_cache(verbose=True)
 
@@ -91,7 +92,8 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
 
 if __name__ == "__main__":
     video_dir = "../../tnanni/ego4d_data/v2/full_scale"
-    save_dir = "../../tnanni/ego4d_data/v2/internvideo6b_20s_5window"
+    save_dir = "../../tnanni/ego4d_data/v2/internvideo6b_20s_5window_embedded"
+    output_pkl_file = os.path.join(save_dir, "merged_10_video.pkl")
     
     # Option 1: Re-encode everything
     # force_reencoding = True
@@ -114,6 +116,8 @@ if __name__ == "__main__":
     # force_text = False
     
     encode(video_dir, save_dir, force_reencoding=force_reencoding)
+    merged = merge_pickles(input_dir=save_dir, output_path=output_pkl_file, recursive=False)
+    logging.info("Merging pickle files completed")
     
     # With modality-specific control:
     # encode(video_dir, save_dir, 
