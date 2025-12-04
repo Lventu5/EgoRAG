@@ -350,32 +350,35 @@ class HierarchicalRetriever:
         """
         Helper that returns (scenes, scene_embeddings_list) for a given video
         filtered by precomputed scene tags present in `target_dp.scene_embeddings`.
-        Args:
-            query.tags` is expected to be a list of lowercase tags (may be empty).
-            If `query.tags` is empty, all scenes that have an embedding for the
-            requested modality are returned.
-            Scenes lacking precomputed `tags` will be excluded when `query.tags`
-            is non-empty (no on-demand tagging performed here).
+        
+        If use_tagging is True and query has tags:
+            - Only return scenes that have at least one matching tag
+        Otherwise:
+            - Return all scenes with embeddings for the requested modality
         """
         query_tag_set = set([t.lower() for t in getattr(query, 'tags', []) or []])
+        apply_tag_filter = self.use_tagging and len(query_tag_set) > 0
 
         scenes = []
         scene_embeddings_list = []
 
         for scene_id, scene_data in target_dp.scene_embeddings.items():
-            if query_tag_set:
+            # Apply tag-based filtering if enabled
+            if apply_tag_filter:
                 scene_tags = scene_data.get("tags") or []
                 scene_tag_set = set([t.lower() for t in scene_tags])
+                # Skip scenes with no matching tags
                 if not any(t in scene_tag_set for t in query_tag_set):
-                    if self.use_tagging:
-                        continue
+                    continue
 
+            # Get embedding for this modality
             emb = scene_data.get(modality, None)
             if emb is None:
                 continue
             if not isinstance(emb, torch.Tensor):
                 emb = torch.tensor(emb)
 
+            # Get the Scene object
             scene_obj = target_dp.get_scene_by_id(scene_id)
             if scene_obj is None:
                 logging.warning(f"Scene {scene_id} has embedding but no Scene object in video {target_dp.video_name}")
@@ -383,6 +386,9 @@ class HierarchicalRetriever:
             
             scenes.append(scene_obj)
             scene_embeddings_list.append(emb.to(self.device))
+
+        if apply_tag_filter and len(scenes) > 0:
+            logging.debug(f"Tag filtering: {len(scenes)} scenes match query tags {list(query_tag_set)[:3]}...")
 
         return scenes, scene_embeddings_list
     
@@ -497,21 +503,39 @@ class HierarchicalRetriever:
 
         query_embedding = query.get_embedding(modality).to(self.device)
 
+        # Filter windows by query tags if enabled
+        query_tag_set = set([t.lower() for t in getattr(query, 'tags', []) or []])
+        apply_tag_filter = self.use_tagging and len(query_tag_set) > 0
+
         # Collect window embeddings for the requested modality
         windows = []
         window_embeddings_list = []
         
         for window in target_dp.windows:
             wid = window.window_id
-            if wid in target_dp.window_embeddings:
-                emb = target_dp.window_embeddings[wid].get(modality)
-                if emb is not None:
-                    if not isinstance(emb, torch.Tensor):
-                        emb = torch.tensor(emb)
-                    windows.append(window)
-                    window_embeddings_list.append(emb.to(self.device))
-            else:
+            if wid not in target_dp.window_embeddings:
                 logging.warning(f"Window id {wid} not found in {target_dp.window_embeddings.keys()}")
+                continue
+            
+            window_data = target_dp.window_embeddings[wid]
+            
+            # Apply tag filtering if enabled
+            if apply_tag_filter:
+                window_tags = window_data.get("tags") or []
+                window_tag_set = set([t.lower() for t in window_tags])
+                # Skip windows with no matching tags
+                if not any(t in window_tag_set for t in query_tag_set):
+                    continue
+            
+            emb = window_data.get(modality)
+            if emb is not None:
+                if not isinstance(emb, torch.Tensor):
+                    emb = torch.tensor(emb)
+                windows.append(window)
+                window_embeddings_list.append(emb.to(self.device))
+        
+        if apply_tag_filter and len(windows) > 0:
+            logging.debug(f"Tag filtering (windows): {len(windows)} windows match query tags {list(query_tag_set)[:3]}...")
 
         if not window_embeddings_list:
             logging.error(f"No window embeddings found for video '{video_name}' and modality '{modality}'")
@@ -575,6 +599,7 @@ class HierarchicalRetriever:
         
         # Filter scenes based on window membership and query tags
         query_tag_set = set([t.lower() for t in getattr(query, 'tags', []) or []])
+        apply_tag_filter = self.use_tagging and len(query_tag_set) > 0
         
         scenes = []
         scene_embeddings_list = []
@@ -585,8 +610,8 @@ class HierarchicalRetriever:
                 
             scene_data = target_dp.scene_embeddings[scene_id]
             
-            # Apply tag filtering if query has tags
-            if query_tag_set:
+            # Apply tag filtering if enabled
+            if apply_tag_filter:
                 scene_tags = scene_data.get("tags") or []
                 scene_tag_set = set([t.lower() for t in scene_tags])
                 if not any(t in scene_tag_set for t in query_tag_set):
@@ -606,6 +631,9 @@ class HierarchicalRetriever:
             
             scenes.append(scene_obj)
             scene_embeddings_list.append(emb.to(self.device))
+        
+        if apply_tag_filter and len(scenes) > 0:
+            logging.debug(f"Tag filtering (windows): {len(scenes)} scenes match query tags {list(query_tag_set)[:3]}...")
 
         if not scene_embeddings_list:
             if modality == "audio" and hasattr(target_dp, 'has_audio') and not target_dp.has_audio:
@@ -648,34 +676,63 @@ class HierarchicalRetriever:
         queries: QueryDataset,
     ):
         """
-        Takes queries as an input and scans the video dataset looking for videos containing the same tags
+        Performs video-level filtering based on tags.
+        
+        If use_tagging is True:
+            - Tags queries using the Tagger (LLM-based)
+            - Returns only videos with at least one matching tag
+        Otherwise:
+            - Returns all videos for all queries (no filtering)
+        
         Args:
             queries: the queries to retrieve against
+        
+        Returns:
+            Dictionary mapping query_id to set of candidate video names
         """
         filtered = {}
+        
+        # Load tagger if needed
         if self.use_tagging:
             if not self._tagger_loaded:
+                logging.info("[Retriever] Loading tagger for video filtering...")
                 self.tagger.load_model()
                 self._tagger_loaded = True
-
-        for query in queries:
-            if self.use_tagging:
+            
+            # Tag all queries
+            logging.info(f"[Retriever] Tagging {len(queries)} queries for video filtering...")
+            for query in queries:
                 qtext = query.get_query()
-                qtags = []
                 qtags = self.tagger.infer_tags_from_text(qtext)
                 query.tags = [t.lower() for t in qtags]
+                logging.debug(f"[Retriever] Query {query.qid}: '{qtext[:50]}...' -> tags: {query.tags}")
+        else:
+            # No tagging: set empty tags for all queries
+            for query in queries:
+                query.tags = []
 
+        # Filter videos for each query
+        for query in queries:
             candidates = set()
-            for dp in self.video_dataset.video_datapoints:
-                if self.use_tagging:
+            
+            if self.use_tagging and query.tags:
+                # Apply tag-based filtering
+                query_tag_set = set(query.tags)
+                for dp in self.video_dataset.video_datapoints:
                     dp_tags = dp.global_embeddings.get("tags") or []
-                    dp_tag_set = set([t.lower() for t in (dp_tags or [])])
-                    if any(t in dp_tag_set for t in query.tags):
+                    dp_tag_set = set([t.lower() for t in dp_tags])
+                    # Include video if it has at least one matching tag
+                    if any(t in dp_tag_set for t in query_tag_set):
                         candidates.add(dp.video_name)
-                else:
-                    candidates.add(dp.video_name)
+                
+                logging.info(f"[Retriever] Query {query.qid} tags={query.tags[:3]}{'...' if len(query.tags) > 3 else ''} -> {len(candidates)}/{len(self.video_dataset.video_datapoints)} candidate videos")
+            else:
+                # No filtering: include all videos
+                candidates = {dp.video_name for dp in self.video_dataset.video_datapoints}
+                if self.use_tagging:
+                    logging.debug(f"[Retriever] Query {query.qid} has no tags, using all {len(candidates)} videos")
+            
             filtered[query.qid] = candidates
-            logging.debug(f"[Retriever] Query {query.qid} tags={query.tags} -> {len(filtered[query.qid])} candidate videos")
     
         return filtered
 

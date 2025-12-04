@@ -406,9 +406,14 @@ class VisionTagger:
         
         return boosted_results
 
-    def tag_datapoint(self, dp, tag_scenes: bool = True) -> List[str]:
+    def tag_datapoint(self, dp, tag_scenes: bool = True, tag_windows: bool = True) -> List[str]:
         """
         Tag a single VideoDataPoint using its visual modality.
+        
+        Tags at multiple levels:
+        - Global: entire video
+        - Windows: if tag_windows=True and dp has windows
+        - Scenes: if tag_scenes=True and dp has scenes
         
         Expects `dp.video_path` to be valid.
         """
@@ -430,6 +435,38 @@ class VisionTagger:
             dp.global_embeddings = {}
         
         dp.global_embeddings["tags"] = global_tags
+
+        # --- Window Tagging ---
+        if tag_windows:
+            windows = getattr(dp, "windows", []) or []
+            window_embeddings = getattr(dp, "window_embeddings", {}) or {}
+            
+            if windows and window_embeddings:
+                logging.debug(f"[VisionTagger] Tagging {len(windows)} windows for {video_path}")
+                
+                for window in windows:
+                    wid = window.window_id
+                    start = window.start_time
+                    end = window.end_time
+                    
+                    if wid not in window_embeddings:
+                        logging.warning(f"[VisionTagger] Window {wid} missing from window_embeddings")
+                        continue
+                    
+                    logging.debug(f"[VisionTagger] Tagging window {wid} [{start}-{end}]")
+                    window_frames = self._extract_frames(
+                        video_path,
+                        start_time=float(start),
+                        end_time=float(end),
+                        num_frames=None  # Auto-calculate based on window duration
+                    )
+                    window_tags = self._predict_tags(window_frames)
+                    
+                    # Store tags in window_embeddings dict
+                    window_embeddings[wid]["tags"] = window_tags
+                    logging.debug(f"[VisionTagger] Window {wid} tags: {window_tags}")
+            elif tag_windows and windows:
+                logging.debug(f"[VisionTagger] Windows exist but window_embeddings not initialized for {video_path}")
 
         # --- Scene Tagging ---
         if tag_scenes:
@@ -465,15 +502,19 @@ class VisionTagger:
         return global_tags
 
     def tag_dataset(self, dataset) -> None:
-        """Tag all datapoints in a VideoDataset (in-place)."""
+        """Tag all datapoints in a VideoDataset (in-place).
+        
+        Note: Windows are NOT tagged directly - their tags are aggregated from 
+        scene tags in _create_windows() for efficiency.
+        """
         if self.model is None:
             raise RuntimeError("Model not loaded. Call load_model() first.")
 
         for i, dp in enumerate(dataset.video_datapoints):
             try:
-                # Default behavior: tag scenes if they exist
+                # Tag global video and scenes, but NOT windows (windows get aggregated tags from scenes)
                 has_scenes = bool(getattr(dp, "scene_embeddings", {}))
-                self.tag_datapoint(dp, tag_scenes=has_scenes)
+                self.tag_datapoint(dp, tag_scenes=has_scenes, tag_windows=False)
                 
                 if i % 10 == 0:
                     logging.info(f"[VisionTagger] Processed {i}/{len(dataset.video_datapoints)} videos.")

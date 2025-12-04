@@ -43,7 +43,7 @@ class MultiModalEncoder:
         device: str = "cuda",
         max_workers: int = 2,
         pickle_path: str = None,
-        use_tagging: bool = False,
+        use_tagging: bool = True,
         global_video_embed: bool = False
     ):
         # Load from pickle if provided
@@ -383,6 +383,7 @@ class MultiModalEncoder:
 
         For video embeddings: uses mean pooling of scene embeddings.
         For text embeddings: summarizes scene screenplays using the LLM (similar to global text embedding).
+        For tags: aggregates (union) all tags from the scenes in the window.
         
         Args:
             dp: The VideoDataPoint to process
@@ -463,6 +464,14 @@ class MultiModalEncoder:
             # Reserve placeholders for window text; will be computed in a separate stage
             window_embs["text"] = None
             window_embs["text_raw"] = ""
+            
+            # Aggregate tags from all scenes in this window (union of all scene tags)
+            window_tags = set()
+            for sid in window_scene_ids:
+                if sid in dp.scene_embeddings:
+                    scene_tags = dp.scene_embeddings[sid].get("tags", [])
+                    window_tags.update(scene_tags)
+            window_embs["tags"] = sorted(list(window_tags))  # Sort for consistency
 
             dp.window_embeddings[window_id] = window_embs
             
@@ -540,9 +549,9 @@ class MultiModalEncoder:
             # Use the text encoder's window summarizer
             try:
                 window_summary = self.text_encoder.generate_window_screenplay(scene_screenplays, window_id)
-                # Store raw text and encoded embedding
+                # Store raw text and encoded embedding (preserve existing data like tags)
                 if window_id not in dp.window_embeddings:
-                    dp.window_embeddings[window_id] = {"video": None, "text": None, "text_raw": ""}
+                    dp.window_embeddings[window_id] = {"video": None, "text": None, "text_raw": "", "tags": []}
                 dp.window_embeddings[window_id]["text_raw"] = window_summary
                 dp.window_embeddings[window_id]["text"] = self.text_encoder.encode(window_summary)
             except Exception as e:
@@ -811,9 +820,9 @@ class MultiModalEncoder:
                         self.tagger.load_model()
                         self._tagger_loaded = True
                     
-                    # Tag both global video and individual scenes
+                    # Tag both global video and individual scenes (windows will be aggregated from scenes)
                     logging.info(f"[Tagger] Tagging video {dp.video_name} (global + scenes)...")
-                    self.tagger.tag_datapoint(dp, tag_scenes=True)
+                    self.tagger.tag_datapoint(dp, tag_scenes=True, tag_windows=False)
                     logging.info(f"[Tagger] Successfully tagged {dp.video_name}")
                     
                     # Print tags immediately for this video
