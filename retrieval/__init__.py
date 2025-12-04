@@ -13,13 +13,6 @@ from .hierarchical_retriever import HierarchicalRetriever
 from .fuser import Fuser, BaseFuser, FuserRRF, FuserMeanImputation, FuserExcludeMissing
 from .rewriter import QueryRewriterLLM
 from .scene_merger import SceneMerger, MergedScene, merge_consecutive_scenes
-from .multi_resolution import (
-    MultiResolutionIndex,
-    MultiResolutionRetriever,
-    MultiResolutionScene,
-    VirtualMultiResolutionScene,
-    create_multi_resolution_index,
-)
 
 __all__ = [
     'HierarchicalRetriever',

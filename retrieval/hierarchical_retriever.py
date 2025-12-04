@@ -20,7 +20,6 @@ import data.datatypes as types
 from retrieval.rewriter import QueryRewriterLLM
 from .fuser import Fuser
 from .scene_merger import SceneMerger
-from .multi_resolution import MultiResolutionIndex, MultiResolutionRetriever, create_multi_resolution_index
 from configuration.config import CONFIG
 from indexing.components.tagger import Tagger
 
@@ -91,40 +90,6 @@ class HierarchicalRetriever:
             self.scene_merger = None
             self.merge_score_aggregation = 'max'
             logging.info("Scene merger disabled")
-        
-        # Initialize multi-resolution index if enabled in config
-        multi_res_config = getattr(CONFIG.retrieval, 'multi_resolution', None)
-        if multi_res_config and getattr(multi_res_config, 'enabled', False):
-            base_resolution = getattr(CONFIG.indexing, 'scene_length', 12.0)
-            multipliers = getattr(multi_res_config, 'resolution_multipliers', [2.0, 3.0])
-            overlap_factor = getattr(multi_res_config, 'overlap_factor', 0.5)
-            fusion_strategy = getattr(multi_res_config, 'fusion_strategy', 'rrf')
-            
-            logging.info(f"Initializing multi-resolution index: base={base_resolution}s, multipliers={multipliers}")
-            self.multi_res_index = create_multi_resolution_index(
-                video_dataset=video_dataset,
-                base_resolution=base_resolution,
-                multipliers=multipliers,
-                overlap_factor=overlap_factor,
-            )
-            
-            # Get resolution weights if using weighted fusion
-            resolution_weights = {}
-            if fusion_strategy == "weighted":
-                weights_config = getattr(multi_res_config, 'resolution_weights', {})
-                if hasattr(weights_config, '__iter__'):
-                    resolution_weights = dict(weights_config)
-            
-            self.multi_res_retriever = MultiResolutionRetriever(
-                multi_res_index=self.multi_res_index,
-                fusion_strategy=fusion_strategy,
-                resolution_weights=resolution_weights,
-            )
-            logging.info("Multi-resolution retrieval enabled")
-        else:
-            self.multi_res_index = None
-            self.multi_res_retriever = None
-            logging.info("Multi-resolution retrieval disabled")
 
         # Tagger for query and dataset filtering (lazy load)
         self.tagger = Tagger(device=self.device)
@@ -494,61 +459,6 @@ class HierarchicalRetriever:
             )
         
         return results
-    
-    def _retrieve_best_scenes_multi_resolution(
-        self, 
-        query: Query, 
-        video_name: str, 
-        modality: str, 
-        top_k: int = 1
-    ) -> types.TopKScenes:
-        """
-        Gets the best scenes using multi-resolution retrieval.
-        Searches across base resolution and virtual higher-resolution scenes,
-        then fuses results.
-        
-        Args:
-            query: the Query to use
-            video_name: the video to retrieve from
-            modality: the modality to use
-            top_k: the number of scenes to retrieve
-            
-        Returns:
-            List of (scene, score) tuples
-        """
-        if self.multi_res_retriever is None:
-            # Fall back to single-resolution retrieval
-            return self._retrieve_best_scenes(query, video_name, modality, top_k)
-        
-        query_embedding = query.get_embedding(modality).to(self.device)
-        
-        results = self.multi_res_retriever.retrieve_scenes(
-            video_name=video_name,
-            query_embedding=query_embedding,
-            modality=modality,
-            top_k=top_k,
-            device=self.device
-        )
-        
-        # Apply scene merging if enabled (on the multi-res results)
-        if self.scene_merger is not None:
-            results = self.scene_merger.merge_top_k_scenes(
-                results,
-                score_aggregation=self.merge_score_aggregation
-            )
-        
-        logging.debug(f"Multi-resolution retrieval for {video_name}: {len(results)} results")
-        
-        return results
-    
-    def _get_scene_retrieval_method(self):
-        """
-        Returns the appropriate scene retrieval method based on config.
-        Uses multi-resolution retrieval if enabled, otherwise single-resolution.
-        """
-        if self.multi_res_retriever is not None:
-            return self._retrieve_best_scenes_multi_resolution
-        return self._retrieve_best_scenes
 
     def _retrieve_best_windows(
         self, 
@@ -924,13 +834,10 @@ class HierarchicalRetriever:
                     logging.warning(f"No windows found for query {query.qid}, falling back to direct scene retrieval")
                     all_scenes_with_scores: list[tuple[str, Scene, float]] = []
                     
-                    # Use multi-resolution retrieval if enabled
-                    scene_retrieval_method = self._get_scene_retrieval_method()
-                    
                     for video_name, video_score in fused_video_list:
                         modality_scene_rankings = {}
                         for modality in modalities:
-                            modality_scene_rankings[modality] = scene_retrieval_method(
+                            modality_scene_rankings[modality] = self._retrieve_best_scenes(
                                 query=query,
                                 video_name=video_name,
                                 modality=modality,
@@ -962,9 +869,6 @@ class HierarchicalRetriever:
             # Direct scene retrieval (original behavior): Videos -> Scenes
             logging.info(f"Step 2: Retrieving top {top_k_scenes} scenes GLOBALLY across all videos...")
             
-            # Use multi-resolution retrieval if enabled
-            scene_retrieval_method = self._get_scene_retrieval_method()
-            
             for query in queries:
                 fused_video_list = results[query.qid]["fused"]
                 # Collect ALL scenes from ALL top videos, then rank globally
@@ -973,7 +877,7 @@ class HierarchicalRetriever:
                 for video_name, global_score in fused_video_list:
                     modality_scene_rankings = {}
                     for modality in modalities:
-                        modality_scene_rankings[modality] = scene_retrieval_method(
+                        modality_scene_rankings[modality] = self._retrieve_best_scenes(
                             query=query,
                             video_name=video_name,
                             modality=modality,
