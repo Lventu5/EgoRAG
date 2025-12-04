@@ -122,6 +122,7 @@ def main(
         modalities: list[tuple[str, list[str]]], 
         topk_videos: int = 3, 
         topk_scenes: int = 1, 
+        topk_windows: int = 2,
         device: str = "cuda",
         skip_video_retrieval: bool = False,
         save_path: str = "./results/retrieval_results.csv",
@@ -166,6 +167,7 @@ def main(
             queries=query_dataset,
             modalities=current_modalities,
             top_k_videos=topk_videos,
+            top_k_windows = topk_windows,
             top_k_scenes=topk_scenes,
             use_windows= CONFIG.retrieval.use_windows,
             skip_video_retrieval=skip_video_retrieval,
@@ -208,10 +210,11 @@ if __name__ == "__main__":
     ]
     topk_videos = CONFIG.retrieval.top_k_videos
     topk_scenes = CONFIG.retrieval.top_k_scenes
+    topk_windows = CONFIG.retrieval.top_k_windows
     device = CONFIG.device
     skip_video_retrieval = getattr(CONFIG.retrieval, 'skip_video_retrieval', False)
     video_pkl_path = Path(video_pickle)
     save_filename = video_pkl_path.parent.name
     save_path = f"./results/{save_filename}_retrieval_results.csv"
 
-    main(video_pickle, annotations, modalities, topk_videos, topk_scenes, device, skip_video_retrieval, save_path)
+    main(video_pickle, annotations, modalities, topk_videos, topk_scenes, topk_windows, device, skip_video_retrieval, save_path)

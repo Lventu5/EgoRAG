@@ -1,12 +1,12 @@
 device: "cuda"
 data:
-  video_path: "../../mronconi/ego4d_data/v2/full_scale/"
-  annotation_path: "../../mronconi/ego4d_data/v2/annotations/nlq_train.json"
-  video_dataset: "/cluster/project/cvg/students/mronconi/ego4d_data/v2/internvideo1b_tagging_encoded/merged_internvideo1b_tagging_encoded.pkl"
+  video_path: "../../tnanni/ego4d_data/v2/full_scale/"
+  annotation_path: "../../tnanni/ego4d_data/v2/annotations/nlq_train.json"
+  video_dataset: "/cluster/project/cvg/students/tnanni/ego4d_data/v2/internvideo6b_20s_5window_embedded/merged_10_video.pkl"
 indexing:
   scene_length: 20.0
   video:
-    model_name: "internvideo2-1b" # Options: "xclip", "internvideo2-1b", "internvideo2-6b"
+    model_name: "internvideo2-6b" # Options: "xclip", "internvideo2-1b", "internvideo2-6b"
     xclip_id: "microsoft/xclip-base-patch16"
     llava_id: "llava-hf/LLaVA-NeXT-Video-7B-hf"
     internvideo2_1b_id: "OpenGVLab/InternVideo2-Stage2-1B-224p-f8"
