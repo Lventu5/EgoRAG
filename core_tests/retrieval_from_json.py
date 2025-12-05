@@ -1,5 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
+from typing import Any, Dict
 
 import torch
 import pandas as pd
@@ -19,6 +20,32 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 os.environ["HF_HOME"] = os.environ.get("TRANSFORMERS_CACHE", "")
+
+
+def _flatten_dict(data: Dict[str, Any], parent_key: str = "") -> Dict[str, Any]:
+    """Flatten nested dict using dot-separated keys for Excel serialization."""
+    items: Dict[str, Any] = {}
+    for k, v in data.items():
+        new_key = f"{parent_key}.{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.update(_flatten_dict(v, new_key))
+        else:
+            items[new_key] = v
+    return items
+
+
+def _unique_excel_path(path_str: str) -> Path:
+    """Ensure target Excel path is .xlsx and unique by appending (n) if needed."""
+    path = Path(path_str)
+    if path.suffix.lower() != ".xlsx":
+        path = path.with_suffix(".xlsx")
+
+    candidate = path
+    counter = 1
+    while candidate.exists():
+        candidate = candidate.with_name(f"{path.stem}({counter}){path.suffix}")
+        counter += 1
+    return candidate
 
 def convert_and_evaluate(retrieval_results: dict, queries, evaluator: RetrievalEvaluator):
     """Convert hierarchical retriever output to metric inputs and run evaluator.
@@ -125,7 +152,7 @@ def main(
         topk_windows: int = 2,
         device: str = "cuda",
         skip_video_retrieval: bool = False,
-        save_path: str = "./results/retrieval_results.csv",
+    save_path: str = "./results/retrieval_results.xlsx",
     ):
     logging.basicConfig(level=logging.INFO)
     if not torch.cuda.is_available() and device == "cuda":
@@ -139,6 +166,13 @@ def main(
     if not os.path.exists(annotations):
         logging.error(f"Annotations file not found: {annotations}")
         sys.exit(1)
+
+    # Normalize and de-duplicate the Excel path
+    unique_save_path = _unique_excel_path(save_path)
+    if str(unique_save_path) != str(save_path):
+        logging.info(f"Save path exists or was not .xlsx, writing to {unique_save_path}")
+    save_dir = os.path.dirname(unique_save_path) or "."
+    os.makedirs(save_dir, exist_ok=True)
 
     logging.info("Loading Data and Queries...")
 
@@ -191,14 +225,21 @@ def main(
     cols = ["Experiment", "Modalities"] + [c for c in df.columns if c not in ["Experiment", "Modalities"]]
     df = df[cols]
 
+    config_flat = _flatten_dict(CONFIG.to_dict())
+    config_df = pd.DataFrame(
+        {"key": list(config_flat.keys()), "value": list(config_flat.values())}
+    )
+
     print("\n" + "="*60)
     print("FINAL RESULTS TABLE")
     print("="*60)
     print(df.to_string(index=False))
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-    df.to_csv(save_path, index=False)
-    print(f"\nSaved results to {save_path}")
+    with pd.ExcelWriter(unique_save_path) as writer:
+        df.to_excel(writer, sheet_name="metrics", index=False)
+        config_df.to_excel(writer, sheet_name="config", index=False)
+
+    print(f"\nSaved results and config to {unique_save_path}")
 
 
 if __name__ == "__main__":
@@ -216,6 +257,6 @@ if __name__ == "__main__":
     skip_video_retrieval = getattr(CONFIG.retrieval, 'skip_video_retrieval', False)
     video_pkl_path = Path(video_pickle)
     save_filename = video_pkl_path.parent.name
-    save_path = f"./results/{save_filename}_retrieval_results.csv"
+    save_path = f"./results/{save_filename}_retrieval_results.xlsx"
 
     main(video_pickle, annotations, modalities, topk_videos, topk_scenes, topk_windows, device, skip_video_retrieval, save_path)

@@ -32,6 +32,19 @@ class Config:
     def __repr__(self):
         return f"Config({self._config})"
 
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Recursively convert the configuration into a plain dict for serialization.
+        """
+        def _convert(value):
+            if isinstance(value, Config):
+                return value.to_dict()
+            if isinstance(value, dict):
+                return {k: _convert(v) for k, v in value.items()}
+            return value
+
+        return {k: _convert(v) for k, v in self._config.items()}
+
 
 def load_config(config_path: str = None) -> Config:
     """
@@ -55,3 +68,28 @@ def load_config(config_path: str = None) -> Config:
 
 
 CONFIG = load_config()
+
+
+def save_config_snapshot(config: Config, output_path: str, extra_info: Dict[str, Any] | None = None) -> Path:
+    """
+    Persist the current configuration (and optional experiment metadata) to a text file.
+
+    Args:
+        config: Config instance to serialize.
+        output_path: Destination path for the snapshot file.
+        extra_info: Optional metadata (e.g., experiment name, modalities) to store alongside config.
+
+    Returns:
+        Path to the written file.
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    payload: Dict[str, Any] = {"config": config.to_dict()}
+    if extra_info:
+        payload["experiment"] = extra_info
+
+    with output_path.open("w") as f:
+        yaml.safe_dump(payload, f, default_flow_style=False)
+
+    return output_path

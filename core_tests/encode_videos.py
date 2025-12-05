@@ -2,6 +2,7 @@ import warnings
 import os
 import gc
 import logging
+from pathlib import Path
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -14,6 +15,7 @@ os.environ["TORCHVISION_DISABLE_TORCHCODEC"] = "1"
 # CRITICAL: Setup cache BEFORE importing transformers!
 from utils.cache_manager import setup_smart_cache, cleanup_smart_cache
 from utils.merge_pickles import merge_pickles
+from configuration.config import CONFIG, save_config_snapshot
 # Setup smart cache (only copies large models like LLaVA)
 # cache_info = setup_smart_cache(verbose=True)
 
@@ -42,8 +44,24 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
         force_caption: If True, force re-encode captions. If None, uses force_reencoding.
         force_text: If True, force re-encode text embeddings. If None, uses force_reencoding.
     """
+    os.makedirs(save_dir, exist_ok=True)
+
     video_ids = glob.glob(os.path.join(video_dir, "*.mp4"))
     print(f"Found {len(video_ids)} videos")
+
+    config_txt_path = Path(save_dir) / "config_snapshot.txt"
+    extra_info = {
+        "experiment": Path(save_dir).name,
+        "video_dir": video_dir,
+        "save_dir": save_dir,
+        "force_reencoding": force_reencoding,
+        "force_video": force_video,
+        "force_audio": force_audio,
+        "force_caption": force_caption,
+        "force_text": force_text,
+    }
+    save_config_snapshot(CONFIG, config_txt_path, extra_info)
+    print(f"Saved config snapshot to {config_txt_path}")
 
     for video in tqdm(video_ids):
         print("-"*50)
@@ -91,8 +109,8 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
         gc.collect()  # Double gc to ensure everything is freed
 
 if __name__ == "__main__":
-    video_dir = "../../mronconi/ego4d_data/v2/full_scale"
-    save_dir = "../../mronconi/ego4d_data/v2/internvideo1b_tagging_encoded"
+    video_dir = "../../tnanni/ego4d_data/v2/full_scale"
+    save_dir = "../../tnanni/ego4d_data/v2/internvideo6b_20s_5window_tagged"
     output_pkl_file = os.path.join(save_dir, "merged_10_video.pkl")
     
     # Option 1: Re-encode everything
