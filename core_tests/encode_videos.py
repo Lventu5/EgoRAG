@@ -109,8 +109,8 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
         gc.collect()  # Double gc to ensure everything is freed
 
 if __name__ == "__main__":
-    video_dir = "../../tnanni/ego4d_data/v2/full_scale"
-    save_dir = "../../tnanni/ego4d_data/v2/internvideo6b_20s_5window_tagged"
+    video_dir = "../../mronconi/ego4d_data/v2/full_scale"
+    save_dir = "../../mronconi/ego4d_data/v2/prova_clip_large_patch14"
     output_pkl_file = os.path.join(save_dir, "merged_10_video.pkl")
     
     # Option 1: Re-encode everything

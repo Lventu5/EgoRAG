@@ -779,6 +779,7 @@ class MultiModalEncoder:
             
 
             # Stage 2: Caption generation
+            '''
             self.captioner.load_models()
             self._encode_caption_stage(video_path, dp, force=_force_caption)
 
@@ -790,7 +791,7 @@ class MultiModalEncoder:
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 gc.collect()
-
+            '''
             # Stage 3: Audio Encoding
             # Fast-check if the video has an audio track before loading heavy models
             """
@@ -809,8 +810,8 @@ class MultiModalEncoder:
             """
             
             # Stage 4: Text Encoding
-            self.text_encoder.load_models()
-            self._encode_text_stage(dp, force=_force_text)
+            # self.text_encoder.load_models()
+            # self._encode_text_stage(dp, force=_force_text)
 
             # Tagging: run VisionTagger using the generated screenplay/text
             if self.use_tagging:

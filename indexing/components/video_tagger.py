@@ -25,15 +25,15 @@ class VisionTagger:
         self, 
         device: str = "cuda", 
         batch_size: int = 8, # Batch size for CLIP inference
-        confidence_threshold: float = 0.25, # Minimum confidence to accept a tag
-        frame_interval: float = 2.0,  # Extract 1 frame every N seconds (e.g., 2.0 = 1 frame per 2s)
-        min_frame_presence: float = 0.20,  # Tag must appear in tot%+ of frames to be accepted
+        confidence_threshold: float = 0.10, # Minimum confidence to accept a tag
+        frame_interval: float = 1.5,  # Extract 1 frame every N seconds (e.g., 2.0 = 1 frame per 2s)
+        min_frame_presence: float = 0.05,  # Tag must appear in tot%+ of frames to be accepted
         use_adaptive_threshold: bool = True, # Use adaptive thresholding based on score distribution
         filter_low_quality: bool = True, # Filter out low-quality frames based on blur and brightness
         blur_threshold: float = 100.0,  # Laplacian variance threshold for blur detection
         brightness_min: float = 20.0,   # Minimum average brightness for frame quality
         brightness_max: float = 235.0,  # Maximum average brightness for frame quality
-        ensemble_weights: Tuple[float, float] = (0.6, 0.4),  # (max_weight, mean_weight)
+        ensemble_weights: Tuple[float, float] = (0.8, 0.2),  # (max_weight, mean_weight)
     ):
         self.model_name = getattr(CONFIG.indexing.tag, "vision_model_id", "openai/clip-vit-base-patch32")
         self.device = device if torch.cuda.is_available() else "cpu"
