@@ -21,7 +21,7 @@ from retrieval.rewriter import QueryRewriterLLM
 from .fuser import Fuser
 from .scene_merger import SceneMerger
 from configuration.config import CONFIG
-from indexing.components.tagger import Tagger
+from retrieval.query_tagger import QueryTagger
 
 import sys
 import os
@@ -38,7 +38,7 @@ class HierarchicalRetriever:
         video_dataset: VideoDataset,
         fuser: Fuser | None = None,
         device: str = "cuda",
-        use_tagging: bool = False,
+        use_tagging: bool = True,
     ):
         self.video_dataset = video_dataset
         self.device = device
@@ -91,8 +91,8 @@ class HierarchicalRetriever:
             self.merge_score_aggregation = 'max'
             logging.info("Scene merger disabled")
 
-        # Tagger for query and dataset filtering (lazy load)
-        self.tagger = Tagger(device=self.device)
+        # QueryTagger for CLIP-based query tagging (lazy load)
+        self.query_tagger = QueryTagger(device=self.device)
         self._tagger_loaded = False
 
 
@@ -679,7 +679,8 @@ class HierarchicalRetriever:
         Performs video-level filtering based on tags.
         
         If use_tagging is True:
-            - Tags queries using the Tagger (LLM-based)
+            - Tags queries using QueryTagger (CLIP-based, same as VisionTagger)
+            - Uses rewritten video modality from query decomposition
             - Returns only videos with at least one matching tag
         Otherwise:
             - Returns all videos for all queries (no filtering)
@@ -692,18 +693,19 @@ class HierarchicalRetriever:
         """
         filtered = {}
         
-        # Load tagger if needed
+        # Load QueryTagger if needed
         if self.use_tagging:
             if not self._tagger_loaded:
-                logging.info("[Retriever] Loading tagger for video filtering...")
-                self.tagger.load_model()
+                logging.info("[Retriever] Loading CLIP-based QueryTagger for video filtering...")
+                self.query_tagger.load_model()  # Same CLIP model as VisionTagger
                 self._tagger_loaded = True
             
-            # Tag all queries
-            logging.info(f"[Retriever] Tagging {len(queries)} queries for video filtering...")
+            # Tag all queries using CLIP (same space as video tags)
+            logging.info(f"[Retriever] Tagging {len(queries)} queries with CLIP...")
             for query in queries:
-                qtext = query.get_query()
-                qtags = self.tagger.infer_tags_from_text(qtext)
+                # Use the rewritten video modality (visual description) for better CLIP alignment
+                qtext = query.decomposed.get("video", query.get_query())
+                qtags = self.query_tagger.tag_query(qtext)  # CLIP-based tagging
                 query.tags = [t.lower() for t in qtags]
                 logging.debug(f"[Retriever] Query {query.qid}: '{qtext[:50]}...' -> tags: {query.tags}")
         else:
