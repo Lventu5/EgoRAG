@@ -95,6 +95,36 @@ class HierarchicalRetriever:
         self.query_tagger = QueryTagger(device=self.device)
         self._tagger_loaded = False
 
+    def unload_models(self):
+        """
+        Explicitly unload all models from GPU to free memory.
+        Call this when done with retrieval to free up GPU resources.
+        """
+        if hasattr(self, 'embedder') and self.embedder is not None:
+            try:
+                self.embedder.cpu()
+            except:
+                pass
+            del self.embedder
+            self.embedder = None
+        
+        if hasattr(self, 'processor') and self.processor is not None:
+            del self.processor
+            self.processor = None
+        
+        if hasattr(self, 'query_tagger') and self.query_tagger is not None:
+            self.query_tagger.unload_model() if hasattr(self.query_tagger, 'unload_model') else None
+            self._tagger_loaded = False
+        
+        self.current_modality = None
+        
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        gc.collect()
+        
+        logging.info("All models unloaded from GPU")
 
     def _load_models_for_modality(self, modality: str):
         """
@@ -105,12 +135,24 @@ class HierarchicalRetriever:
         if self.current_modality == modality:
             return
         
-        del self.embedder
-        del self.processor
+        # Aggressive cleanup before loading new model
+        if hasattr(self, 'embedder') and self.embedder is not None:
+            # Move model to CPU first to free GPU memory
+            try:
+                self.embedder.cpu()
+            except:
+                pass
+            del self.embedder
+        if hasattr(self, 'processor') and self.processor is not None:
+            del self.processor
         self.processor = None
         self.embedder = None
+        
+        # Force garbage collection and clear CUDA cache
+        gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+            torch.cuda.synchronize()
         gc.collect()
 
         target_modality = modality
@@ -126,9 +168,11 @@ class HierarchicalRetriever:
             if self.video_model_name == "internvideo2-6b":
                 model_name = CONFIG.retrieval.internvideo2_6b_id
                 logging.info(f"Loading InternVideo2 model for retrieval: {model_name}")
+                # Load in float16 to reduce memory usage on V100
                 self.embedder = AutoModel.from_pretrained(
                     model_name,
-                    trust_remote_code=True
+                    trust_remote_code=True,
+                    torch_dtype=torch.float16  # Use half precision to save ~50% GPU memory
                 ).to(self.device).eval()
 
             elif self.video_model_name == "internvideo2-1b":
@@ -198,10 +242,15 @@ class HierarchicalRetriever:
             
             elif self.video_model_name == "internvideo2-6b":
                 # InternVideo2 uses get_txt_feat for text encoding
+                # Process queries one at a time and immediately move to CPU to save GPU memory
                 embeddings_list = []
                 for query_text in tqdm(mod_queries, desc = "Encoding queries internvideo2-6b"):
-                    text_feat = self.embedder.get_txt_feat(query_text)
-                    embeddings_list.append(text_feat.squeeze(0))
+                    with torch.no_grad():
+                        text_feat = self.embedder.get_txt_feat(query_text)
+                        embeddings_list.append(text_feat.squeeze(0).cpu())  # Move to CPU immediately
+                    # Clear CUDA cache periodically
+                    if len(embeddings_list) % 10 == 0 and torch.cuda.is_available():
+                        torch.cuda.empty_cache()
                 embeddings = torch.stack(embeddings_list)
 
             elif self.video_model_name == "internvideo2-1b":
@@ -224,9 +273,15 @@ class HierarchicalRetriever:
             raise ValueError(f"Unknown modality: {self.current_modality}")
         
         for query, emb in zip(queries, embeddings):
-            query.embeddings[self.current_modality] = emb.cpu()
+            query.embeddings[self.current_modality] = emb.cpu().clone()
 
-        return embeddings
+        # Move embeddings to CPU and clear GPU memory
+        embeddings_cpu = embeddings.cpu()
+        del embeddings
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        return embeddings_cpu
 
     def _retrieve_top_videos_per_queries(
         self, 
@@ -279,7 +334,8 @@ class HierarchicalRetriever:
         """
         logging.info(f"Retrieving top {top_k} results for modality '{modality}'")
 
-        query_embeddings = queries.embeddings_by_modality(modality).to(self.device)
+        # Keep query embeddings on CPU initially, move per-query to GPU
+        query_embeddings_cpu = queries.embeddings_by_modality(modality)
 
         all_results = []
 
@@ -289,7 +345,8 @@ class HierarchicalRetriever:
         # For each query, use precomputed candidate_videos to
         # avoid repeated tag inference and to perform the screening exactly once.
         for q_idx, query in enumerate(queries):
-            q_emb = query_embeddings[q_idx].unsqueeze(0)  # shape (1, D)
+            # Move only current query embedding to GPU
+            q_emb = query_embeddings_cpu[q_idx].unsqueeze(0).to(self.device)  # shape (1, D)
 
             # Take the candidate videos
             candidate_names = []
@@ -318,16 +375,35 @@ class HierarchicalRetriever:
 
             if not candidate_embs:
                 all_results.append([])
+                # Clean up query embedding
+                del q_emb
                 continue
 
             # Log info about videos without modality for this query
             if videos_without_modality and modality == "audio":
                 logging.info(f"{len(videos_without_modality)} video(s) have no audio track and will be excluded from audio-based retrieval")
 
-            # Create the database for our queries
-            db = torch.stack(candidate_embs).to(self.device)
-
-            scores = cosine_similarity(q_emb, db, dim=-1)
+            # Create the database for our queries - process in batches if too large
+            max_batch_size = 1000  # Adjust based on available memory
+            
+            if len(candidate_embs) <= max_batch_size:
+                db = torch.stack(candidate_embs).to(self.device)
+                scores = cosine_similarity(q_emb, db, dim=-1)
+                del db  # Free GPU memory immediately
+            else:
+                # Process in batches to avoid OOM
+                all_scores = []
+                for batch_start in range(0, len(candidate_embs), max_batch_size):
+                    batch_end = min(batch_start + max_batch_size, len(candidate_embs))
+                    batch_embs = candidate_embs[batch_start:batch_end]
+                    db_batch = torch.stack(batch_embs).to(self.device)
+                    batch_scores = cosine_similarity(q_emb, db_batch, dim=-1)
+                    all_scores.append(batch_scores.cpu())
+                    del db_batch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                scores = torch.cat(all_scores).to(self.device)
+                del all_scores
             
             # Debug logging for video-level retrieval
             if logging.getLogger().isEnabledFor(logging.DEBUG):
@@ -343,6 +419,13 @@ class HierarchicalRetriever:
                 query_results.append((candidate_names[idx.item()], score.item()))
 
             all_results.append(query_results)
+            
+            # Clean up tensors after each query
+            del q_emb, scores, top_scores, top_indices
+        
+        # Final cleanup
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         return all_results
 
@@ -457,6 +540,11 @@ class HierarchicalRetriever:
         for score, scene_idx in zip(top_scores, top_indices):
             results.append((scenes[scene_idx.item()], score.item())) # type: ignore
         
+        # Clean up GPU tensors
+        del query_embedding, scene_embeddings, sim_vector, top_scores, top_indices
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
         # Apply scene merging if enabled
         if self.scene_merger is not None:
             results = self.scene_merger.merge_top_k_scenes(
@@ -560,6 +648,11 @@ class HierarchicalRetriever:
         for score, window_idx in zip(top_scores, top_indices):
             results.append((windows[window_idx.item()], score.item()))
         
+        # Clean up GPU tensors
+        del query_embedding, window_embeddings, sim_vector, top_scores, top_indices
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
         return results
 
     def _retrieve_best_scenes_from_windows(
@@ -660,6 +753,11 @@ class HierarchicalRetriever:
         results = []
         for score, scene_idx in zip(top_scores, top_indices):
             results.append((scenes[scene_idx.item()], score.item()))
+        
+        # Clean up GPU tensors
+        del query_embedding, scene_embeddings, sim_vector, top_scores, top_indices
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         
         # Apply scene merging if enabled
         if self.scene_merger is not None:
