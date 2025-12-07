@@ -24,7 +24,7 @@ class QueryTagger:
     def __init__(
         self, 
         device: str = "cuda", 
-        confidence_threshold: float = 0.40,  # Slightly higher than VisionTagger since we have less signal
+        confidence_threshold: float = 0.10,  # Slightly higher than VisionTagger since we have less signal
         use_adaptive_threshold: bool = True,
         adaptive_percentile: float = 0.70,  # Use 70th percentile for query (less strict than video's 75%)
         max_tags: int = 10,  # Limit number of tags per query

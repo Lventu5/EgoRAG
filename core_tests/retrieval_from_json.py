@@ -201,9 +201,8 @@ def main(
             queries=query_dataset,
             modalities=current_modalities,
             top_k_videos=topk_videos,
-            top_k_windows = topk_windows,
             top_k_scenes=topk_scenes,
-            top_k_windows=CONFIG.retrieval.top_k_windows,
+            top_k_windows=topk_windows,
             use_windows= CONFIG.retrieval.use_windows,
             skip_video_retrieval=skip_video_retrieval,
         )

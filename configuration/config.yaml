@@ -1,8 +1,8 @@
 device: "cuda"
 data:
-  video_path: "../../tnanni/ego4d_data/v2/full_scale/"
-  annotation_path: "../../tnanni/ego4d_data/v2/annotations/nlq_train.json"
-  video_dataset: "/cluster/project/cvg/students/tnanni/ego4d_data/v2/internvideo6b_20s_5window_tagged/merged_10_video.pkl"
+  video_path: "../../mronconi/ego4d_data/v2/full_scale/"
+  annotation_path: "../../mronconi/ego4d_data/v2/annotations/nlq_train.json"
+  video_dataset: "/cluster/project/cvg/students/mronconi/ego4d_data/v2/internvideo6b_tag_clip_large_patch14/merged_10_video.pkl"
 indexing:
   scene_length: 20.0
   video:
@@ -46,7 +46,7 @@ retrieval:
   top_k_videos: 3
   top_k_windows: 2 # Number of windows to retrieve per video (only used if use_windows=true)
   top_k_scenes: 10
-  use_windows: false # Enable/disable window-level retrieval
+  use_windows: true # Enable/disable window-level retrieval
   modalities: ["text", "video"] # Run experiment uses all combinations
   fusion: "rrf"
   skip_video_retrieval: true # Skip video-level retrieval and only do scene-level retrieval using the correct video

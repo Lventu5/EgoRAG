@@ -110,7 +110,7 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
 
 if __name__ == "__main__":
     video_dir = "../../mronconi/ego4d_data/v2/full_scale"
-    save_dir = "../../mronconi/ego4d_data/v2/prova_clip_large_patch14"
+    save_dir = "../../mronconi/ego4d_data/v2/internvideo6b_tag_clip_large_patch14"
     output_pkl_file = os.path.join(save_dir, "merged_10_video.pkl")
     
     # Option 1: Re-encode everything
