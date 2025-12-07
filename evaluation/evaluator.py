@@ -52,7 +52,7 @@ class RetrievalEvaluator(Evaluator):
     def __init__(
         self, 
         name: str = "Retrieval Evaluator",
-        k_values: list[int] = [1, 5, 10],
+        k_values: list[int] = [1, 5, 10, 15, 20, 25],
         iou_thresholds: list[float] = [0.3, 0.5]
     ):
         super().__init__(name=name)

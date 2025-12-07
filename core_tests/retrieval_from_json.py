@@ -152,7 +152,7 @@ def main(
         topk_windows: int = 2,
         device: str = "cuda",
         skip_video_retrieval: bool = False,
-    save_path: str = "./results/retrieval_results.xlsx",
+        save_path: str = "./results/retrieval_results.xlsx",
     ):
     logging.basicConfig(level=logging.INFO)
     if not torch.cuda.is_available() and device == "cuda":

@@ -1,8 +1,8 @@
 device: "cuda"
 data:
-  video_path: "../../mronconi/ego4d_data/v2/full_scale/"
-  annotation_path: "../../mronconi/ego4d_data/v2/annotations/nlq_train.json"
-  video_dataset: "/cluster/project/cvg/students/mronconi/ego4d_data/v2/internvideo6b_tag_clip_large_patch14/merged_10_video.pkl"
+  video_path: "../../tnanni/ego4d_data/v2/full_scale/"
+  annotation_path: "../../tnanni/ego4d_data/v2/annotations/nlq_train.json"
+  video_dataset: "/cluster/project/cvg/students/tnanni/ego4d_data/v2/internvideo6b_full_encoding/merged_10_video.pkl"
 indexing:
   scene_length: 20.0
   video:
