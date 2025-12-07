@@ -3,7 +3,6 @@ Answer Generator for Ego4D NLQ using Qwen3-VL.
 
 Takes QueryDataset and Scene objects from HierarchicalRetriever to generate answers.
 """
-
 import logging
 import os
 import subprocess
@@ -18,6 +17,8 @@ from qwen_vl_utils import process_vision_info
 from data.query import QueryDataset, Query
 from data.video_dataset import Scene
 import data.datatypes as types
+import json
+import shutil
 
 
 class AnswerGenerator:
@@ -30,7 +31,7 @@ class AnswerGenerator:
         self,
         model_name: str = "Qwen/Qwen3-VL-8B-Instruct",
         device: str = "cuda",
-        temp_dir: str = "./temp_clips",
+        temp_dir: str = "../../mronconi/ego4d_data/temp_clips",
         max_clips_per_query: int = 3,
         max_pixels: int = 360 * 420, # Limit resolution to save tokens
         fps: float = 1.0, # Sample 1 frame per second
@@ -56,14 +57,14 @@ class AnswerGenerator:
         self.max_new_tokens = max_new_tokens
         
         # Models will be loaded separately via load_model()
-        self.model = None
-        self.processor = None
+        self.model: Optional[Qwen3VLForConditionalGeneration] = None
+        self.processor: Optional[AutoProccessor] = None
         
         logging.info(f"[AnswerGenerator] Initialized. Temp dir: {self.temp_dir}")
     
     def load_model(self):
         """
-        Load Qwen3-VL model and processor.
+        Load model and processor.
         Call this method before generating answers.
         """
         if self.model is not None:
@@ -151,7 +152,6 @@ class AnswerGenerator:
             return False
         
         if len(clip_paths) == 1:
-            import shutil
             shutil.copy(clip_paths[0], output_path)
             return True
         
@@ -183,7 +183,7 @@ class AnswerGenerator:
     @torch.no_grad()
     def _generate_from_video(self, video_path: str, question: str) -> str:
         """
-        Generate answer using Qwen3-VL.
+        Generate answer using the model.
         
         Args:
             video_path: Path to video clip
@@ -399,7 +399,6 @@ class AnswerGenerator:
             answers: Dict of query_id -> answer
             output_path: Output path
         """
-        import json
         
         output_data = {
             "model": self.model_name,

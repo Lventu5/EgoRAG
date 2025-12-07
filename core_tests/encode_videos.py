@@ -77,7 +77,7 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
         # Check if pickle already exists and load it if not forcing complete re-encoding
         if os.path.exists(pickle_path) and not force_reencoding:
             print(f"Found existing pickle at {pickle_path}, loading and updating...")
-            encoder = MultiModalEncoder(pickle_path=pickle_path, max_workers=2, use_tagging=True)
+            encoder = MultiModalEncoder(pickle_path=pickle_path, max_workers=2, use_tagging=CONFIG.indexing.tag.use_tagging)
             video_dataset = encoder.encode_videos(
                 force=force_reencoding,
                 force_video=force_video,
@@ -109,8 +109,8 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
         gc.collect()  # Double gc to ensure everything is freed
 
 if __name__ == "__main__":
-    video_dir = "../../tnanni/ego4d_data/v2/full_scale"
-    save_dir = "../../tnanni/ego4d_data/v2/internvideo6b_full_encoding"
+    video_dir = "../../mronconi/ego4d_data/v2/full_scale"
+    save_dir = "../../mronconi/ego4d_data/v2/internvideo1b_tag_clip_large_patch14"
     output_pkl_file = os.path.join(save_dir, "merged_10_video.pkl")
     
     # Option 1: Re-encode everything
