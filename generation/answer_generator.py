@@ -58,7 +58,7 @@ class AnswerGenerator:
         
         # Models will be loaded separately via load_model()
         self.model: Optional[Qwen3VLForConditionalGeneration] = None
-        self.processor: Optional[AutoProccessor] = None
+        self.processor: Optional[AutoProcessor] = None
         
         logging.info(f"[AnswerGenerator] Initialized. Temp dir: {self.temp_dir}")
     

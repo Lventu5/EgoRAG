@@ -12,6 +12,7 @@ import warnings
 from data.dataset import Ego4DDataset
 from retrieval.hierarchical_retriever import HierarchicalRetriever
 from evaluation.evaluator import RetrievalEvaluator
+from generation.answer_generator import AnswerGenerator
 
 from configuration.config import CONFIG
 
@@ -219,6 +220,32 @@ def main(
         metrics["Experiment"] = exp_name
         metrics["Modalities"] = str(current_modalities)
         all_results.append(metrics)
+
+    # Generate answers if enabled in config
+    if CONFIG.retrieval.generate_answer:
+        logging.info("Generating answers with Qwen3-VL...")
+        answer_generator = AnswerGenerator(
+            model_name=CONFIG.retrieval.answer_generation.model_name,
+            device=device,
+            temp_dir=CONFIG.retrieval.answer_generation.temp_dir,
+            max_clips_per_query=CONFIG.retrieval.answer_generation.max_clips_per_query,
+            max_pixels=CONFIG.retrieval.answer_generation.max_pixels,
+            fps=CONFIG.retrieval.answer_generation.fps,
+            max_new_tokens=CONFIG.retrieval.answer_generation.max_new_tokens,
+        )
+        answer_generator.load_model()
+        
+        # Generate answers using the last retrieval results
+        answers = answer_generator.generate_answers(
+            query_dataset=query_dataset,
+            retrieval_results=retrieval_results,
+            video_base_path=CONFIG.data.video_path
+        )
+        
+        # Save answers to JSON
+        answer_save_path = unique_save_path.with_suffix('.json')
+        answer_generator.save_answers(answers, str(answer_save_path))
+        logging.info(f"Saved answers to {answer_save_path}")
 
     df = pd.DataFrame(all_results)
     cols = ["Experiment", "Modalities"] + [c for c in df.columns if c not in ["Experiment", "Modalities"]]

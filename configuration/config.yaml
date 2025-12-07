@@ -57,3 +57,11 @@ retrieval:
     min_scenes_to_merge: 2 # Minimum number of scenes required to create a merge
     max_scenes_to_merge: 5 # Maximum number of scenes to merge into one
     score_aggregation: "max" # How to aggregate scores: "max", "mean", or "sum"
+  generate_answer: false # Enable/disable answer generation with Qwen3-VL
+  answer_generation:
+    model_name: "Qwen/Qwen3-VL-8B-Instruct"
+    temp_dir: "../../mronconi/ego4d_data/temp_clips"
+    max_clips_per_query: 3 # Max number of retrieved scenes to use per query
+    max_pixels: 151200 # 360*420 - resolution limit to save tokens
+    fps: 1.0 # Frame sampling rate for video processing
+    max_new_tokens: 128 # Max tokens to generate in answer
