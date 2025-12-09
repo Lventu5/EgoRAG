@@ -17,11 +17,13 @@ class Scene:
         scene_id: str,
         start_time: float,
         end_time: float,
+        video_name: Optional[str] = None,
         start_frame: Optional[int] = None,
         end_frame: Optional[int] = None,
         frames: Optional[List[int]] = None
     ):
         self.scene_id = scene_id
+        self.video_name = video_name
         self.start_time = start_time
         self.end_time = end_time
         self.start_frame = start_frame if start_frame is not None else 0
@@ -30,6 +32,7 @@ class Scene:
 
     def __repr__(self):
         return (
+            f"Video name= {self.video_name}, "
             f"Scene id= {self.scene_id}, "
             f"start={self.start_time:.2f}s, end={self.end_time:.2f}s, "
             f"frames={self.start_frame}-{self.end_frame}, total_frames={len(self.frames)}"

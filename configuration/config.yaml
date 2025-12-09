@@ -1,8 +1,8 @@
 device: "cuda"
 data:
-  video_path: "../../mronconi/ego4d_data/v2/full_scale/"
-  annotation_path: "../../mronconi/ego4d_data/v2/annotations/nlq_train.json"
-  video_dataset: "/cluster/project/cvg/students/mronconi/ego4d_data/v2/internvideo1b_tag_clip_large_patch14/merged_10_video.pkl"
+  video_path: "../../tnanni/ego4d_data/v2/full_scale/"
+  annotation_path: "../../tnanni/ego4d_data/v2/annotations/nlq_train_edited.json"
+  video_dataset: "/cluster/project/cvg/students/tnanni/ego4d_data/v2/internvideo6b_tag_clip_large_patch14/merged_10_video.pkl"
 indexing:
   scene_length: 20.0
   video:
@@ -38,16 +38,17 @@ indexing:
   window_stride: 5 # Number of scenes to slide between windows
 retrieval:
   text_model_id: "google/embeddinggemma-300m"
-  video_model_name: "internvideo2-1b" # "internvideo2-6b" # Options: "xclip", "internvideo2-1b", "internvideo2-6b"
+  video_model_name: "internvideo2-6b" # "internvideo2-6b" # Options: "xclip", "internvideo2-1b", "internvideo2-6b"
   internvideo2_1b_id: "OpenGVLab/InternVideo2-Stage2-1B-224p-f8"
   internvideo2_6b_id: "OpenGVLab/InternVideo2-Stage2_6B" # Options: "OpenGVLab/InternVideo2-Stage1-1B-224p-f8", "OpenGVLab/InternVideo2-Stage2_6B"
   audio_model_id: "laion/clap-htsat-unfused"
   caption_model_id: "google/embeddinggemma-300m"
   rewriter_model_id: "Qwen/Qwen2.5-7B-Instruct"
   top_k_videos: 3
-  top_k_windows: 2 # Number of windows to retrieve per video (only used if use_windows=true)
-  top_k_scenes: 10
+  top_k_windows: 5 # Number of windows to retrieve per video (only used if use_windows=true)
+  top_k_scenes: 5
   use_windows: true # Enable/disable window-level retrieval
+  use_tagging: true # Enable/disable tagging-based retrieval
   modalities: ["text", "video"] # Run experiment uses all combinations
   fusion: "rrf"
   skip_video_retrieval: true # Skip video-level retrieval and only do scene-level retrieval using the correct video
@@ -57,10 +58,10 @@ retrieval:
     min_scenes_to_merge: 2 # Minimum number of scenes required to create a merge
     max_scenes_to_merge: 5 # Maximum number of scenes to merge into one
     score_aggregation: "max" # How to aggregate scores: "max", "mean", or "sum"
-  generate_answer: false # Enable/disable answer generation with Qwen3-VL
+  generate_answer: true # Enable/disable answer generation with Qwen3-VL
   answer_generation:
     model_name: "Qwen/Qwen3-VL-8B-Instruct"
-    temp_dir: "../../mronconi/ego4d_data/temp_clips"
+    temp_dir: "../../tnanni/ego4d_data/temp_clips"
     max_clips_per_query: 3 # Max number of retrieved scenes to use per query
     max_pixels: 151200 # 360*420 - resolution limit to save tokens
     fps: 1.0 # Frame sampling rate for video processing

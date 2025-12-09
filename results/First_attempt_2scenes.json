@@ -1,0 +1,46 @@
+{
+  "model": "Qwen/Qwen3-VL-8B-Instruct",
+  "num_queries": 10,
+  "answers": [
+    {
+      "query_id": "5d8dfcfe-93e4-465e-a548-44c1442ffa29_0_0",
+      "answer": "You talked to a saleswoman at the boutique. She was holding a fur coat and appeared to be assisting you with it."
+    },
+    {
+      "query_id": "5d8dfcfe-93e4-465e-a548-44c1442ffa29_0_1",
+      "answer": "Based on the video frames provided, you can see **two** white hangers.\n\nHere is the reasoning:\n\n1.  In frame 10, there is a clear view of a table in the clothing store. On this table, there is a stack of white hangers.\n2.  In frame 11, the camera pans slightly, and you can still see the same stack of white hangers on the table.\n3.  In frame 12, the camera angle changes, but the white hangers are still visible on the table.\n4.  In frame 13, the camera is looking at a"
+    },
+    {
+      "query_id": "5d8dfcfe-93e4-465e-a548-44c1442ffa29_0_2",
+      "answer": "The brown shoes were on the floor, near the mirror."
+    },
+    {
+      "query_id": "5d8dfcfe-93e4-465e-a548-44c1442ffa29_0_3",
+      "answer": "Based on the video, it appears you did not leave the door open.\n\nHere's the reasoning:\n- The video begins with a view of a doorway, and the person filming is walking through it into the store.\n- The camera then pans around the store, showing racks of clothes, a mirror, and other areas.\n- The person is seen interacting with a mannequin and looking at clothes, but there is no shot of the door or any indication that it was left open.\n- The video ends with the person looking at their phone while standing in the store, with no sign of the door being open.\n\nTherefore, based on the"
+    },
+    {
+      "query_id": "5d8dfcfe-93e4-465e-a548-44c1442ffa29_0_4",
+      "answer": "You saw 4 baskets of fruits."
+    },
+    {
+      "query_id": "5d8dfcfe-93e4-465e-a548-44c1442ffa29_0_5",
+      "answer": "You put Junior Mints in the paper bag."
+    },
+    {
+      "query_id": "5d8dfcfe-93e4-465e-a548-44c1442ffa29_0_6",
+      "answer": "The packet of mints was on the shelf before you picked it."
+    },
+    {
+      "query_id": "5d8dfcfe-93e4-465e-a548-44c1442ffa29_0_7",
+      "answer": "Based on the video, you saw **two** packets of sweets on the shelf.\n\nHere's the breakdown:\n1.  **First Packet:** You are shown reaching for and picking up a box of **Junior Mints** from the shelf. This is the first packet you interacted with.\n2.  **Second Packet:** You are then shown reaching for and picking up a box of **Reese's Peanut Butter Cups** from the shelf. This is the second packet you interacted with.\n\nWhile there are many other individual candy bars and packets visible on the shelves, you only physically selected two of them. The video shows you picking"
+    },
+    {
+      "query_id": "5d8dfcfe-93e4-465e-a548-44c1442ffa29_1_0",
+      "answer": "You interacted with the cashier after you paid for your items. This happened after you placed your items on the counter and the cashier scanned them. You then handed the cashier money, and they gave you change."
+    },
+    {
+      "query_id": "5d8dfcfe-93e4-465e-a548-44c1442ffa29_1_1",
+      "answer": "You saw the brown shoes on the floor in the store."
+    }
+  ]
+}

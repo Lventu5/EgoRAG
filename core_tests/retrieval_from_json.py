@@ -10,6 +10,7 @@ import logging
 import warnings
 
 from data.dataset import Ego4DDataset
+from data.query import QueryDataset
 from retrieval.hierarchical_retriever import HierarchicalRetriever
 from evaluation.evaluator import RetrievalEvaluator
 from generation.answer_generator import AnswerGenerator
@@ -186,7 +187,7 @@ def main(
     logging.info(f"Loaded {len(query_dataset.queries)} queries matching the pickled videos")
 
     # Instantiate retriever
-    retriever = HierarchicalRetriever(video_dataset=video_dataset, device=device)
+    retriever = HierarchicalRetriever(video_dataset=video_dataset, device=device, use_tagging = CONFIG.retrieval.use_tagging)
     all_results = []
 
     logging.info(f"Starting {len(modalities)} experiments ... \n")
@@ -236,8 +237,9 @@ def main(
         answer_generator.load_model()
         
         # Generate answers using the last retrieval results
+        query_dataset_shortened = QueryDataset(queries = query_dataset.queries[:10])
         answers = answer_generator.generate_answers(
-            query_dataset=query_dataset,
+            query_dataset=query_dataset_shortened,
             retrieval_results=retrieval_results,
             video_base_path=CONFIG.data.video_path
         )
@@ -261,9 +263,9 @@ def main(
     print("="*60)
     print(df.to_string(index=False))
 
-    with pd.ExcelWriter(unique_save_path) as writer:
-        df.to_excel(writer, sheet_name="metrics", index=False)
-        config_df.to_excel(writer, sheet_name="config", index=False)
+    # with pd.ExcelWriter(unique_save_path) as writer:
+    #     df.to_excel(writer, sheet_name="metrics", index=False)
+    #     config_df.to_excel(writer, sheet_name="config", index=False)
 
     print(f"\nSaved results and config to {unique_save_path}")
 
@@ -273,8 +275,8 @@ if __name__ == "__main__":
     annotations = CONFIG.data.annotation_path
     modalities = [
         ("text_only", ["text"]),
-        ("video_only", ["video"]),
-        ("video_text", ["video", "text"])
+        # ("video_only", ["video"]),
+        # ("video_text", ["video", "text"])
     ]
     topk_videos = CONFIG.retrieval.top_k_videos
     topk_scenes = CONFIG.retrieval.top_k_scenes

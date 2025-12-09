@@ -180,79 +180,73 @@ class AnswerGenerator:
             logging.error(f"[AnswerGenerator] concat failed: {e.stderr.decode()}")
             return False
     
+    # 
+    
     @torch.no_grad()
     def _generate_from_video(self, video_path: str, question: str) -> str:
         """
-        Generate answer using the model.
-        
-        Args:
-            video_path: Path to video clip
-            question: Question text
-        
-        Returns:
-            Generated answer
+        Genera la risposta SENZA far caricare il video a torchcodec.
+        Campioniamo i frame via ffmpeg (fps basso e controllato) e li passiamo come immagini.
         """
         if self.model is None or self.processor is None:
             raise RuntimeError("Model not loaded. Call load_model() first.")
-        
-        # Prepare messages in Qwen format
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "video",
-                        "video": video_path,
-                        "max_pixels": self.max_pixels,
-                        "fps": self.fps,
-                    },
-                    {
-                        "type": "text",
-                        "text": f"You are watching an egocentric video. Answer this question based on what you see: {question}"
-                    },
-                ],
-            }
+
+        # --- 1) Estrai frame temporanei con ffmpeg ---
+        frame_dir = self.temp_dir / f"frames_{Path(video_path).stem}"
+        frame_dir.mkdir(exist_ok=True, parents=True)
+
+        # ad esempio 1 fps oppure meno se 20 secondi -> 20 frame
+        fps = 1  
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-vf", f"fps={fps},scale=420:-1",  # scala per evitare max_pixels OOM
+            str(frame_dir / "frame_%05d.jpg"),
+            "-loglevel", "error"
         ]
-        
-        # Apply chat template
+        subprocess.run(cmd, check=True)
+
+        frame_paths = sorted(frame_dir.glob("*.jpg"))
+        if not frame_paths:
+            raise RuntimeError("No frames extracted from video.")
+
+        # --- 2) Costruisci messaggi Qwen con immagini, non video ---
+        content = [{"type": "image", "image": str(fp)} for fp in frame_paths]
+        content.append({"type": "text", "text": question})
+
+        messages = [{"role": "user", "content": content}]
+
+        # --- 3) Template + preprocess ---
         text = self.processor.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True
         )
-        
-        # Process vision info (extracts frames from video)
-        image_inputs, video_inputs = process_vision_info(messages)
-        
-        # Prepare inputs
+
+        # NOTA: Qui NON chiamiamo process_vision_info perché non vogliamo torchcodec!
         inputs = self.processor(
             text=[text],
-            images=image_inputs,
-            videos=video_inputs,
+            images=[str(fp) for fp in frame_paths],
             padding=True,
-            return_tensors="pt",
+            return_tensors="pt"
         ).to(self.device)
-        
-        # Generate
+
+        # --- 4) Generazione ---
         generated_ids = self.model.generate(
             **inputs,
             max_new_tokens=self.max_new_tokens,
             do_sample=False
         )
-        
-        # Trim input and decode
-        generated_ids_trimmed = [
-            out_ids[len(in_ids):]
-            for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-        ]
-        
-        output_text = self.processor.batch_decode(
-            generated_ids_trimmed,
-            skip_special_tokens=True,
-            clean_up_tokenization_spaces=False
-        )[0]
-        
-        return output_text.strip()
+
+        answer_ids = generated_ids[0][inputs.input_ids.shape[1]:]
+        answer = self.processor.decode(answer_ids, skip_special_tokens=True).strip()
+
+        # cleanup frame dir
+        shutil.rmtree(frame_dir, ignore_errors=True)
+
+        return answer
+
     
     def generate_answer_for_query(
         self,
@@ -282,6 +276,8 @@ class AnswerGenerator:
         # Extract scenes: format is list of (video_name, video_score, [(Scene, score), ...])
         all_scenes: List[Tuple[Scene, float]] = []
         for video_name, video_score, scene_list in query_results:
+            for scene, score in scene_list:
+                scene.video_name = video_name  # Attach video name to scene
             all_scenes.extend(scene_list)
         
         # Sort by score and take top-k
