@@ -38,7 +38,6 @@ class HierarchicalRetriever:
         video_dataset: VideoDataset,
         fuser: Fuser | None = None,
         device: str = "cuda",
-        use_tagging: bool = True,
     ):
         self.video_dataset = video_dataset
         self.device = device
@@ -67,7 +66,6 @@ class HierarchicalRetriever:
         self.current_modality = None
         self.processor = None
         self.embedder = None
-        self.use_tagging = use_tagging
         logging.info(f"[INFO] Use of tagging set to {use_tagging}")
         
         if fuser is None:
@@ -208,13 +206,17 @@ class HierarchicalRetriever:
         Args:
             queries: the QueryDataset to rewrite
         """
-        rewriter = QueryRewriterLLM(
-            model_name=self.rewriter, 
-            device=self.device
-        )
-        for query in tqdm(queries, desc = "Rewriting queries"):
-            decomposition = rewriter(query.get_query(), modality="decompose")
-            query.decomposed = decomposition
+        if self.rewrite_queries: 
+            rewriter = QueryRewriterLLM(
+                model_name=self.rewriter, 
+                device=self.device
+            )
+            for query in tqdm(queries, desc = "Rewriting queries"):
+                decomposition = rewriter(query.get_query(), modality="decompose")
+                query.decomposed = decomposition
+        else:
+            for query in queries:
+                query.decomposed = {"text": query.get_query(), "video": query.get_query(), "audio": query.get_query()}
 
 
     def _embed_queries(self, queries: QueryDataset) -> torch.Tensor:
@@ -844,7 +846,9 @@ class HierarchicalRetriever:
         top_k_windows: int = 2,
         top_k_scenes: int = 1,
         use_windows: bool = True,
-        skip_video_retrieval: bool = False
+        skip_video_retrieval: bool = False,
+        use_tagging: bool = True,
+        rewrite_queries: bool = False,
     ) -> types.RetrievalResults:
         """
         Given a set of queries, retrieves the top scenes and videos for those queries.
@@ -864,6 +868,9 @@ class HierarchicalRetriever:
 
         if isinstance(modalities, str):
             modalities = [modalities]
+
+        self.use_tagging = use_tagging
+        self.rewrite_queries = rewrite_queries
 
         # Rewrite queries decomposed into modalities
         self._rewrite_queries(queries)
