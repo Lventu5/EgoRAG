@@ -66,7 +66,6 @@ class HierarchicalRetriever:
         self.current_modality = None
         self.processor = None
         self.embedder = None
-        logging.info(f"[INFO] Use of tagging set to {use_tagging}")
         
         if fuser is None:
             logging.warning("Fuser not specified, using a RRF fuser")
