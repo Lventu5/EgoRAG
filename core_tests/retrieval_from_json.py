@@ -187,7 +187,7 @@ def main(
     logging.info(f"Loaded {len(query_dataset.queries)} queries matching the pickled videos")
 
     # Instantiate retriever
-    retriever = HierarchicalRetriever(video_dataset=video_dataset, device=device, use_tagging = CONFIG.retrieval.use_tagging)
+    retriever = HierarchicalRetriever(video_dataset=video_dataset, device=device)
     all_results = []
 
     logging.info(f"Starting {len(modalities)} experiments ... \n")
