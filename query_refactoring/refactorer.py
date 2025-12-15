@@ -3,9 +3,8 @@ import os
 import torch
 import logging
 import numpy as np
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
-from pathlib import Path
 from PIL import Image
 from decord import VideoReader, cpu
 
@@ -94,40 +93,60 @@ class QueryRefactorer:
             
     def load_vllm(self):
         """Load the Vision-Language Model"""
-        if self.model is None:
-            if self.verbose:
-                logging.info(f"Loading VLLM: {self.model_id}")
+        if self.model is not None:
+            return
             
-            if self.model_type == "llava":
-                self.processor = AutoProcessor.from_pretrained(self.model_id)
-                self.model = LlavaNextVideoForConditionalGeneration.from_pretrained(
-                    self.model_id,
-                    torch_dtype=torch.float16,
-                    device_map=self.device,
-                    low_cpu_mem_usage=True
-                )
-                self.model.eval()
-            elif self.model_type == "internvideo":
-         load_video_frames(self, video_path: str, max_frames: int = 64) -> List[Image.Image]:
+        if self.verbose:
+            logging.info(f"Loading VLLM: {self.model_id}")
+        
+        if self.model_type == "llava":
+            self.processor = AutoProcessor.from_pretrained(self.model_id)
+            self.model = LlavaNextVideoForConditionalGeneration.from_pretrained(
+                self.model_id,
+                torch_dtype=torch.float16,
+                device_map=self.device,
+                low_cpu_mem_usage=True
+            )
+            self.model.eval()
+        elif self.model_type == "internvideo":
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_id, trust_remote_code=True)
+            self.model = AutoModel.from_pretrained(
+                self.model_id, 
+                trust_remote_code=True
+            ).half().cuda().to(torch.bfloat16)
+            self.model.eval()
+            
+    def unload_vllm(self):
+        """Unload the Vision-Language Model to free memory"""
+        if self.verbose:
+            logging.info("Unloading VLLM")
+        if self.model:
+            del self.model
+        if self.processor:
+            del self.processor
+        if self.tokenizer:
+            del self.tokenizer
+        self.model = None
+        self.processor = None
+        self.tokenizer = None
+        torch.cuda.empty_cache()
+            
+    def _load_video_frames(self, video_path: str, max_frames: int = 64) -> List[Image.Image]:
         """Load video frames for processing"""
-        try:
-            vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
-            total_frames = len(vr)
-            
-            if total_frames <= max_frames:
-                frame_indices = list(range(total_frames))
-            else:
-                frame_indices = np.linspace(0, total_frames - 1, max_frames, dtype=int).tolist()
-            
-            frames = []
-            for idx in frame_indices:
-                frame = vr[idx].asnumpy()
-                frames.append(Image.fromarray(frame))
-            
-            return frames
-        except Exception as e:
-            logging.error(f"Error loading video frames: {e}")
-            return []
+        vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
+        total_frames = len(vr)
+        
+        if total_frames <= max_frames:
+            frame_indices = list(range(total_frames))
+        else:
+            frame_indices = np.linspace(0, total_frames - 1, max_frames, dtype=int).tolist()
+        
+        frames = []
+        for idx in frame_indices:
+            frame = vr[idx].asnumpy()
+            frames.append(Image.fromarray(frame))
+        
+        return frames
     
     def _build_refactoring_prompt(self, query: str) -> str:
         """Build the prompt for the VLLM to refactor the query"""
@@ -177,37 +196,26 @@ Provide ONLY the refactored query, nothing else. Be concise but specific.
                 temperature=0.0,
             )
         
-        generatemodel is None:
-            self.load_vllm()
-            
-        prompt = self._build_refactoring_prompt(query)
+        generated_text = self.processor.batch_decode(
+            output_ids, 
+            skip_special_tokens=True
+        )[0]
         
-        if self.verbose:
-            logging.info(f"Refactoring query {query_idx}: '{query}'")
-            
-        try:
-            if self.model_type == "llava":
-                frames = self._load_video_frames(video_path, max_frames=64)
-                if not frames:
-                    raise ValueError("No frames loaded from video")
-                refactored_text = self._generate_with_llava(frames, prompt)
-            elif self.model_type == "internvideo":
-                refactored_text = self._generate_with_internvideo(video_path, prompt)
-            else:
-                raise ValueError(f"Unsupported model_type: {self.model_type}")
-            
-            refactored_text = refactored_text.strip()
-            
-            if self.verbose:
-                logging.info(f"  Original:   '{query}'")
-                logging.info(f"  Refactored: '{refactored_text}'")
-                
-        except Exception as e:
-            logging.error(f"Error refactoring query: {e}")
-            import traceback
-            traceback.print_exc(
+        return generated_text.strip()
+    
+    def _generate_with_internvideo(self, video_path: str, prompt: str) -> str:
+        """Generate text using InternVideo model"""
+        vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
+        total_frames = len(vr)
+        num_frames = min(8, total_frames)
+        frame_indices = np.linspace(0, total_frames - 1, num_frames, dtype=int).tolist()
         
-        video_prefix = "".join([f"Frame{i+1}: <image>\n" for i in range(8)])
+        frames = []
+        for idx in frame_indices:
+            frame = vr[idx].asnumpy()
+            frames.append(Image.fromarray(frame))
+        
+        video_prefix = "".join([f"Frame{i+1}: <image>\n" for i in range(num_frames)])
         question = video_prefix + prompt
         
         generation_config = dict(
@@ -221,42 +229,15 @@ Provide ONLY the refactored query, nothing else. Be concise but specific.
         with torch.no_grad():
             output, _ = self.model.chat(
                 self.tokenizer, 
-                pixel_values, 
+                frames, 
                 question, 
                 generation_config, 
-                num_patches_list=[1]*8,
+                num_patches_list=[1]*num_frames,
                 history=None,
                 return_history=True
             )
         
-        return outpu.model
-            if self.processor:
-                del self.processor
-            if self.tokenizer:
-                del self.tokenizer
-            self.model = None
-            self.processor = None
-            self.tokenizer = None
-            torch.cuda.empty_cache()
-            
-    def _build_refactoring_prompt(self, query: str, video_context: str) -> str:
-        """Build the prompt for the VLLM to refactor the query"""
-        prompt = f"""You are watching an egocentric video showing a person's actions and surroundings.
-
-Original query: "{query}"
-
-Your task: Make this query more specific and unambiguous based on what you see in the video.
-
-Consider:
-- Specific objects mentioned (which table, which door, what color, etc.)
-- Actions and their context (while entering/exiting, before/after doing something)
-- Spatial relationships (left/right, near/far from something)
-- Temporal context (at the beginning/end, after doing X)
-- Any distinguishing features that make objects or actions unique
-
-Provide ONLY the refactored query, nothing else. Be concise but specific.
-"""
-        return prompt
+        return output.strip()
         
     def refactor_query(
         self,
@@ -281,25 +262,25 @@ Provide ONLY the refactored query, nothing else. Be concise but specific.
         Returns:
             RefactoredQuery object
         """
-        if self.vllm_wrapper is None:
+        if self.model is None:
             self.load_vllm()
             
-        prompt = self._build_refactoring_prompt(query, "")
+        prompt = self._build_refactoring_prompt(query)
         
         if self.verbose:
             logging.info(f"Refactoring query {query_idx}: '{query}'")
             
-        try:
-            refactored_text = self.vllm_wrapper.generate(video_path, prompt)
-            refactored_text = refactored_text.strip()
-            
-            if self.verbose:
-                logging.info(f"  Original:   '{query}'")
-                logging.info(f"  Refactored: '{refactored_text}'")
-                
-        except Exception as e:
-            logging.error(f"Error refactoring query: {e}")
-            refactored_text = query
+        if self.model_type == "llava":
+            frames = self._load_video_frames(video_path, max_frames=64)
+            refactored_text = self._generate_with_llava(frames, prompt)
+        elif self.model_type == "internvideo":
+            refactored_text = self._generate_with_internvideo(video_path, prompt)
+        
+        refactored_text = refactored_text.strip()
+        
+        if self.verbose:
+            logging.info(f"  Original:   '{query}'")
+            logging.info(f"  Refactored: '{refactored_text}'")
             
         refactored_query = RefactoredQuery(
             query_idx=query_idx,
