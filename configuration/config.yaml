@@ -6,7 +6,7 @@ data:
 indexing:
   scene_length: 20.0
   video:
-    model_name: "internvideo2-1b" # Options: "xclip", "internvideo2-1b", "internvideo2-6b"
+    model_name: "internvideo2-6b" # Options: "xclip", "internvideo2-1b", "internvideo2-6b"
     xclip_id: "microsoft/xclip-base-patch16"
     llava_id: "llava-hf/LLaVA-NeXT-Video-7B-hf"
     internvideo2_1b_id: "OpenGVLab/InternVideo2-Stage2-1B-224p-f8"
@@ -62,7 +62,7 @@ retrieval:
   answer_generation:
     model_name: "Qwen/Qwen3-VL-8B-Instruct"
     temp_dir: "../../tnanni/ego4d_data/temp_clips"
-    max_clips_per_query: 3 # Max number of retrieved scenes to use per query
+    max_clips_per_query: 7 # Max number of retrieved scenes to use per query
     max_pixels: 151200 # 360*420 - resolution limit to save tokens
     fps: 1.0 # Frame sampling rate for video processing
     max_new_tokens: 128 # Max tokens to generate in answer

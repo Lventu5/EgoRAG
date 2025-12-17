@@ -12,10 +12,11 @@ from transformers import (
     AutoProcessor, 
     LlavaNextVideoForConditionalGeneration,
     AutoModel,
-    AutoTokenizer
+    AutoTokenizer,
+    Qwen3VLForConditionalGeneration
 )
 
-from data.query import Query, QueryDataset
+from data.query import QueryDataset
 from data.dataset import VideoDataset
 
 
@@ -71,8 +72,8 @@ class QueryRefactorer:
     
     def __init__(
         self,
-        model_id: str = "lmms-lab/LLaVA-Video-7B-Qwen2",
-        model_type: str = "llava",
+        model_id: str = "Qwen/Qwen3-VL-8B-Instruct",
+        model_type: str = "qwen",
         video_dataset: Optional[VideoDataset] = None,
         device: str = "cuda",
         verbose: bool = True
@@ -100,13 +101,27 @@ class QueryRefactorer:
             logging.info(f"Loading VLLM: {self.model_id}")
         
         if self.model_type == "llava":
-            self.processor = AutoProcessor.from_pretrained(self.model_id)
+            self.processor = AutoProcessor.from_pretrained(self.model_id, trust_remote_code = True)
             self.model = LlavaNextVideoForConditionalGeneration.from_pretrained(
                 self.model_id,
-                torch_dtype=torch.float16,
+                torch_dtype=torch.bfloat16,
                 device_map=self.device,
+                trust_remote_code=True,
                 low_cpu_mem_usage=True
             )
+            self.model.eval()
+        elif self.model_type == "qwen":
+            self.processor = AutoProcessor.from_pretrained(self.model_id, trust_remote_code=True)
+            self.model = Qwen3VLForConditionalGeneration.from_pretrained(
+                self.model_id,
+                dtype=torch.bfloat16,
+                device_map=self.device,
+                trust_remote_code=True,
+                low_cpu_mem_usage=True
+            )
+            self.model.config.vision_feature_select_strategy = "mean"
+            self.model.config.vision_feature_layer = -1
+
             self.model.eval()
         elif self.model_type == "internvideo":
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_id, trust_remote_code=True)
@@ -131,7 +146,7 @@ class QueryRefactorer:
         self.tokenizer = None
         torch.cuda.empty_cache()
             
-    def _load_video_frames(self, video_path: str, max_frames: int = 64) -> List[Image.Image]:
+    def _load_video_frames(self, video_path: str, max_frames: int = 6) -> List[Image.Image]:
         """Load video frames for processing"""
         vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
         total_frames = len(vr)
@@ -144,17 +159,25 @@ class QueryRefactorer:
         frames = []
         for idx in frame_indices:
             frame = vr[idx].asnumpy()
-            frames.append(Image.fromarray(frame))
+            img = Image.fromarray(frame)
+
+            w, h = img.size
+            new_w = 420
+            new_h = int(h * (420 / w))
+            img = img.resize((new_w, new_h), Image.BICUBIC)
+
+            frames.append(img)
         
         return frames
     
     def _build_refactoring_prompt(self, query: str) -> str:
         """Build the prompt for the VLLM to refactor the query"""
-        prompt = f"""You are watching an egocentric video showing a person's actions and surroundings.
+        prompt = f"""You are watching an egocentric video showing a person's actions and surroundings. You need to query a VQA system in a clear and unambiguous way.
 
-Original query: "{query}"
-
-Your task: Make this query more specific and unambiguous based on what you see in the video.
+Your task: Make this query more specific and unambiguous based on what you see in the video. Do not provide the answer to the query, just add
+relevant information that make the query refer to the single instant of time provided as a ground truth. You do not need to necessarly add information,
+just do it if the query might be ambiguous.
+Keep the questions with the I pronoun if they contain it, do not add invented information.
 
 Consider:
 - Specific objects mentioned (which table, which door, what color, etc.)
@@ -163,46 +186,48 @@ Consider:
 - Temporal context (at the beginning/end, after doing X)
 - Any distinguishing features that make objects or actions unique
 
+For instance, if the query is: 'Did I close the door?' You might rephrase it as 'Did I close the door when I left the clothing shop?', in case the ground truth shows a person leaving a clothing shop.
+
 Provide ONLY the refactored query, nothing else. Be concise but specific.
+
+Original query: "{query}"
 """
         return prompt
         
-    def _generate_with_llava(self, frames: List[Image.Image], prompt: str) -> str:
-        """Generate text using LLaVA model"""
-        conversation = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "video"},
-                    {"type": "text", "text": prompt},
-                ],
-            },
-        ]
+    def _generate_with_qwen(self, frames: List[Image.Image], prompt: str) -> str:
+        """Generate text using Qwen model"""
         
-        prompt_text = self.processor.apply_chat_template(conversation, add_generation_prompt=True)
-        
+        content = [{"type": "image", "image": img} for img in frames]
+        content.append({"type": "text", "text": prompt})
+
+        messages = [{"role": "user", "content": content}]
+
+        # Chat template (identico all’AnswerGenerator)
+        text = self.processor.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True
+        )
+
         inputs = self.processor(
-            text=prompt_text,
-            videos=[frames],
-            return_tensors="pt",
+            text=[text],
+            images=frames,
             padding=True,
-        ).to(self.device, torch.float16)
-        
+            return_tensors="pt"
+        ).to(self.device, torch.bfloat16)
+
         with torch.no_grad():
-            output_ids = self.model.generate(
+            generated_ids = self.model.generate(
                 **inputs,
-                max_new_tokens=256,
-                do_sample=False,
-                temperature=0.0,
+                max_new_tokens=128,
+                do_sample=False
             )
+
+        answer_ids = generated_ids[0][inputs.input_ids.shape[1]:]
+        answer = self.processor.decode(answer_ids, skip_special_tokens=True)
+
+        return answer.strip()
         
-        generated_text = self.processor.batch_decode(
-            output_ids, 
-            skip_special_tokens=True
-        )[0]
-        
-        return generated_text.strip()
-    
     def _generate_with_internvideo(self, video_path: str, prompt: str) -> str:
         """Generate text using InternVideo model"""
         vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
@@ -271,8 +296,11 @@ Provide ONLY the refactored query, nothing else. Be concise but specific.
             logging.info(f"Refactoring query {query_idx}: '{query}'")
             
         if self.model_type == "llava":
-            frames = self._load_video_frames(video_path, max_frames=64)
-            refactored_text = self._generate_with_llava(frames, prompt)
+            frames = self._load_video_frames(video_path, max_frames=6)
+            refactored_text = self._generate_with_qwen(frames, prompt)
+        elif self.model_type == "qwen":
+            frames = self._load_video_frames(video_path, max_frames=6)
+            refactored_text = self._generate_with_qwen(frames, prompt)
         elif self.model_type == "internvideo":
             refactored_text = self._generate_with_internvideo(video_path, prompt)
         
@@ -423,60 +451,45 @@ Provide ONLY the refactored query, nothing else. Be concise but specific.
         
     def save_to_ego4d_format(self, output_path: str, base_annotation_path: Optional[str] = None):
         """
-        Save refactored queries in Ego4D NLQ format
+        Save refactored queries in Ego4D NLQ format, replacing original queries
         
         Args:
             output_path: Path to save the JSON file
-            base_annotation_path: Optional base annotation file to preserve structure
+            base_annotation_path: Optional base annotation file to preserve structure.
+                                 If provided, loads this file and replaces matching queries.
         """
         if base_annotation_path and os.path.exists(base_annotation_path):
             with open(base_annotation_path, 'r') as f:
                 data = json.load(f)
         else:
             data = {"version": "1.0", "split": "train", "videos": []}
-            
-        video_map = {}
-        for video_entry in data.get("videos", []):
-            video_uid = video_entry.get("video_uid")
-            if video_uid:
-                video_map[video_uid] = video_entry
-                
+        
+        # Create a lookup map for refactored queries
+        refactored_map = {}
         for refactored in self.refactored_queries:
-            video_uid = refactored.video_uid
-            clip_uid = refactored.clip_uid
+            key = (refactored.video_uid, refactored.clip_uid, refactored.original_query)
+            refactored_map[key] = refactored
+        
+        # Iterate through the original structure and replace queries
+        for video_entry in data.get("videos", []):
+            video_uid = video_entry.get("video_uid", "")
             
-            if video_uid not in video_map:
-                video_map[video_uid] = {
-                    "video_uid": video_uid,
-                    "clips": []
-                }
+            for clip in video_entry.get("clips", []):
+                clip_uid = clip.get("clip_uid", "")
                 
-            video_entry = video_map[video_uid]
-            clips = video_entry.get("clips", [])
-            
-            clip_entry = None
-            for clip in clips:
-                if clip.get("clip_uid") == clip_uid:
-                    clip_entry = clip
-                    break
+                for annotation_group in clip.get("annotations", []):
+                    lang_queries = annotation_group.get("language_queries", [])
                     
-            if clip_entry is None:
-                clip_entry = {
-                    "clip_uid": clip_uid,
-                    "annotations": []
-                }
-                clips.append(clip_entry)
-                
-            annotations = clip_entry.get("annotations", [])
-            if not annotations:
-                annotations.append({"language_queries": []})
-                clip_entry["annotations"] = annotations
-                
-            lang_queries = annotations[0].get("language_queries", [])
-            lang_queries.append(refactored.to_ego4d_format())
-            annotations[0]["language_queries"] = lang_queries
-            
-        data["videos"] = list(video_map.values())
+                    for i, lang_query in enumerate(lang_queries):
+                        original_query = lang_query.get("query", "")
+                        key = (video_uid, clip_uid, original_query)
+                        
+                        # If we have a refactored version, replace it
+                        if key in refactored_map:
+                            refactored = refactored_map[key]
+                            lang_queries[i] = refactored.to_ego4d_format()
+                    
+                    annotation_group["language_queries"] = lang_queries
         
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, 'w') as f:

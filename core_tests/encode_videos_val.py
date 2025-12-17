@@ -77,7 +77,12 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
         # Check if pickle already exists and load it if not forcing complete re-encoding
         if os.path.exists(pickle_path) and not force_reencoding:
             print(f"Found existing pickle at {pickle_path}, loading and updating...")
-            encoder = MultiModalEncoder(pickle_path=pickle_path, max_workers=2, use_tagging=CONFIG.indexing.tag.use_tagging)
+            encoder = MultiModalEncoder(
+                pickle_path=pickle_path, 
+                max_workers=2, 
+                use_tagging=CONFIG.indexing.tag.use_tagging,
+                gpu_devices=CONFIG.get('gpu_devices', None)
+            )
             video_dataset = encoder.encode_videos(
                 force=force_reencoding,
                 force_video=force_video,
@@ -89,7 +94,11 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
             if os.path.exists(pickle_path):
                 print(f"Force re-encoding enabled, creating new pickle")
             dataset = VideoDataset([video])
-            encoder = MultiModalEncoder(dataset, max_workers=4)
+            encoder = MultiModalEncoder(
+                dataset, 
+                max_workers=4,
+                gpu_devices=CONFIG.get('gpu_devices', None)
+            )
             video_dataset = encoder.encode_videos(
                 force=force_reencoding,
                 force_video=force_video,
