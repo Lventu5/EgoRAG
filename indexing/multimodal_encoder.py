@@ -60,6 +60,8 @@ class MultiModalEncoder:
             raise ValueError("Video dataset is empty.")
         
         self.device = device if torch.cuda.is_available() else "cpu"
+        logging.info(f"Multimodal encoder using device {self.device}")
+
         self.max_workers = max_workers
         self.video_reader_lock = Lock()
 
@@ -667,7 +669,7 @@ class MultiModalEncoder:
             summary = re.sub(r"\n[-]{3,}.*$", "", summary, flags=re.DOTALL).strip()
             # Cleanup
             del proc_inputs, gen_ids
-            if self.device == "cuda":
+            if "cuda" in self.device:
                 torch.cuda.empty_cache()
 
             return summary
@@ -695,8 +697,15 @@ class MultiModalEncoder:
             stacked = stacked[indices]
         return stacked
 
-    def encode_videos(self, force: bool = False, force_video: bool = None, force_audio: bool = None, 
-                      force_caption: bool = None, force_text: bool = None) -> VideoDataset:
+    def encode_videos(
+        self, 
+        save_dir: str | None = None,
+        force: bool = False, 
+        force_video: bool = None, 
+        force_audio: bool = None, 
+        force_caption: bool = None, 
+        force_text: bool = None
+    ) -> VideoDataset:
         """
         Orchestrates encoding in stages to load/unload models one at a time.
         
@@ -725,11 +734,7 @@ class MultiModalEncoder:
         4. Text encoding:
            - Encodes transcript + caption with Sentence Transformers
         """
-        # Set modality-specific force flags (use `force` as default if not specified)
-        _force_video = force if force_video is None else force_video
-        _force_audio = force if force_audio is None else force_audio
-        _force_caption = force if force_caption is None else force_caption
-        _force_text = force if force_text is None else force_text
+
         # Set modality-specific force flags (use `force` as default if not specified)
         _force_video = force if force_video is None else force_video
         _force_audio = force if force_audio is None else force_audio
@@ -744,6 +749,16 @@ class MultiModalEncoder:
 
             video_path = dp.video_path
             logging.info(f"Processing video: {video_path}")
+
+            base = os.path.splitext(os.path.basename(video_path))[0]
+            pickle_path = None
+            if save_dir is not None:
+                pickle_path = os.path.join(save_dir, f"{base}.pkl")
+
+                # # Resume
+                # if os.path.exists(pickle_path) and not force:
+                #     logging.info(f"[SKIP] {base} already encoded")
+                #     continue
             
             # Use pre-existing scenes if available, otherwise detect them
             if dp.scenes:
@@ -768,12 +783,12 @@ class MultiModalEncoder:
             if not dp.scene_embeddings:
                 logging.error(f"No scenes were successfully encoded for {video_path} (video stage).")
                 self.unload_model("video")
-                if self.device == "cuda":
+                if "cuda" in self.device:
                     torch.cuda.empty_cache()
                     gc.collect()
                 continue
             self.unload_model("video")
-            if self.device == "cuda":
+            if "cuda" in self.device:
                 torch.cuda.empty_cache()
                 gc.collect()
             
@@ -783,11 +798,11 @@ class MultiModalEncoder:
             self._encode_caption_stage(video_path, dp, force=_force_caption)
 
             self.unload_model("caption")
-            if self.device == "cuda":
+            if "cuda" in self.device:
                 torch.cuda.empty_cache()
                 gc.collect()
             
-            if self.device == "cuda":
+            if "cuda" in self.device:
                 torch.cuda.empty_cache()
                 gc.collect()
             
@@ -803,7 +818,7 @@ class MultiModalEncoder:
                 self.audio_encoder.load_models()
                 self._encode_audio_stage(video_path, dp, force=_force_audio)
                 self.unload_model("audio")
-            if self.device == "cuda":
+            if "cuda" in self.device:
                 torch.cuda.empty_cache()
                 gc.collect()
             """
@@ -834,7 +849,7 @@ class MultiModalEncoder:
 
             # Unload text encoder after text stage
             self.unload_model("text")
-            if self.device == "cuda":
+            if "cuda" in self.device:
                 torch.cuda.empty_cache()
                 gc.collect()
             
@@ -867,9 +882,14 @@ class MultiModalEncoder:
 
             # Unload text encoder after all text-related stages are complete
             self.unload_model("text")
-            if self.device == "cuda":
+            if "cuda" in self.device:
                 torch.cuda.empty_cache()
                 gc.collect()
+
+            if pickle_path is not None:
+                VideoDataset.save_datapoint_to_pickle(dp, pickle_path)
+                logging.info(f"[SAVE] {base} saved")
+
 
         # Unload tagger at the very end after all videos are processed
         if self.use_tagging and self._tagger_loaded:
@@ -891,19 +911,19 @@ class MultiModalEncoder:
     def unload_model(self, modality: str) -> None:
         """Free heavy encoder models from GPU."""
         if modality == "text" and hasattr(self, "text_encoder"):
-            del self.text_encoder
+            self.text_encoder.unload_models()
         if modality == "video" and hasattr(self, "video_encoder"):
-            del self.video_encoder
+            self.video_encoder.unload_models()
         if modality == "audio" and hasattr(self, "audio_encoder"):
-            del self.audio_encoder
+            self.audio_encoder.unload_models()
         if modality == "caption" and hasattr(self, "captioner"):
-            del self.captioner
+            self.captioner.unload_models()
         if modality == "tagger" and hasattr(self, "tagger") and self.tagger is not None:
-            if hasattr(self.tagger, 'unload_model'):
-                self.tagger.unload_model()
+            # if hasattr(self.tagger, 'unload_model'):
+            #     self.tagger.unload_model()
             del self.tagger
             self.tagger = None
             self._tagger_loaded = False
-        if self.device == "cuda":
+        if "cuda" in self.device:
             torch.cuda.empty_cache()
         gc.collect()

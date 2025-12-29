@@ -159,6 +159,13 @@ class VisualCaptioner(BaseEncoder):
             except Exception:
                 pass
 
+    def unload_models(self):
+        if hasattr(self, "model"):
+            del self.model
+        if hasattr(self, "processor"):
+            del self.processor
+        torch.cuda.empty_cache()
+
 ## --- TEMPORARY TEST --- ##
 
 if __name__ == "__main__":

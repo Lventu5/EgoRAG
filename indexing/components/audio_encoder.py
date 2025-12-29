@@ -9,6 +9,7 @@ Note: The encoder gracefully falls back if optional dependencies are not install
 """
 
 import torch
+import gc
 import numpy as np
 import logging
 import librosa
@@ -437,3 +438,23 @@ class AudioEncoder(BaseEncoder):
             "speaker_segments": speaker_segments,
             "has_audio": True
         }
+
+    def unload_models(self):
+        if hasattr(self, "audio_embed_model"):
+            del self.audio_embed_model
+        if hasattr(self, "audio_embed_processor"):
+            del self.audio_embed_processor
+        if hasattr(self, "asr_model"):
+            del self.asr_model
+        if hasattr(self, "asr_processor"):
+            del self.asr_processor
+        if hasattr(self, "faster_whisper_model"):
+            del self.faster_whisper_model
+        if hasattr(self, "audio_event_model"):
+            del self.audio_event_model
+        if hasattr(self, "audio_event_processor"):
+            del self.audio_event_processor
+        if hasattr(self, "diarization_pipeline"):
+            del self.diarization_pipeline
+        gc.collect()
+        torch.cuda.empty_cache()

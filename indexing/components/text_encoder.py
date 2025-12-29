@@ -8,6 +8,7 @@ from .base_encoder import BaseEncoder
 from configuration.config import CONFIG
 import os
 import sys
+import gc
 
 class TextEncoder(BaseEncoder):
     """
@@ -310,3 +311,13 @@ Summary:"""
             logging.warning(f"[Window Screenplay] Generation failed for {window_id}: {e}")
             # Fallback to concatenation
             return "\n\n".join(formatted_scenes)
+
+    def unload_models(self):
+        if hasattr(self, "sbert_model"):
+            del self.sbert_model
+        if hasattr(self, "llm_model"):
+            del self.llm_model
+        if hasattr(self, "llm_tokenizer"):
+            del self.llm_tokenizer
+        gc.collect()
+        torch.cuda.empty_cache()

@@ -449,3 +449,14 @@ class VideoEncoder(BaseEncoder):
                 "video": torch.from_numpy(video_emb),
                 "keyframes": np.array([])
             }
+
+    def unload_models(self):
+        if hasattr(self, "video_model"):
+            del self.video_model
+        if hasattr(self, "video_processor"):
+            del self.video_processor
+        if hasattr(self, "image_model"):
+            del self.image_model
+        if hasattr(self, "image_processor"):
+            del self.image_processor
+        torch.cuda.empty_cache()
