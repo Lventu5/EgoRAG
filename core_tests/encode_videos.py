@@ -96,8 +96,9 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
             dataset = VideoDataset([video])
             encoder = MultiModalEncoder(
                 dataset, 
-                max_workers=4,
-                gpu_devices=CONFIG.get('gpu_devices', None)
+                max_workers=2,
+                use_tagging=CONFIG.indexing.tag.use_tagging,
+                global_video_embed=False,
             )
             video_dataset = encoder.encode_videos(
                 force=force_reencoding,

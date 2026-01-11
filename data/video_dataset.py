@@ -202,3 +202,18 @@ class VideoDataset(Dataset):
                 dp.video_uid = os.path.splitext(dp.video_uid)[0]
         
         return ds
+
+    @staticmethod
+    def save_datapoint_to_pickle(dp: VideoDataPoint, file_path: str):
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+        # Cleanup keyframes prima del salvataggio
+        se = getattr(dp, "scene_embeddings", {})
+        if isinstance(se, dict):
+            for sid, scene_dict in se.items():
+                if isinstance(scene_dict, dict):
+                    scene_dict.pop("keyframes", None)
+
+        with open(file_path, "wb") as f:
+            pickle.dump(dp, f)
+
