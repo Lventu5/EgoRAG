@@ -46,7 +46,7 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
     """
     os.makedirs(save_dir, exist_ok=True)
 
-    video_ids = glob.glob(os.path.join(video_dir, "*.mp4"))
+    video_ids = sorted(glob.glob(os.path.join(video_dir, "*.mp4")))[:150]
     print(f"Found {len(video_ids)} videos")
 
     config_txt_path = Path(save_dir) / "config_snapshot.txt"
@@ -118,7 +118,7 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
         gc.collect()  # Double gc to ensure everything is freed
 
 if __name__ == "__main__":
-    video_dir = "/cluster/project/cvg/data/ego4d/nlq_validation/v2/full_scale"
+    video_dir = "/cluster/project/cvg/data/ego4d/nlq_validation/v2/full_scale/"
     save_dir = "../../tnanni/ego4d_data/v2/full_validation"
     output_pkl_file = os.path.join(save_dir, "merged_validation.pkl")
     
