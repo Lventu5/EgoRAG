@@ -46,7 +46,7 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
     """
     os.makedirs(save_dir, exist_ok=True)
 
-    video_ids = sorted(glob.glob(os.path.join(video_dir, "*.mp4")))[:150]
+    video_ids = sorted(glob.glob(os.path.join(video_dir, "*.mp4")))[259:]
     print(f"Found {len(video_ids)} videos")
 
     config_txt_path = Path(save_dir) / "config_snapshot.txt"
@@ -81,7 +81,6 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
                 pickle_path=pickle_path, 
                 max_workers=2, 
                 use_tagging=CONFIG.indexing.tag.use_tagging,
-                gpu_devices=CONFIG.get('gpu_devices', None)
             )
             video_dataset = encoder.encode_videos(
                 force=force_reencoding,

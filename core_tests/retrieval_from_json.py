@@ -49,7 +49,7 @@ def _unique_excel_path(path_str: str) -> Path:
         counter += 1
     return candidate
 
-def convert_and_evaluate(retrieval_results: dict, queries, evaluator: RetrievalEvaluator):
+def convert_and_evaluate(retrieval_results: dict, queries, evaluator: RetrievalEvaluator, videodataset):
     """Convert hierarchical retriever output to metric inputs and run evaluator.
 
     Args:
@@ -62,9 +62,12 @@ def convert_and_evaluate(retrieval_results: dict, queries, evaluator: RetrievalE
     """
     preds = []
     trues = []
+    dp_by_name = {dp.video_name: dp for dp in videodataset.video_datapoints}
+    TOPK_DEBUG = 25
 
     for q in queries:
         qid = q.qid
+
         # `retrieval_results` can be a plain dict, a RetrievalResults wrapper,
         # or the detailed_results list returned by the retriever.
         entry = retrieval_results.get(qid, {})
@@ -112,6 +115,43 @@ def convert_and_evaluate(retrieval_results: dict, queries, evaluator: RetrievalE
         gt_video = q.video_uid
         gt_moment_start = None
         gt_moment_end = None
+        
+        # Print query, top retrieved scenes, and ground truth
+        # print(f"\n{'='*80}")
+        # print(f"Query ID: {qid}")
+        # print(f"Query: {q.query_text}")
+        # print(f"Query Tags: {getattr(q, 'tags', [])}")
+        # print(f"\nGround Truth:")
+        # print(f"  Video: {gt_video}")
+        # if hasattr(q, 'gt') and q.gt:
+        #     print(f"  Time Range: {q.gt.get('start_sec', 'N/A')}s - {q.gt.get('end_sec', 'N/A')}s")
+        # else:
+        #     print(f"  Time Range: N/A")
+        
+        # print(f"\nTop Retrieved Scenes:")
+        if len(query_preds) > 0:
+            for idx, (video_name, scene_obj, scene_score) in enumerate(query_preds_with_scores[:TOPK_DEBUG], 1):
+                # print(f"  {idx}. Video: {video_name} | score={scene_score:.4f}")
+
+                # Extract scene_id robustly (depends on your Scene dataclass)
+                scene_id = getattr(scene_obj, "scene_id", None) or getattr(scene_obj, "id", None)
+
+                # Time fields robustly
+                start_sec = getattr(scene_obj, "start_time", None) or getattr(scene_obj, "start", None)
+                end_sec   = getattr(scene_obj, "end_time", None) or getattr(scene_obj, "end", None)
+                # print(f"     Scene ID: {scene_id} | Time: {start_sec} - {end_sec}")
+
+                # Fetch scene tags from datapoint storage
+                scene_tags = []
+                dp = dp_by_name.get(video_name)
+                if dp is not None and scene_id is not None:
+                    scene_data = dp.scene_embeddings.get(scene_id, None)
+                    if scene_data is not None:
+                        scene_tags = scene_data.get("tags") or []
+                # print(f"     Scene Tags: {scene_tags}")
+        else:
+            print(f"  No scenes retrieved")
+        # print(f"{'='*80}")
         
         # Safely extract GT
         if getattr(q, "gt", None):
@@ -211,7 +251,7 @@ def main(
 
         logging.info("Running evaluation...")
         evaluator = RetrievalEvaluator()
-        metrics = convert_and_evaluate(retrieval_results, query_dataset, evaluator)
+        metrics = convert_and_evaluate(retrieval_results, query_dataset, evaluator, video_dataset)
 
         print(f"--- Results ({exp_name}) ---")
         for k, v in metrics.items():
@@ -275,8 +315,8 @@ if __name__ == "__main__":
     annotations = CONFIG.data.annotation_path
     modalities = [
         ("text_only", ["text"]),
-        # ("video_only", ["video"]),
-        # ("video_text", ["video", "text"])
+        ("video_only", ["video"]),
+        ("video_text", ["video", "text"])
     ]
     topk_videos = CONFIG.retrieval.top_k_videos
     topk_scenes = CONFIG.retrieval.top_k_scenes

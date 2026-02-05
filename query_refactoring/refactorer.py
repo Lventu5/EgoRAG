@@ -171,29 +171,36 @@ class QueryRefactorer:
         return frames
     
     def _build_refactoring_prompt(self, query: str) -> str:
-        """Build the prompt for the VLLM to refactor the query"""
-        prompt = f"""You are watching an egocentric video showing a person's actions and surroundings. You need to query a VQA system in a clear and unambiguous way.
+        prompt = f"""You are an intelligent visual assistant designed to help users retrieve specific memories from video footage.
+Your goal is to make a vague memory query specific by grounding it in the visual context of the scene.
 
-Your task: Make this query more specific and unambiguous based on what you see in the video. Do not provide the answer to the query, just add
-relevant information that make the query refer to the single instant of time provided as a ground truth. You do not need to necessarly add information,
-just do it if the query might be ambiguous.
-Keep the questions with the I pronoun if they contain it, do not add invented information.
+Input Query: "{query}"
 
-Consider:
-- Specific objects mentioned (which table, which door, what color, etc.)
-- Actions and their context (while entering/exiting, before/after doing something)
-- Spatial relationships (left/right, near/far from something)
-- Temporal context (at the beginning/end, after doing X)
-- Any distinguishing features that make objects or actions unique
+Follow this TWO-STEP process strictly:
 
-For instance, if the query is: 'Did I close the door?' You might rephrase it as 'Did I close the door when I left the clothing shop?', in case the ground truth shows a person leaving a clothing shop.
+### STEP 1: SCENE ANALYSIS
+Analyze the provided image frame and generate a **complete, natural description** of the scene.
+- Describe the environment (e.g., messy garage, sunny camping site).
+- List visible objects (e.g., red mower, hanging wires, blue toolbox).
+- Describe the lighting or atmosphere if relevant.
 
-Provide ONLY the refactored query, nothing else. Be concise but specific.
+### STEP 2: QUERY REFACTORING
+Rewrite the "Input Query" by incorporating the specific details found in Step 1 to make it unambiguous.
+- **Natural Tone:** It must sound like a casual question asked by a human to a smart wearable device.
+- **Connection:** Use the visual details from Step 1 to anchor the query.
 
-Original query: "{query}"
+### CRITICAL RULES (Mandatory):
+1. **PERSPECTIVE LOCK**: You MUST maintain the user's perspective ("I"). Do NOT change "I" to "you".
+2. **SUBJECT FIDELITY**: Do NOT change the core object of the query (e.g., if user says "wall", keep "wall").
+3. **NO ROBOTIC LANGUAGE**: Strictly AVOID words like "amidst", "situated", "located", "positioned", "whilst". Use simple prepositions like "in", "on", "next to", "with".
+4. **NO ANSWERING**: Do NOT answer the question. Only rewrite it.
+
+### OUTPUT FORMAT:
+Scene Description: [Your detailed description from Step 1]
+Refactored Query: [The natural, contextualized query based on the description]
 """
         return prompt
-        
+            
     def _generate_with_qwen(self, frames: List[Image.Image], prompt: str) -> str:
         """Generate text using Qwen model"""
         
@@ -219,8 +226,10 @@ Original query: "{query}"
         with torch.no_grad():
             generated_ids = self.model.generate(
                 **inputs,
-                max_new_tokens=128,
-                do_sample=False
+                max_new_tokens=768,
+                do_sample=True,
+                temperature=0.2,
+                repetition_penalty = 1.2
             )
 
         answer_ids = generated_ids[0][inputs.input_ids.shape[1]:]

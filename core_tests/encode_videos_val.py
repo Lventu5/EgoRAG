@@ -119,8 +119,8 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
 
 
 if __name__ == "__main__":
-    video_dir = "/cluster/project/cvg/data/Ego4d"
-    save_dir = "../../tnanni/ego4d_data/v2/internvideo6b_validation_encodings"
+    video_dir = "/cluster/project/cvg/data/ego4d/nlq_validation/v2/full_scale"
+    save_dir = "../../tnanni/ego4d_data/v2/full_validation_singlegpu"
     output_pkl_file = os.path.join(save_dir, "merged.pkl")
     
     # Option 1: Re-encode everything

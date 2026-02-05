@@ -68,6 +68,7 @@ def example_with_video_dataset():
     all_queries = []
     for dp in video_dataset.video_datapoints:
         video_uid = getattr(dp, "video_uid", None)
+        logging.info(f"Processing video UID: {video_uid}")
         if not video_uid:
             continue
             
@@ -103,6 +104,10 @@ def example_with_video_dataset():
         query_dataset=query_dataset,
         video_dir=video_dir
     )
+
+    for rq in refactored_queries:
+        if "Refactored Query:" in rq.refactored_query:
+            rq.refactored_query = rq.refactored_query.split("Refactored Query:")[-1].strip()
     
     print(f"\nRefactored {len(refactored_queries)} queries")
     
