@@ -2,9 +2,9 @@ device: "cuda"
 data:
   video_path: "/cluster/project/cvg/data/ego4d/nlq_validation/v2/full_scale/"
   annotation_path: "../../tnanni/ego4d_data/v2/annotations/nlq_val.json"
-  video_dataset: "/cluster/project/cvg/students/tnanni/ego4d_data/v2/full_validation/merged_videos.pkl"
+  video_dataset: "/cluster/project/cvg/students/tnanni/ego4d_data/v2/egolife_full/merged_videos.pkl"
 indexing:
-  scene_length: 20.0
+  scene_length: 35.0
   video:
     model_name: "internvideo2-6b" # Options: "xclip", "internvideo2-1b", "internvideo2-6b"
     xclip_id: "microsoft/xclip-base-patch16"
