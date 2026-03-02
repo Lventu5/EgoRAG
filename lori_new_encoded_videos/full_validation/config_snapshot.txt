@@ -1,0 +1,79 @@
+config:
+  data:
+    annotation_path: ../../tnanni/ego4d_data/v2/annotations/nlq_train_edited.json
+    video_dataset: /cluster/project/cvg/students/tnanni/ego4d_data/v2/internvideo6b_tag_clip_large_patch14/merged_10_video.pkl
+    video_path: ../../tnanni/ego4d_data/v2/full_scale/
+  device: cuda
+  indexing:
+    audio:
+      asr_model_id: openai/whisper-large-v3
+      asr_sample_rate: 16000
+      audio_event_model_id: MIT/ast-finetuned-audioset-10-10-0.4593
+      audio_language: en
+      audio_model_id: laion/clap-htsat-unfused
+      audio_sample_rate: 48000
+      diarization_model_id: pyannote/speaker-diarization-3.1
+      use_audio_events: true
+      use_diarization: false
+      use_faster_whisper: true
+    caption:
+      caption_model_id: llava-hf/LLaVA-NeXT-Video-7B-hf
+    scene_length: 20.0
+    tag:
+      tagger_model_id: Qwen/Qwen2.5-3B-Instruct
+      use_tagging: true
+      vision_model_id: openai/clip-vit-large-patch14
+    text:
+      llm_model_id: Qwen/Qwen2.5-3B-Instruct
+      text_model_id: google/embeddinggemma-300m
+    use_windows: true
+    video:
+      clip_id: openai/clip-vit-base-patch32
+      internvideo2_1b_id: OpenGVLab/InternVideo2-Stage2-1B-224p-f8
+      internvideo2_6b_id: OpenGVLab/InternVideo2-Stage2_6B
+      llava_id: llava-hf/LLaVA-NeXT-Video-7B-hf
+      model_name: internvideo2-6b
+      xclip_id: microsoft/xclip-base-patch16
+    window_size: 5
+    window_stride: 5
+  retrieval:
+    answer_generation:
+      fps: 1.0
+      max_clips_per_query: 7
+      max_new_tokens: 128
+      max_pixels: 151200
+      model_name: Qwen/Qwen3-VL-8B-Instruct
+      temp_dir: ../../tnanni/ego4d_data/temp_clips
+    audio_model_id: laion/clap-htsat-unfused
+    caption_model_id: google/embeddinggemma-300m
+    fusion: rrf
+    generate_answer: true
+    internvideo2_1b_id: OpenGVLab/InternVideo2-Stage2-1B-224p-f8
+    internvideo2_6b_id: OpenGVLab/InternVideo2-Stage2_6B
+    modalities:
+    - text
+    - video
+    rewriter_model_id: Qwen/Qwen2.5-7B-Instruct
+    scene_merger:
+      enabled: false
+      max_gap: 1.0
+      max_scenes_to_merge: 5
+      min_scenes_to_merge: 2
+      score_aggregation: max
+    skip_video_retrieval: true
+    text_model_id: google/embeddinggemma-300m
+    top_k_scenes: 5
+    top_k_videos: 3
+    top_k_windows: 5
+    use_tagging: true
+    use_windows: true
+    video_model_name: internvideo2-6b
+experiment:
+  experiment: full_validation
+  force_audio: null
+  force_caption: null
+  force_reencoding: true
+  force_text: null
+  force_video: null
+  save_dir: /cluster/project/cvg/students/lventuroli/EgoRAG/lori_new_encoded_videos/full_validation
+  video_dir: /cluster/project/cvg/data/ego4d/nlq_validation/v2/full_scale/
