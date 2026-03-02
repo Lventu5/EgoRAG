@@ -153,6 +153,8 @@ class EgoLifeDataset(BaseDataset):
         self.pattern = r"A\d_.*[A-Za-z]+"
         self.num_people = 6
         self.num_days = 7
+        self._caption_index = None
+        self._caption_index_loaded = False
         
     def __len__(self):
         """Total number of person-day videos (6 people * 7 days = 42)"""
@@ -221,6 +223,120 @@ class EgoLifeDataset(BaseDataset):
             print(f"Error parsing timestamp from {clip_filename}: {e}")
             return 0.0
 
+    def _parse_clip_metadata(self, clip_filename: str, person_id: int, day_id: int) -> Dict[str, str | float]:
+        """
+        Parse metadata from EgoLife clip filename.
+        Expected format: DAYx_A{n}_NAME_hhmmsscc.mp4
+        Returns a dict with name, date, time, and timestamp_sec.
+        """
+        base = os.path.splitext(clip_filename)[0]
+        parts = base.split("_")
+
+        # Defaults from folder structure
+        fallback_date = f"DAY{day_id}"
+        fallback_person_id = f"A{person_id}"
+        fallback_name = self.PERSON_NAMES.get(person_id, f"UNKNOWN_{person_id}")
+
+        date = fallback_date
+        person_token = fallback_person_id
+        time_str = ""
+        name = fallback_name
+
+        if len(parts) >= 4:
+            # Basic structure: DAYx, A{n}, NAME, hhmmsscc
+            if parts[0].upper().startswith("DAY"):
+                date = parts[0].upper()
+            if parts[1].upper().startswith("A"):
+                person_token = parts[1].upper()
+            time_str = parts[-1]
+            name_parts = parts[2:-1]
+            if name_parts:
+                name = "_".join(name_parts)
+        else:
+            # If format is unexpected, attempt to infer time from last segment
+            if parts:
+                time_str = parts[-1]
+
+        timestamp_sec = self._parse_query_timestamp(date, time_str) if time_str else 0.0
+
+        return {
+            "name": name,
+            "date": date,
+            "time": time_str,
+            "person_id": person_token,
+            "timestamp_sec": float(timestamp_sec),
+            "clip_name": clip_filename,
+            "clip_base": base,
+        }
+
+    def _load_caption_index(self) -> Dict[str, str]:
+        """
+        Load EgoLife narration captions (if available) into an index.
+        Index keys include clip base name and ids.
+        """
+        if self._caption_index_loaded:
+            return self._caption_index or {}
+
+        self._caption_index_loaded = True
+        self._caption_index = {}
+
+        # Allow override via config; fall back to default path if not provided
+        caption_path = None
+        try:
+            caption_path = CONFIG.data.get("egolife_caption_path", None)
+        except Exception:
+            caption_path = None
+
+        if not caption_path:
+            caption_path = "/cluster/project/cvg/data/EgoLife/EgoIT/EgoLife_Caption.json"
+
+        if not os.path.exists(caption_path):
+            print(f"[EgoLife] Caption file not found: {caption_path} (skipping GT narrations)")
+            return self._caption_index
+
+        try:
+            with open(caption_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            for entry in data:
+                conversations = entry.get("conversations", [])
+                gpt_text = ""
+                for conv in conversations:
+                    if conv.get("from") == "gpt" and conv.get("value"):
+                        gpt_text = conv.get("value", "")
+                        break
+                if not gpt_text:
+                    continue
+
+                entry_id = entry.get("id", "")
+                if entry_id:
+                    self._caption_index[entry_id] = gpt_text
+                    if entry_id.endswith("_en"):
+                        self._caption_index[entry_id[:-3]] = gpt_text
+
+                video_path = entry.get("video", "")
+                if video_path:
+                    base = os.path.splitext(os.path.basename(video_path))[0]
+                    if base:
+                        self._caption_index[base] = gpt_text
+
+        except Exception as e:
+            print(f"[EgoLife] Error loading caption file: {e}")
+
+        return self._caption_index
+
+    def _get_caption_for_clip(self, clip_base: str, clip_path: str) -> str:
+        """Return GT narration for a clip if available."""
+        index = self._load_caption_index()
+        if not index:
+            return ""
+        if clip_base in index:
+            return index[clip_base]
+        if clip_path:
+            base = os.path.splitext(os.path.basename(clip_path))[0]
+            return index.get(base, "")
+        return ""
+
     def _extract_clips_for_day(self, day_path: str, person_id: int, day_id: int) -> Dict[str, Scene]:
         """
         Extract clip information for a specific person-day.
@@ -242,14 +358,20 @@ class EgoLifeDataset(BaseDataset):
         for clip_path in clip_files:
             clip_name = os.path.basename(clip_path)
             timestamp = self._parse_clip_timestamp(clip_name)
-            clip_data.append((clip_path, clip_name, timestamp))
+            clip_meta = self._parse_clip_metadata(clip_name, person_id, day_id)
+            # Attach GT narration if available
+            narration = self._get_caption_for_clip(clip_meta.get("clip_base", ""), clip_path)
+            if narration:
+                clip_meta["narration"] = narration
+                clip_meta["narration_source"] = "egolife_caption"
+            clip_data.append((clip_path, clip_name, timestamp, clip_meta))
         
         # Sort by timestamp
         clip_data.sort(key=lambda x: x[2])
         
         # Create Scene objects
         scenes = {}
-        for i, (clip_path, clip_name, start_timestamp) in enumerate(clip_data):
+        for i, (clip_path, clip_name, start_timestamp, clip_meta) in enumerate(clip_data):
             scene_id = f"scene_{i}"
             
             # Start time is the clip's timestamp
@@ -266,13 +388,21 @@ class EgoLifeDataset(BaseDataset):
             # Ensure end_time is always greater than start_time
             if end_time <= start_time:
                 end_time = start_time + 30.0
+
+            # Duration for clip-relative encoding
+            clip_duration = max(1.0, end_time - start_time)
             
             scenes[scene_id] = Scene(
                 scene_id=scene_id,
                 start_time=start_time,
                 end_time=end_time,
                 start_frame=None,  # Will be computed during encoding if needed
-                end_frame=None
+                end_frame=None,
+                # Store EgoLife metadata and clip-specific source info
+                meta=clip_meta,
+                source_path=clip_path,
+                source_start_time=0.0,
+                source_end_time=clip_duration,
             )
         
         return scenes
@@ -287,6 +417,7 @@ class EgoLifeDataset(BaseDataset):
         person_day_folders = self._get_person_day_folders()
         video_ids = []
         clips_per_video = {}
+        video_names = {}
         
         for day_path, person_id, day_id in person_day_folders:
             person_name = self.PERSON_NAMES.get(person_id, f"UNKNOWN_{person_id}")
@@ -301,8 +432,33 @@ class EgoLifeDataset(BaseDataset):
             if scenes:  # Only add if there are clips
                 video_ids.append(video_path)
                 clips_per_video[video_path] = scenes
+                video_names[video_path] = video_id
         
-        return VideoDataset(video_ids, scenes_per_video=clips_per_video)
+        dataset = VideoDataset(video_ids, scenes_per_video=clips_per_video)
+        # Override video_name/video_uid for uniqueness and attach scene metadata
+        for dp in dataset.video_datapoints:
+            if dp.video_path in video_names:
+                dp.video_name = video_names[dp.video_path]
+                dp.video_uid = video_names[dp.video_path]
+            for sid, scene in dp.scenes.items():
+                meta = getattr(scene, "meta", {}) or {}
+                if sid in dp.scene_embeddings:
+                    dp.scene_embeddings[sid]["meta"] = meta
+                else:
+                    dp.scene_embeddings[sid] = {
+                        "video": None,
+                        "audio": None,
+                        "text": None,
+                        "text_raw": "",
+                        "image": {},
+                        "meta": meta,
+                        "caption": None,
+                        "transcript": "",
+                        "caption_text": "",
+                        "tags": None,
+                    }
+        
+        return dataset
 
     def _parse_query_timestamp(self, date: str, time: str) -> float:
         """

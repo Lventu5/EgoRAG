@@ -131,6 +131,62 @@ class MultiModalEncoder:
             return True
         return True
 
+    def _resolve_scene_source(self, default_video_path: str, scene: Scene) -> tuple[str, float, float]:
+        """
+        Resolve the actual source path and time range to use for encoding.
+        For datasets like EgoLife, scenes can carry an alternate clip path
+        with clip-relative start/end times while keeping absolute timestamps
+        in scene.start_time/end_time for retrieval/evaluation.
+        """
+        src_path = getattr(scene, "source_path", None) or default_video_path
+        src_start = getattr(scene, "source_start_time", None)
+        src_end = getattr(scene, "source_end_time", None)
+        if src_start is None:
+            src_start = scene.start_time
+        if src_end is None:
+            src_end = scene.end_time
+        return src_path, float(src_start), float(src_end)
+
+    def _clone_scene_with_times(self, scene: Scene, start_time: float, end_time: float) -> Scene:
+        """Create a lightweight scene copy with overridden start/end times."""
+        if scene.start_time == start_time and scene.end_time == end_time:
+            return scene
+        return Scene(
+            scene_id=scene.scene_id,
+            start_time=start_time,
+            end_time=end_time,
+            video_name=scene.video_name,
+            start_frame=scene.start_frame,
+            end_frame=scene.end_frame,
+            frames=scene.frames,
+            meta=getattr(scene, "meta", None),
+            source_path=getattr(scene, "source_path", None),
+            source_start_time=getattr(scene, "source_start_time", None),
+            source_end_time=getattr(scene, "source_end_time", None),
+        )
+
+    def _ensure_scene_metadata(self, dp: VideoDataPoint) -> None:
+        """Ensure scene metadata (if present) is stored in scene_embeddings."""
+        for sid, scene in dp.scenes.items():
+            if sid not in dp.scene_embeddings or not isinstance(dp.scene_embeddings[sid], dict):
+                dp.scene_embeddings[sid] = {
+                    "video": None,
+                    "audio": None,
+                    "text": None,
+                    "text_raw": "",
+                    "image": {},
+                    "meta": {},
+                    "caption": None,
+                    "transcript": "",
+                    "caption_text": "",
+                    "tags": None,
+                }
+            meta = getattr(scene, "meta", {}) or {}
+            if meta:
+                dp.scene_embeddings[sid].setdefault("meta", {}).update(meta)
+            else:
+                dp.scene_embeddings[sid].setdefault("meta", {})
+
     def _encode_video_stage(self, video_path: str, dp: VideoDataPoint, force: bool = False) -> None:
         """
         Stage 1: Encode all scenes with video encoder.
@@ -148,18 +204,25 @@ class MultiModalEncoder:
         
         # Temporary storage for keyframes (needed for captioner1)
         dp._temp_keyframes = {}
+        self._ensure_scene_metadata(dp)
         
         futures = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             for sid, scene in dp.scenes.items():
-                futures[executor.submit(self.video_encoder.encode, video_path, scene)] = sid
+                src_path, src_start, src_end = self._resolve_scene_source(video_path, scene)
+                scene_for_encode = self._clone_scene_with_times(scene, src_start, src_end)
+                futures[executor.submit(self.video_encoder.encode, src_path, scene_for_encode)] = sid
 
             for f in tqdm(as_completed(futures), total=len(futures), desc=f"Video ({dp.video_name})", disable=False):
                 sid = futures[f]
                 try:
                     video_data = f.result()
                     if video_data:
-                        dp.scene_embeddings[sid] = {"video": video_data["video"]}
+                        scene_entry = dp.scene_embeddings.get(sid, {})
+                        if not isinstance(scene_entry, dict):
+                            scene_entry = {}
+                        scene_entry["video"] = video_data["video"]
+                        dp.scene_embeddings[sid] = scene_entry
                         dp._temp_keyframes[sid] = video_data["keyframes"]
                     else:
                         logging.warning(f"[SKIP] scene {sid}, video encoding failed.")
@@ -201,7 +264,8 @@ class MultiModalEncoder:
         futures = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             for sid, scene in dp.scenes.items():
-                futures[executor.submit(self.audio_encoder.encode, video_path, scene.start_time, scene.end_time)] = sid
+                src_path, src_start, src_end = self._resolve_scene_source(video_path, scene)
+                futures[executor.submit(self.audio_encoder.encode, src_path, src_start, src_end)] = sid
 
             for f in tqdm(as_completed(futures), total=len(futures), desc=f"Audio ({dp.video_name})", disable=False):
                 sid = futures[f]
@@ -273,12 +337,22 @@ class MultiModalEncoder:
             return
         
         logging.info(f"[Caption Stage] Visual caption generation for {dp.video_name}")
+        self._ensure_scene_metadata(dp)
         futures = {}
         
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             for sid, scene in dp.scenes.items():
                 if sid in dp.scene_embeddings:
-                    futures[executor.submit(self.captioner.encode, video_path, scene)] = sid
+                    # Use GT narration if available (EgoLife)
+                    scene_meta = dp.scene_embeddings[sid].get("meta", {}) if isinstance(dp.scene_embeddings[sid], dict) else {}
+                    narration = scene_meta.get("narration") if isinstance(scene_meta, dict) else None
+                    if narration:
+                        dp.scene_embeddings[sid]["_temp_caption"] = narration
+                        continue
+
+                    src_path, src_start, src_end = self._resolve_scene_source(video_path, scene)
+                    scene_for_caption = self._clone_scene_with_times(scene, src_start, src_end)
+                    futures[executor.submit(self.captioner.encode, src_path, scene_for_caption)] = sid
 
             for f in tqdm(as_completed(futures), total=len(futures), desc=f"Caption ({dp.video_name})", disable=False):
                 sid = futures[f]
@@ -750,7 +824,8 @@ class MultiModalEncoder:
             video_path = dp.video_path
             logging.info(f"Processing video: {video_path}")
 
-            base = os.path.splitext(os.path.basename(video_path))[0]
+            # Use datapoint name for uniqueness (important for virtual paths like EgoLife)
+            base = dp.video_name
             pickle_path = None
             if save_dir is not None:
                 pickle_path = os.path.join(save_dir, f"{base}.pkl")
