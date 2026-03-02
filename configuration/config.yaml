@@ -61,7 +61,7 @@ retrieval:
   generate_answer: false # Enable/disable answer generation with Qwen3-VL
   answer_generation:
     model_name: "Qwen/Qwen3-VL-8B-Instruct"
-    temp_dir: "../../tnanni/ego4d_data/temp_clips"
+    temp_dir: "/cluster/project/cvg/students/lventuroli/EgoRAG/results/temp_clips"
     max_clips_per_query: 7 # Max number of retrieved scenes to use per query
     max_pixels: 151200 # 360*420 - resolution limit to save tokens
     fps: 1.0 # Frame sampling rate for video processing

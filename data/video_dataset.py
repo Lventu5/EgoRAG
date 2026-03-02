@@ -20,7 +20,12 @@ class Scene:
         video_name: Optional[str] = None,
         start_frame: Optional[int] = None,
         end_frame: Optional[int] = None,
-        frames: Optional[List[int]] = None
+        frames: Optional[List[int]] = None,
+        # Optional metadata and alternate source info (useful for datasets like EgoLife)
+        meta: Optional[Dict] = None,
+        source_path: Optional[str] = None,
+        source_start_time: Optional[float] = None,
+        source_end_time: Optional[float] = None,
     ):
         self.scene_id = scene_id
         self.video_name = video_name
@@ -29,6 +34,11 @@ class Scene:
         self.start_frame = start_frame if start_frame is not None else 0
         self.end_frame = end_frame if end_frame is not None else 0
         self.frames = frames or []
+        # Metadata and optional alternate source info
+        self.meta = meta or {}
+        self.source_path = source_path
+        self.source_start_time = source_start_time
+        self.source_end_time = source_end_time
 
     def __repr__(self):
         return (
@@ -117,21 +127,20 @@ class VideoDataPoint:
         }
 
         # Embeddings per ogni scena
-        self.scene_embeddings: Dict[str, Dict] = {
-            f"scene_{i}": {
+        self.scene_embeddings: Dict[str, Dict] = {}
+        for scene_id, scene in self.scenes.items():
+            self.scene_embeddings[scene_id] = {
                 "video": None,
                 "audio": None,
                 "text": None,  # Single text embedding from screenplay summary
                 "text_raw": "",  # LLM-generated screenplay text
                 "image": {},
-                "meta": {},
+                "meta": getattr(scene, "meta", {}) or {},
                 "caption": None,
                 "transcript": "",
                 "caption_text": "",
                 "tags": None,
             }
-            for i, _ in enumerate(self.scenes)
-        }
         self.queries: List[Query] = []
 
     def __repr__(self):
@@ -166,6 +175,9 @@ class VideoDataset(Dataset):
         return self.video_datapoints[idx]
     
     def get_uids(self) -> List[str]:
+        # Prefer datapoint UID/name for datasets with virtual paths (e.g., EgoLife)
+        if self.video_datapoints:
+            return [getattr(dp, "video_uid", dp.video_name) for dp in self.video_datapoints]
         return [os.path.splitext(os.path.basename(v))[0] for v in self.video_files]
     
     def save_to_pickle(self, file_path: str):
@@ -216,4 +228,3 @@ class VideoDataset(Dataset):
 
         with open(file_path, "wb") as f:
             pickle.dump(dp, f)
-

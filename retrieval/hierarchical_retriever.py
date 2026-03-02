@@ -27,6 +27,7 @@ import sys
 import os
 import gc
 from pathlib import Path
+import re
 sys.path.append(os.path.join(Path(os.getcwd()), 'external/InternVideo/InternVideo2'))
 sys.path.append(os.path.join(Path(os.getcwd()), 'external/InternVideo/InternVideo2/multi_modality'))
 import interface
@@ -212,10 +213,180 @@ class HierarchicalRetriever:
             )
             for query in tqdm(queries, desc = "Rewriting queries"):
                 decomposition = rewriter(query.get_query(), modality="decompose")
+                # Preserve existing metadata (e.g., EgoLife query fields)
+                existing_meta = {}
+                if isinstance(query.decomposed, dict):
+                    existing_meta = query.decomposed.get("metadata", {}) or {}
+                if isinstance(decomposition, dict) and existing_meta:
+                    decomposition["metadata"] = existing_meta
                 query.decomposed = decomposition
         else:
             for query in queries:
-                query.decomposed = {"text": query.get_query(), "video": query.get_query(), "audio": query.get_query()}
+                if query.decomposed is None or not isinstance(query.decomposed, dict):
+                    query.decomposed = {}
+                # Only fill missing modalities, preserve any existing metadata
+                for mod in ["text", "video", "audio"]:
+                    if not query.decomposed.get(mod):
+                        query.decomposed[mod] = query.get_query()
+
+    def _get_query_metadata(self, query: Query) -> dict:
+        if isinstance(getattr(query, "decomposed", None), dict):
+            return query.decomposed.get("metadata", {}) or {}
+        return {}
+
+    def _day_to_int(self, day_str: str | None) -> int | None:
+        if not day_str:
+            return None
+        m = re.search(r"DAY(\d+)", str(day_str), re.IGNORECASE)
+        if not m:
+            return None
+        try:
+            return int(m.group(1))
+        except ValueError:
+            return None
+
+    def _extract_day_from_video_name(self, video_name: str | None) -> str | None:
+        if not video_name:
+            return None
+        m = re.search(r"DAY\d+", str(video_name), re.IGNORECASE)
+        if not m:
+            return None
+        return m.group(0).upper()
+
+    def _infer_allowed_days(self, query: Query, query_date: str | None) -> set[str] | None:
+        """
+        Infer which DAYs are allowed based on query text.
+        Returns None to indicate no day filtering.
+        """
+        qtext = (query.get_query() or "").lower()
+
+        # Explicit DAY mentions (e.g., DAY2, day 3)
+        explicit_days: set[str] = set()
+        for match in re.findall(r"\bday\s*([1-7])\b", qtext):
+            explicit_days.add(f"DAY{int(match)}")
+        for match in re.findall(r"\bday([1-7])\b", qtext):
+            explicit_days.add(f"DAY{int(match)}")
+        if explicit_days:
+            return explicit_days
+
+        # Relative references
+        if "yesterday" in qtext and query_date:
+            day_num = self._day_to_int(query_date)
+            if day_num and day_num > 1:
+                return {f"DAY{day_num - 1}"}
+        if "tomorrow" in qtext and query_date:
+            day_num = self._day_to_int(query_date)
+            if day_num and day_num < 7:
+                return {f"DAY{day_num + 1}"}
+
+        # Other-day phrasing means allow all days
+        other_day_phrases = [
+            "other day",
+            "other days",
+            "another day",
+            "previous day",
+            "previous days",
+            "past days",
+            "earlier days",
+            "day before",
+            "days before",
+            "the other day",
+            "the other days",
+        ]
+        if any(phrase in qtext for phrase in other_day_phrases):
+            return None
+
+        # Default: restrict to query_date if available
+        if query_date:
+            return {query_date}
+        return None
+
+    def _get_egolife_constraints(self, query: Query) -> dict | None:
+        """
+        Extract EgoLife-specific constraints (day/time) from query metadata.
+        Returns None if no EgoLife metadata is present.
+        """
+        meta = self._get_query_metadata(query)
+        if not meta:
+            return None
+        query_date = meta.get("query_date")
+        query_time_sec = meta.get("query_time_sec")
+        allowed_days = self._infer_allowed_days(query, query_date)
+        return {
+            "query_date": query_date,
+            "query_time_sec": query_time_sec,
+            "allowed_days": allowed_days,
+        }
+
+    def _apply_egolife_video_filters(
+        self,
+        queries: QueryDataset,
+        candidate_videos_per_query: dict[str, set[str]],
+    ) -> dict[str, set[str]]:
+        """
+        Apply EgoLife day-level filtering to candidate videos when metadata is present.
+        """
+        filtered = {}
+        for query in queries:
+            candidates = set(candidate_videos_per_query.get(query.qid, set()))
+            constraints = self._get_egolife_constraints(query)
+            if not constraints:
+                filtered[query.qid] = candidates
+                continue
+
+            allowed_days = constraints.get("allowed_days")
+            if not allowed_days:
+                # None means no day restriction
+                filtered[query.qid] = candidates
+                continue
+
+            filtered_candidates = set()
+            for video_name in candidates:
+                day = self._extract_day_from_video_name(video_name)
+                if day and day in allowed_days:
+                    filtered_candidates.add(video_name)
+
+            # If filtering produced no results, fallback to original to avoid empty retrieval
+            if not filtered_candidates:
+                logging.warning(
+                    f"[EgoLife] Day filter produced no candidates for query {query.qid}; "
+                    f"falling back to unfiltered candidates."
+                )
+                filtered_candidates = candidates
+
+            filtered[query.qid] = filtered_candidates
+
+        return filtered
+
+    def _scene_passes_egolife_time_filter(self, query: Query, dp, scene: Scene, scene_data: dict | None = None) -> bool:
+        constraints = self._get_egolife_constraints(query)
+        if not constraints:
+            return True
+
+        query_date = constraints.get("query_date")
+        query_time_sec = constraints.get("query_time_sec")
+        allowed_days = constraints.get("allowed_days")
+
+        scene_meta = {}
+        if scene_data and isinstance(scene_data, dict):
+            scene_meta = scene_data.get("meta", {}) or {}
+        if not scene_meta and hasattr(scene, "meta"):
+            scene_meta = getattr(scene, "meta", {}) or {}
+
+        scene_day = (scene_meta.get("date") or self._extract_day_from_video_name(getattr(dp, "video_name", None)))
+        if allowed_days and scene_day and scene_day not in allowed_days:
+            return False
+
+        if query_date and query_time_sec and query_time_sec > 0:
+            if scene_day and scene_day.upper() == str(query_date).upper():
+                # Use scene absolute timestamp if available
+                scene_ts = scene_meta.get("timestamp_sec")
+                if scene_ts is None:
+                    scene_ts = getattr(scene, "start_time", None)
+                if scene_ts is not None and float(scene_ts) > float(query_time_sec):
+                    return False
+
+        return True
 
 
     def _embed_queries(self, queries: QueryDataset) -> torch.Tensor:
@@ -467,6 +638,10 @@ class HierarchicalRetriever:
             if scene_obj is None:
                 logging.warning(f"Scene {scene_id} has embedding but no Scene object in video {target_dp.video_name}")
                 continue
+
+            # EgoLife time/day filtering (if applicable)
+            if not self._scene_passes_egolife_time_filter(query, target_dp, scene_obj, scene_data):
+                continue
             
             scenes.append(scene_obj)
             scene_embeddings_list.append(emb.to(self.device))
@@ -600,7 +775,21 @@ class HierarchicalRetriever:
         windows = []
         window_embeddings_list = []
         
+        constraints = self._get_egolife_constraints(query)
+        dp_day = self._extract_day_from_video_name(target_dp.video_name)
+
         for window in target_dp.windows:
+            # EgoLife day/time filtering at window level (if applicable)
+            if constraints:
+                allowed_days = constraints.get("allowed_days")
+                query_date = constraints.get("query_date")
+                query_time_sec = constraints.get("query_time_sec")
+                if allowed_days and dp_day and dp_day not in allowed_days:
+                    continue
+                if query_date and query_time_sec and query_time_sec > 0 and dp_day and dp_day.upper() == str(query_date).upper():
+                    if window.end_time > float(query_time_sec):
+                        continue
+
             wid = window.window_id
             if wid not in target_dp.window_embeddings:
                 logging.warning(f"Window id {wid} not found in {target_dp.window_embeddings.keys()}")
@@ -721,6 +910,10 @@ class HierarchicalRetriever:
             scene_obj = target_dp.get_scene_by_id(scene_id)
             if scene_obj is None:
                 logging.warning(f"Scene {scene_id} has embedding but no Scene object in video {target_dp.video_name}")
+                continue
+
+            # EgoLife time/day filtering (if applicable)
+            if not self._scene_passes_egolife_time_filter(query, target_dp, scene_obj, scene_data):
                 continue
             
             scenes.append(scene_obj)
@@ -876,6 +1069,8 @@ class HierarchicalRetriever:
 
         # Filter videos based on tags
         candidate_videos_per_query = self._perform_tag_based_filtering_videos(queries)
+        # Apply EgoLife day-level filtering if metadata is present
+        candidate_videos_per_query = self._apply_egolife_video_filters(queries, candidate_videos_per_query)
         results = types.RetrievalResults()
 
         if skip_video_retrieval:

@@ -19,6 +19,7 @@ from data.video_dataset import Scene
 import data.datatypes as types
 import json
 import shutil
+import time
 
 
 class AnswerGenerator:
@@ -112,19 +113,40 @@ class AnswerGenerator:
             return False
         
         duration = scene.end_time - scene.start_time
+        if duration <= 0:
+            logging.warning(
+                f"[AnswerGenerator] Non-positive duration for scene {scene.scene_id}: "
+                f"start={scene.start_time}, end={scene.end_time}"
+            )
+            return False
         
         # ffmpeg extraction
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-ss", str(scene.start_time),
-            "-i", str(video_path),
-            "-t", str(duration),
-            "-c:v", "libx264",
-            "-c:a", "aac",
-            "-loglevel", "error",
-            output_path
-        ]
+        # For very short clips, force a 1-frame video to avoid empty outputs.
+        if duration < 0.5:
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-ss", str(scene.start_time),
+                "-i", str(video_path),
+                "-frames:v", "1",
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-an",
+                "-loglevel", "error",
+                output_path
+            ]
+        else:
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-ss", str(scene.start_time),
+                "-i", str(video_path),
+                "-t", str(duration),
+                "-c:v", "libx264",
+                "-c:a", "aac",
+                "-loglevel", "error",
+                output_path
+            ]
         
         try:
             subprocess.run(cmd, check=True, capture_output=True)
@@ -209,7 +231,23 @@ class AnswerGenerator:
 
         frame_paths = sorted(frame_dir.glob("*.jpg"))
         if not frame_paths:
-            raise RuntimeError("No frames extracted from video.")
+            logging.warning(
+                f"[AnswerGenerator] No frames extracted at fps={fps}. "
+                f"Falling back to single-frame extraction for {video_path}"
+            )
+            fallback_cmd = [
+                "ffmpeg", "-y",
+                "-ss", "0",
+                "-i", video_path,
+                "-frames:v", "1",
+                "-vf", "scale=420:-1",
+                str(frame_dir / "frame_00001.jpg"),
+                "-loglevel", "error"
+            ]
+            subprocess.run(fallback_cmd, check=True)
+            frame_paths = sorted(frame_dir.glob("*.jpg"))
+            if not frame_paths:
+                raise RuntimeError("No frames extracted from video.")
 
         # --- 2) Costruisci messaggi Qwen con immagini, non video ---
         content = [{"type": "image", "image": str(fp)} for fp in frame_paths]
@@ -233,14 +271,19 @@ class AnswerGenerator:
         ).to(self.device)
 
         # --- 4) Generazione ---
+        t0 = time.time()
         generated_ids = self.model.generate(
             **inputs,
             max_new_tokens=self.max_new_tokens,
             do_sample=False
         )
+        gen_time = time.time() - t0
 
         answer_ids = generated_ids[0][inputs.input_ids.shape[1]:]
         answer = self.processor.decode(answer_ids, skip_special_tokens=True).strip()
+        logging.info(
+            f"[AnswerGenerator] Generated answer in {gen_time:.2f}s (len={len(answer)})"
+        )
 
         # cleanup frame dir
         shutil.rmtree(frame_dir, ignore_errors=True)
