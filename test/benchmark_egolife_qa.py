@@ -299,7 +299,20 @@ def run_gt_video(
     max_questions: Optional[int] = None,
 ) -> Tuple[List[dict], float]:
     """Feed the GT clip + question to the vLLM. Return (records, accuracy)."""
-    entries = qa_entries[:max_questions] if max_questions else qa_entries
+    all_entries = qa_entries[:max_questions] if max_questions else qa_entries
+
+    # Only keep entries whose GT clip exists on disk
+    entries = []
+    skipped = 0
+    for entry in all_entries:
+        target_time = entry.get("target_time", {})
+        clip_path = find_gt_clip(video_dir, person_folder, target_time.get("date", ""), target_time.get("time", ""))
+        if clip_path and os.path.exists(clip_path):
+            entries.append(entry)
+        else:
+            skipped += 1
+    if skipped:
+        logger.info(f"Skipping {skipped} entries with missing GT clip (evaluating on {len(entries)} entries).")
     records = []
     preds, gts = [], []
 
@@ -441,7 +454,20 @@ def run_egorag(
     from retrieval.hierarchical_retriever import HierarchicalRetriever
     from configuration.config import CONFIG
 
-    entries = qa_entries[:max_questions] if max_questions else qa_entries
+    all_entries = qa_entries[:max_questions] if max_questions else qa_entries
+
+    # Only keep entries whose GT clip has been encoded
+    entries = []
+    skipped = 0
+    for entry in all_entries:
+        target_time = entry.get("target_time", {})
+        clip_path = find_gt_clip(video_dir, person_folder, target_time.get("date", ""), target_time.get("time", ""))
+        if clip_path and find_pkl_for_clip(pkl_dir, clip_path):
+            entries.append(entry)
+        else:
+            skipped += 1
+    if skipped:
+        logger.info(f"Skipping {skipped} entries whose GT clip is not encoded (evaluating on {len(entries)} entries).")
 
     # Load dataset with embeddings
     logger.info("Loading EgoLife video dataset with embeddings...")
