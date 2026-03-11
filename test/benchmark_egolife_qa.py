@@ -192,7 +192,7 @@ def extract_frames(video_path: str, out_dir: str, fps: int = 1) -> List[str]:
 class QwenVLModel:
     """Thin wrapper around Qwen3-VL for multi-choice QA."""
 
-    def __init__(self, model_name: str = DEFAULT_MODEL, max_new_tokens: int = 64):
+    def __init__(self, model_name: str = MODEL_NAME, max_new_tokens: int = 64):
         self.model_name = model_name
         self.max_new_tokens = max_new_tokens
         self.model = None
