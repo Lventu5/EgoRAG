@@ -6,7 +6,10 @@ EgoLife QA Benchmark - Three evaluation modes:
 3. egorag   : Use the EgoRAG retrieval pipeline to retrieve a scene, then feed it to Qwen3-VL.
 
 Edit the CONFIG block at the top of this file to change paths/settings, then run:
-    python -m test.benchmark_egolife_qa
+    python -m test.benchmark_egolife_qa --mode gt_video
+or:
+    python -m test.benchmark_egolife_qa --mode llm_only
+    python -m test.benchmark_egolife_qa --mode egorag
 """
 
 import json
