@@ -26,8 +26,7 @@ export HF_HOME=${TRANSFORMERS_CACHE:-~/.cache/huggingface}
 
 cd /cluster/project/cvg/students/tnanni/EgoRAG
 
-# Set MODE = "llm_only" in test/benchmark_egolife_qa.py before submitting
-/cluster/project/cvg/students/lventuroli/miniconda3/envs/RAGu/bin/python -m test.benchmark_egolife_qa
+/cluster/project/cvg/students/lventuroli/miniconda3/envs/RAGu/bin/python -m test.benchmark_egolife_qa --mode llm_only
 
 echo "========================="
 echo "Done."

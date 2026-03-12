@@ -153,6 +153,32 @@ def find_pkl_for_clip(pkl_dir: str, clip_path: str) -> Optional[str]:
     return pkl_path if os.path.exists(pkl_path) else None
 
 
+def filter_to_embedded_entries(
+    qa_entries: List[dict],
+    video_dir: str,
+    person_folder: str,
+    pkl_dir: str,
+) -> List[dict]:
+    """Keep only entries whose GT clip has a pre-computed pkl in pkl_dir.
+
+    Applied to all modes so they evaluate on the same subset.
+    """
+    entries, skipped = [], 0
+    for entry in qa_entries:
+        tt = entry.get("target_time", {})
+        clip_path = find_gt_clip(video_dir, person_folder, tt.get("date", ""), tt.get("time", ""))
+        if clip_path and find_pkl_for_clip(pkl_dir, clip_path):
+            entries.append(entry)
+        else:
+            skipped += 1
+    if skipped:
+        logger.info(
+            f"Skipping {skipped} entries with no embedded clip "
+            f"(evaluating on {len(entries)} entries)."
+        )
+    return entries
+
+
 # ---------------------------------------------------------------------------
 # Frame extraction (shared by gt_video and egorag modes)
 # ---------------------------------------------------------------------------
@@ -299,20 +325,7 @@ def run_gt_video(
     max_questions: Optional[int] = None,
 ) -> Tuple[List[dict], float]:
     """Feed the GT clip + question to the vLLM. Return (records, accuracy)."""
-    all_entries = qa_entries[:max_questions] if max_questions else qa_entries
-
-    # Only keep entries whose GT clip exists on disk
-    entries = []
-    skipped = 0
-    for entry in all_entries:
-        target_time = entry.get("target_time", {})
-        clip_path = find_gt_clip(video_dir, person_folder, target_time.get("date", ""), target_time.get("time", ""))
-        if clip_path and os.path.exists(clip_path):
-            entries.append(entry)
-        else:
-            skipped += 1
-    if skipped:
-        logger.info(f"Skipping {skipped} entries with missing GT clip (evaluating on {len(entries)} entries).")
+    entries = qa_entries[:max_questions] if max_questions else qa_entries
     records = []
     preds, gts = [], []
 
@@ -454,20 +467,7 @@ def run_egorag(
     from retrieval.hierarchical_retriever import HierarchicalRetriever
     from configuration.config import CONFIG
 
-    all_entries = qa_entries[:max_questions] if max_questions else qa_entries
-
-    # Only keep entries whose GT clip has been encoded
-    entries = []
-    skipped = 0
-    for entry in all_entries:
-        target_time = entry.get("target_time", {})
-        clip_path = find_gt_clip(video_dir, person_folder, target_time.get("date", ""), target_time.get("time", ""))
-        if clip_path and find_pkl_for_clip(pkl_dir, clip_path):
-            entries.append(entry)
-        else:
-            skipped += 1
-    if skipped:
-        logger.info(f"Skipping {skipped} entries whose GT clip is not encoded (evaluating on {len(entries)} entries).")
+    entries = qa_entries[:max_questions] if max_questions else qa_entries
 
     # Load dataset with embeddings
     logger.info("Loading EgoLife video dataset with embeddings...")
@@ -599,7 +599,14 @@ def save_results(
 # ---------------------------------------------------------------------------
 
 def main():
+    import argparse
     sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", choices=["llm_only", "gt_video", "egorag"],
+                        default=MODE, help="Evaluation mode (overrides MODE in the config block)")
+    args, _ = parser.parse_known_args()
+    mode = args.mode
 
     # Discover QA files
     qa_dir = Path(QA_DIR)
@@ -615,7 +622,7 @@ def main():
         logger.error("No QA files matched the requested persons.")
         sys.exit(1)
 
-    logger.info(f"Mode: {MODE} | Files: {[f.name for f in qa_files]}")
+    logger.info(f"Mode: {mode} | Files: {[f.name for f in qa_files]}")
 
     # Load model once, shared across all persons
     model = QwenVLModel(model_name=MODEL_NAME, max_new_tokens=64)
@@ -632,10 +639,16 @@ def main():
         qa_entries = load_qa_file(str(qa_file))
         logger.info(f"Loaded {len(qa_entries)} QA entries")
 
-        if MODE == "llm_only":
+        # Restrict all modes to entries whose GT clip is embedded — ensures a fair comparison
+        qa_entries = filter_to_embedded_entries(qa_entries, VIDEO_DIR, person, PKL_DIR)
+        if not qa_entries:
+            logger.warning(f"No embedded clips found for {person}, skipping.")
+            continue
+
+        if mode == "llm_only":
             records, acc = run_llm_only(qa_entries, model, max_questions=MAX_QUESTIONS)
 
-        elif MODE == "gt_video":
+        elif mode == "gt_video":
             records, acc = run_gt_video(
                 qa_entries, model,
                 video_dir=VIDEO_DIR,
@@ -644,7 +657,7 @@ def main():
                 max_questions=MAX_QUESTIONS,
             )
 
-        elif MODE == "egorag":
+        elif mode == "egorag":
             records, acc = run_egorag(
                 qa_entries, model,
                 video_dir=VIDEO_DIR,
@@ -657,21 +670,21 @@ def main():
             )
 
         else:
-            logger.error(f"Unknown MODE: {MODE!r}. Choose llm_only, gt_video, or egorag.")
+            logger.error(f"Unknown mode: {mode!r}. Choose llm_only, gt_video, or egorag.")
             sys.exit(1)
 
         logger.info(f"[{person}] Accuracy: {acc*100:.2f}% ({sum(r['correct'] for r in records)}/{len(records)})")
-        save_results(records, acc, MODE, person, OUTPUT_DIR, MODEL_NAME)
+        save_results(records, acc, mode, person, OUTPUT_DIR, MODEL_NAME)
 
         all_correct += sum(r["correct"] for r in records)
         all_total += len(records)
 
     overall_acc = all_correct / all_total if all_total else 0.0
     logger.info(f"\n{'='*60}")
-    logger.info(f"OVERALL ACCURACY ({MODE}): {overall_acc*100:.2f}% ({all_correct}/{all_total})")
+    logger.info(f"OVERALL ACCURACY ({mode}): {overall_acc*100:.2f}% ({all_correct}/{all_total})")
 
     summary = {
-        "mode": MODE,
+        "mode": mode,
         "model": MODEL_NAME,
         "overall_accuracy": overall_acc,
         "num_correct": all_correct,
