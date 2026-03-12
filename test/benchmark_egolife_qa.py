@@ -37,11 +37,11 @@ QA_DIR         = "/cluster/project/cvg/data/EgoLife/EgoLifeQA"
 VIDEO_DIR      = "/cluster/project/cvg/data/EgoLife"
 PKL_DIR        = "/cluster/project/cvg/students/tnanni/ego4d_data/v2/egolife_full"
 MODEL_NAME     = "Qwen/Qwen3-VL-8B-Instruct"
-OUTPUT_DIR     = "./results/benchmark_qa"
+OUTPUT_DIR     = "./results/benchmark_qa2"
 TEMP_DIR       = "/tmp/benchmark_frames"
 PERSONS        = None   # None = all available; or a list like ["A1_JAKE", "A2_ALICE"]
 MAX_QUESTIONS  = None   # None = all; or an int to limit per person (useful for quick tests)
-TOPK_SCENES    = 5      # how many retrieved scenes to try in egorag mode
+TOPK_SCENES    = 3      # how many retrieved scenes to try in egorag mode
 
 # ---------------------------------------------------------------------------
 # QA loading helpers
@@ -123,8 +123,13 @@ def find_gt_clip(video_dir: str, person_folder: str, date: str, time_str: str) -
     """
     day_path = os.path.join(video_dir, person_folder, date)
     if not os.path.isdir(day_path):
-        logger.warning(f"Day folder not found: {day_path}")
-        return None
+        # Try uppercase variant (e.g. "Day1" -> "DAY1")
+        day_path_upper = os.path.join(video_dir, person_folder, date.upper())
+        if os.path.isdir(day_path_upper):
+            day_path = day_path_upper
+        else:
+            logger.warning(f"Day folder not found: {day_path}")
+            return None
 
     target_sec = parse_timestamp(time_str)
 
@@ -391,67 +396,41 @@ def _load_egolife_with_embeddings(
     annotation_path: str,
 ) -> "VideoDataset":
     """
-    Build a VideoDataset for the given person using EgoLifeDataset structure,
-    then attach per-clip embeddings from the pre-computed pkl files.
+    Load each pre-encoded clip PKL for the given person as its own VideoDataPoint.
+    Each clip already has global_embeddings (video + text) properly filled, so we
+    use them directly for retrieval instead of grouping clips into day-level datapoints.
     """
     import pickle
+    import glob as glob_module
     sys.path.insert(0, str(Path(__file__).parent.parent))
-    from data.dataset import EgoLifeDataset
     from data.video_dataset import VideoDataset
 
-    dataset_obj = EgoLifeDataset(video_dir, annotation_path)
-    video_dataset = dataset_obj.load_videos(is_pickle=False)
+    pattern = os.path.join(pkl_dir, f"*{person_folder.upper()}*_encoded.pkl")
+    pkl_files = sorted(glob_module.glob(pattern))
 
-    # Filter to only the requested person-day datapoints
-    filtered_dps = [
-        dp for dp in video_dataset.video_datapoints
-        if person_folder.upper() in dp.video_name.upper()
-    ]
+    if not pkl_files:
+        logger.warning(f"No encoded PKL files found for {person_folder} in {pkl_dir}")
+        ds = VideoDataset(video_files=[])
+        ds.encoded = True
+        return ds
 
-    if not filtered_dps:
-        logger.warning(
-            f"No datapoints found for {person_folder}. "
-            f"Available: {[dp.video_name for dp in video_dataset.video_datapoints[:5]]}"
-        )
-        return video_dataset
+    datapoints = []
+    for pkl_path in tqdm(pkl_files, desc=f"Loading {person_folder} clips"):
+        try:
+            with open(pkl_path, "rb") as f:
+                clip_ds: VideoDataset = pickle.load(f)
+            dp = clip_ds.video_datapoints[0]
+            datapoints.append(dp)
+        except Exception as e:
+            logger.debug(f"Could not load {pkl_path}: {e}")
 
-    # Attach embeddings from per-clip pkl files
-    loaded, missing = 0, 0
-    for dp in filtered_dps:
-        for scene_id, scene in dp.scenes.items():
-            clip_base = scene.meta.get("clip_base", "") if scene.meta else ""
-            if not clip_base:
-                missing += 1
-                continue
-            pkl_path = os.path.join(pkl_dir, f"{clip_base}_encoded.pkl")
-            if not os.path.exists(pkl_path):
-                missing += 1
-                continue
-            try:
-                with open(pkl_path, "rb") as f:
-                    clip_ds: VideoDataset = pickle.load(f)
-                clip_dp = clip_ds.video_datapoints[0]
-                clip_emb = list(clip_dp.scene_embeddings.values())[0]
-                dp.scene_embeddings[scene_id].update({
-                    "video": clip_emb.get("video"),
-                    "text": clip_emb.get("text"),
-                    "text_raw": clip_emb.get("text_raw", ""),
-                    "tags": clip_emb.get("tags", []),
-                })
-                loaded += 1
-            except Exception as e:
-                logger.debug(f"Could not load pkl {pkl_path}: {e}")
-                missing += 1
+    logger.info(f"Loaded {len(datapoints)} clip datapoints for {person_folder}.")
 
-    logger.info(f"Embeddings: {loaded} loaded, {missing} missing.")
-
-    # Rebuild a VideoDataset with only the filtered datapoints
-    # Create with empty file list to avoid re-initializing VideoDataPoints
-    filtered_ds = VideoDataset(video_files=[])
-    filtered_ds.video_files = [dp.video_path for dp in filtered_dps]
-    filtered_ds.video_datapoints = filtered_dps
-    filtered_ds.encoded = True
-    return filtered_ds
+    ds = VideoDataset(video_files=[])
+    ds.video_files = [dp.video_path for dp in datapoints]
+    ds.video_datapoints = datapoints
+    ds.encoded = True
+    return ds
 
 
 def run_egorag(
@@ -507,6 +486,8 @@ def run_egorag(
         top_k_videos=len(video_dataset.video_datapoints),
         top_k_scenes=topk_scenes,
         skip_video_retrieval=False,
+        use_windows=False,
+        use_tagging=False,
     )
     retriever.unload_models()
     torch.cuda.empty_cache()
@@ -652,15 +633,12 @@ def main():
         qa_entries = load_qa_file(str(qa_file))
         logger.info(f"Loaded {len(qa_entries)} QA entries")
 
-<<<<<<< HEAD
         # Restrict all modes to entries whose GT clip is embedded — ensures a fair comparison
         qa_entries = filter_to_embedded_entries(qa_entries, VIDEO_DIR, person, PKL_DIR)
         if not qa_entries:
             logger.warning(f"No embedded clips found for {person}, skipping.")
             continue
 
-=======
->>>>>>> fe47c5e52678228cbe46dab9628478a2d2a6a5ac
         if mode == "llm_only":
             records, acc = run_llm_only(qa_entries, model, max_questions=MAX_QUESTIONS)
 
@@ -686,11 +664,7 @@ def main():
             )
 
         else:
-<<<<<<< HEAD
             logger.error(f"Unknown mode: {mode!r}. Choose llm_only, gt_video, or egorag.")
-=======
-            logger.error(f"Unknown MODE: {mode!r}. Choose llm_only, gt_video, or egorag.")
->>>>>>> fe47c5e52678228cbe46dab9628478a2d2a6a5ac
             sys.exit(1)
 
         logger.info(f"[{person}] Accuracy: {acc*100:.2f}% ({sum(r['correct'] for r in records)}/{len(records)})")
