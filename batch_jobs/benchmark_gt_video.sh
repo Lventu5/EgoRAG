@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --time=12:00:00
+#SBATCH --time=16:00:00
 #SBATCH --account=ls_polle
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -24,11 +24,7 @@ export HUGGINGFACE_HUB_TOKEN=$(cat ~/.huggingface/token)
 export HF_TOKEN=$HUGGINGFACE_HUB_TOKEN
 export HF_HOME=${TRANSFORMERS_CACHE:-~/.cache/huggingface}
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-cd "${PROJECT_ROOT}"
-
-/cluster/project/cvg/students/lventuroli/miniconda3/envs/RAGu/bin/python -m test.benchmark_egolife_qa --mode gt_video
+cd /cluster/project/cvg/students/tnanni/EgoRAG && /cluster/project/cvg/students/lventuroli/miniconda3/envs/RAGu/bin/python -m test.benchmark_egolife_qa --mode gt_video
 
 echo "========================="
 echo "Done."

@@ -24,11 +24,7 @@ export HUGGINGFACE_HUB_TOKEN=$(cat ~/.huggingface/token)
 export HF_TOKEN=$HUGGINGFACE_HUB_TOKEN
 export HF_HOME=${TRANSFORMERS_CACHE:-~/.cache/huggingface}
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-cd "${PROJECT_ROOT}"
-
-/cluster/project/cvg/students/lventuroli/miniconda3/envs/RAGu/bin/python -m test.benchmark_egolife_qa --mode egorag
+cd /cluster/project/cvg/students/tnanni/EgoRAG && /cluster/project/cvg/students/lventuroli/miniconda3/envs/RAGu/bin/python -m test.benchmark_egolife_qa --mode egorag
 
 echo "========================="
 echo "Done."
