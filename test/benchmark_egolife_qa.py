@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import argparse
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -600,6 +601,15 @@ def save_results(
 
 def main():
     sys.path.insert(0, str(Path(__file__).parent.parent))
+    parser = argparse.ArgumentParser(description="Run EgoLife QA benchmark.")
+    parser.add_argument(
+        "--mode",
+        choices=["llm_only", "gt_video", "egorag"],
+        default=MODE,
+        help="Benchmark mode. Defaults to MODE in the config block.",
+    )
+    args = parser.parse_args()
+    mode = args.mode
 
     # Discover QA files
     qa_dir = Path(QA_DIR)
@@ -615,7 +625,7 @@ def main():
         logger.error("No QA files matched the requested persons.")
         sys.exit(1)
 
-    logger.info(f"Mode: {MODE} | Files: {[f.name for f in qa_files]}")
+    logger.info(f"Mode: {mode} | Files: {[f.name for f in qa_files]}")
 
     # Load model once, shared across all persons
     model = QwenVLModel(model_name=MODEL_NAME, max_new_tokens=64)
@@ -632,10 +642,10 @@ def main():
         qa_entries = load_qa_file(str(qa_file))
         logger.info(f"Loaded {len(qa_entries)} QA entries")
 
-        if MODE == "llm_only":
+        if mode == "llm_only":
             records, acc = run_llm_only(qa_entries, model, max_questions=MAX_QUESTIONS)
 
-        elif MODE == "gt_video":
+        elif mode == "gt_video":
             records, acc = run_gt_video(
                 qa_entries, model,
                 video_dir=VIDEO_DIR,
@@ -644,7 +654,7 @@ def main():
                 max_questions=MAX_QUESTIONS,
             )
 
-        elif MODE == "egorag":
+        elif mode == "egorag":
             records, acc = run_egorag(
                 qa_entries, model,
                 video_dir=VIDEO_DIR,
@@ -657,30 +667,30 @@ def main():
             )
 
         else:
-            logger.error(f"Unknown MODE: {MODE!r}. Choose llm_only, gt_video, or egorag.")
+            logger.error(f"Unknown MODE: {mode!r}. Choose llm_only, gt_video, or egorag.")
             sys.exit(1)
 
         logger.info(f"[{person}] Accuracy: {acc*100:.2f}% ({sum(r['correct'] for r in records)}/{len(records)})")
-        save_results(records, acc, MODE, person, OUTPUT_DIR, MODEL_NAME)
+        save_results(records, acc, mode, person, OUTPUT_DIR, MODEL_NAME)
 
         all_correct += sum(r["correct"] for r in records)
         all_total += len(records)
 
     overall_acc = all_correct / all_total if all_total else 0.0
     logger.info(f"\n{'='*60}")
-    logger.info(f"OVERALL ACCURACY ({MODE}): {overall_acc*100:.2f}% ({all_correct}/{all_total})")
+    logger.info(f"OVERALL ACCURACY ({mode}): {overall_acc*100:.2f}% ({all_correct}/{all_total})")
 
     summary = {
-        "mode": MODE,
+        "mode": mode,
         "model": MODEL_NAME,
         "overall_accuracy": overall_acc,
         "num_correct": all_correct,
         "num_total": all_total,
     }
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    with open(os.path.join(OUTPUT_DIR, f"{MODE}_summary.json"), "w") as f:
+    with open(os.path.join(OUTPUT_DIR, f"{mode}_summary.json"), "w") as f:
         json.dump(summary, f, indent=2)
-    logger.info(f"Summary saved to {OUTPUT_DIR}/{MODE}_summary.json")
+    logger.info(f"Summary saved to {OUTPUT_DIR}/{mode}_summary.json")
 
     model.unload()
 

@@ -24,10 +24,13 @@ export HUGGINGFACE_HUB_TOKEN=$(cat ~/.huggingface/token)
 export HF_TOKEN=$HUGGINGFACE_HUB_TOKEN
 export HF_HOME=${TRANSFORMERS_CACHE:-~/.cache/huggingface}
 
-cd /cluster/project/cvg/students/tnanni/EgoRAG
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${PROJECT_ROOT}"
 
-# Set MODE = "gt_video" in test/benchmark_egolife_qa.py before submitting
-/cluster/project/cvg/students/lventuroli/miniconda3/envs/RAGu/bin/python -m test.benchmark_egolife_qa
+/cluster/project/cvg/students/lventuroli/miniconda3/envs/RAGu/bin/python \
+  -m test.benchmark_egolife_qa \
+  --mode gt_video
 
 echo "========================="
 echo "Done."
