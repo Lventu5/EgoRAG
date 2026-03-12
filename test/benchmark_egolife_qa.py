@@ -6,7 +6,10 @@ EgoLife QA Benchmark - Three evaluation modes:
 3. egorag   : Use the EgoRAG retrieval pipeline to retrieve a scene, then feed it to Qwen3-VL.
 
 Edit the CONFIG block at the top of this file to change paths/settings, then run:
-    python -m test.benchmark_egolife_qa
+    python -m test.benchmark_egolife_qa --mode gt_video
+or:
+    python -m test.benchmark_egolife_qa --mode llm_only
+    python -m test.benchmark_egolife_qa --mode egorag
 """
 
 import json
@@ -16,6 +19,7 @@ import re
 import shutil
 import subprocess
 import sys
+import argparse
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -601,6 +605,15 @@ def save_results(
 def main():
     import argparse
     sys.path.insert(0, str(Path(__file__).parent.parent))
+    parser = argparse.ArgumentParser(description="Run EgoLife QA benchmark.")
+    parser.add_argument(
+        "--mode",
+        choices=["llm_only", "gt_video", "egorag"],
+        default=MODE,
+        help="Benchmark mode. Defaults to MODE in the config block.",
+    )
+    args = parser.parse_args()
+    mode = args.mode
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["llm_only", "gt_video", "egorag"],
@@ -639,12 +652,15 @@ def main():
         qa_entries = load_qa_file(str(qa_file))
         logger.info(f"Loaded {len(qa_entries)} QA entries")
 
+<<<<<<< HEAD
         # Restrict all modes to entries whose GT clip is embedded — ensures a fair comparison
         qa_entries = filter_to_embedded_entries(qa_entries, VIDEO_DIR, person, PKL_DIR)
         if not qa_entries:
             logger.warning(f"No embedded clips found for {person}, skipping.")
             continue
 
+=======
+>>>>>>> fe47c5e52678228cbe46dab9628478a2d2a6a5ac
         if mode == "llm_only":
             records, acc = run_llm_only(qa_entries, model, max_questions=MAX_QUESTIONS)
 
@@ -670,7 +686,11 @@ def main():
             )
 
         else:
+<<<<<<< HEAD
             logger.error(f"Unknown mode: {mode!r}. Choose llm_only, gt_video, or egorag.")
+=======
+            logger.error(f"Unknown MODE: {mode!r}. Choose llm_only, gt_video, or egorag.")
+>>>>>>> fe47c5e52678228cbe46dab9628478a2d2a6a5ac
             sys.exit(1)
 
         logger.info(f"[{person}] Accuracy: {acc*100:.2f}% ({sum(r['correct'] for r in records)}/{len(records)})")
@@ -691,9 +711,9 @@ def main():
         "num_total": all_total,
     }
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    with open(os.path.join(OUTPUT_DIR, f"{MODE}_summary.json"), "w") as f:
+    with open(os.path.join(OUTPUT_DIR, f"{mode}_summary.json"), "w") as f:
         json.dump(summary, f, indent=2)
-    logger.info(f"Summary saved to {OUTPUT_DIR}/{MODE}_summary.json")
+    logger.info(f"Summary saved to {OUTPUT_DIR}/{mode}_summary.json")
 
     model.unload()
 
