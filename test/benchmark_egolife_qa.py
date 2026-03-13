@@ -420,6 +420,12 @@ def _load_egolife_with_embeddings(
             with open(pkl_path, "rb") as f:
                 clip_ds: VideoDataset = pickle.load(f)
             dp = clip_ds.video_datapoints[0]
+            # PKLs store embeddings in scene_embeddings['scene_0'] but the retriever
+            # needs them in global_embeddings for video-level retrieval (step 1).
+            scene_emb = dp.scene_embeddings.get("scene_0", {})
+            for key in ("video", "text"):
+                if dp.global_embeddings.get(key) is None and scene_emb.get(key) is not None:
+                    dp.global_embeddings[key] = scene_emb[key]
             datapoints.append(dp)
         except Exception as e:
             logger.debug(f"Could not load {pkl_path}: {e}")
@@ -483,7 +489,7 @@ def run_egorag(
     retrieval_results = retriever.retrieve_hierarchically(
         queries=query_dataset,
         modalities=modalities,
-        top_k_videos=len(video_dataset.video_datapoints),
+        top_k_videos=topk_scenes,
         top_k_scenes=topk_scenes,
         skip_video_retrieval=False,
         use_windows=False,
@@ -491,6 +497,9 @@ def run_egorag(
     )
     retriever.unload_models()
     torch.cuda.empty_cache()
+
+    # Build lookup: video_name -> video_path for all loaded datapoints
+    video_name_to_path = {dp.video_name: dp.video_path for dp in video_dataset.video_datapoints}
 
     # Generate answers using retrieved scenes
     records = []
@@ -504,11 +513,20 @@ def run_egorag(
         entry_results = retrieval_results.get(qid, {})
         fused = entry_results.get("fused", []) if isinstance(entry_results, dict) else entry_results
 
-        # Collect top scenes sorted by score
+        # DEBUG: print first query's retrieval info
+        if len(records) == 0:
+            logger.info(f"DEBUG qid={qid!r}, type(entry_results)={type(entry_results).__name__}, len(fused)={len(fused) if hasattr(fused,'__len__') else 'N/A'}")
+            if fused:
+                first = fused[0]
+                logger.info(f"DEBUG fused[0] type={type(first).__name__}, len={len(first) if hasattr(first,'__len__') else 'N/A'}, val={first!r}")
+            rkeys = list(retrieval_results.results.keys()) if hasattr(retrieval_results, 'results') else []
+            logger.info(f"DEBUG retrieval_results keys (first 3): {rkeys[:3]}")
+
+        # Collect top scenes sorted by score, tracking which video each scene belongs to
         scenes_with_scores = []
         for video_name, _vscore, scene_ranking in fused:
             for scene, sscore in (scene_ranking or []):
-                scenes_with_scores.append((scene, sscore))
+                scenes_with_scores.append((scene, sscore, video_name))
         scenes_with_scores.sort(key=lambda x: x[1], reverse=True)
 
         raw = ""
@@ -516,8 +534,8 @@ def run_egorag(
         used_clip = ""
 
         # Try scenes in order until we get a successful inference
-        for scene, _score in scenes_with_scores[:topk_scenes]:
-            clip_path = getattr(scene, "source_path", None)
+        for scene, _score, video_name in scenes_with_scores[:topk_scenes]:
+            clip_path = getattr(scene, "source_path", None) or video_name_to_path.get(video_name)
             if not clip_path or not os.path.exists(clip_path):
                 continue
             frame_out = os.path.join(temp_dir, f"egorag_{qid}")

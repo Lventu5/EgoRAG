@@ -4,7 +4,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=8G
-#SBATCH --gpus=2
+#SBATCH --gpus=1
 #SBATCH --gres=gpumem:32G
 #SBATCH --job-name=benchmark_egorag
 #SBATCH --output=logs/%x_%j.out
