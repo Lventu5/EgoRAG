@@ -38,7 +38,7 @@ VIDEO_DIR      = "/cluster/project/cvg/data/EgoLife"
 PKL_DIR        = "/cluster/project/cvg/students/tnanni/ego4d_data/v2/egolife_full"
 MODEL_NAME     = "Qwen/Qwen3-VL-8B-Instruct"
 OUTPUT_DIR     = "./results/benchmark_qa3"
-TEMP_DIR       = "/tmp/benchmark_frames"
+TEMP_DIR       = f"/tmp/benchmark_frames_{os.getenv('USER', 'unknown')}"
 PERSONS        = None   # None = all available; or a list like ["A1_JAKE", "A2_ALICE"]
 MAX_QUESTIONS  = None   # None = all; or an int to limit per person (useful for quick tests)
 TOPK_SCENES    = 3      # how many retrieved scenes to try in egorag mode
