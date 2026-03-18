@@ -10,7 +10,7 @@
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
 #SBATCH --mail-type=ALL          
-#SBATCH --mail-user=mronconi@ethz.ch
+#SBATCH --mail-user=tnanni@ethz.ch
 
 module load stack/2024-06 python_cuda/3.11.6 cuda/12.1.1 eth_proxy cudnn
 module load ffmpeg
