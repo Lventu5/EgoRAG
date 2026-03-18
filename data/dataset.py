@@ -645,6 +645,9 @@ class EgoLifeDataset(BaseDataset):
                         "target_date": target_date,
                         "type": ann.get("type"),
                         "trigger": trigger,
+                        "need_audio": ann.get("need_audio", False),
+                        "need_name": ann.get("need_name", False),
+                        "last_time": ann.get("last_time", False),
                         "keywords": ann.get("keywords"),
                         "answer": ann.get("answer"),
                         "choices": {

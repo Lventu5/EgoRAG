@@ -18,6 +18,7 @@ from data.video_dataset import VideoDataset, Window, Scene
 from data.query import Query, QueryDataset
 import data.datatypes as types
 from retrieval.rewriter import QueryRewriterLLM
+from retrieval.query_orchestrator import RetrievalOrchestratorLLM
 from .fuser import Fuser
 from .scene_merger import SceneMerger
 from configuration.config import CONFIG
@@ -64,6 +65,17 @@ class HierarchicalRetriever:
             },
         }
         self.rewriter = CONFIG.retrieval.rewriter_model_id
+        planner_config = getattr(CONFIG.retrieval, "orchestrator", None)
+        self.use_orchestrator = bool(getattr(planner_config, "enabled", False))
+        planner_model_name = getattr(planner_config, "model_name", self.rewriter)
+        planner_use_llm = bool(getattr(planner_config, "use_llm", True))
+        planner_max_new_tokens = int(getattr(planner_config, "max_new_tokens", 192))
+        self.orchestrator = RetrievalOrchestratorLLM(
+            model_name=planner_model_name,
+            device=self.device,
+            use_llm=planner_use_llm,
+            max_new_tokens=planner_max_new_tokens,
+        )
         self.current_modality = None
         self.processor = None
         self.embedder = None
@@ -212,6 +224,13 @@ class HierarchicalRetriever:
                 device=self.device
             )
             for query in tqdm(queries, desc = "Rewriting queries"):
+                if not self._should_rewrite_query(query):
+                    if query.decomposed is None or not isinstance(query.decomposed, dict):
+                        query.decomposed = {}
+                    for mod in ["text", "video", "audio"]:
+                        if not query.decomposed.get(mod):
+                            query.decomposed[mod] = query.get_query()
+                    continue
                 decomposition = rewriter(query.get_query(), modality="decompose")
                 # Preserve existing metadata (e.g., EgoLife query fields)
                 existing_meta = {}
@@ -233,6 +252,53 @@ class HierarchicalRetriever:
         if isinstance(getattr(query, "decomposed", None), dict):
             return query.decomposed.get("metadata", {}) or {}
         return {}
+
+    def _get_query_plan(self, query: Query) -> dict:
+        plan = getattr(query, "retrieval_plan", None)
+        if isinstance(plan, dict):
+            return plan
+        return {}
+
+    def _plan_queries(
+        self,
+        queries: QueryDataset,
+        modalities: list[str],
+        use_windows: bool,
+        rewrite_queries: bool,
+    ) -> None:
+        if not self.use_orchestrator:
+            for query in queries:
+                if not isinstance(getattr(query, "retrieval_plan", None), dict):
+                    query.retrieval_plan = {}
+            return
+
+        self.orchestrator.plan_queries(
+            queries=queries,
+            modalities=modalities,
+            default_use_windows=use_windows,
+            rewrite_queries=rewrite_queries,
+        )
+
+    def _should_rewrite_query(self, query: Query) -> bool:
+        plan = self._get_query_plan(query)
+        if "rewrite_query" in plan:
+            return bool(plan["rewrite_query"])
+        return self.rewrite_queries
+
+    def _get_modalities_for_query(self, query: Query, default_modalities: list[str]) -> list[str]:
+        plan = self._get_query_plan(query)
+        preferred = ((plan.get("modalities") or {}).get("priority") or [])
+        selected = [mod for mod in preferred if mod in default_modalities]
+        for modality in default_modalities:
+            if modality not in selected:
+                selected.append(modality)
+        return selected or list(default_modalities)
+
+    def _query_uses_windows(self, query: Query, default_use_windows: bool) -> bool:
+        plan = self._get_query_plan(query)
+        if "use_windows" in plan:
+            return bool(plan["use_windows"])
+        return default_use_windows
 
     def _day_to_int(self, day_str: str | None) -> int | None:
         if not day_str:
@@ -307,15 +373,27 @@ class HierarchicalRetriever:
         Returns None if no EgoLife metadata is present.
         """
         meta = self._get_query_metadata(query)
-        if not meta:
+        plan = self._get_query_plan(query)
+        temporal = plan.get("temporal", {}) if isinstance(plan, dict) else {}
+
+        if not meta and not temporal:
             return None
+
         query_date = meta.get("query_date")
         query_time_sec = meta.get("query_time_sec")
-        allowed_days = self._infer_allowed_days(query, query_date)
+        allowed_days = temporal.get("allowed_days")
+        if allowed_days is None:
+            inferred_days = self._infer_allowed_days(query, query_date)
+            allowed_days = sorted(inferred_days) if inferred_days else []
+
+        time_ranges = temporal.get("time_ranges_sec") or []
+        relation = temporal.get("relation_to_query_time", "unrestricted")
         return {
             "query_date": query_date,
             "query_time_sec": query_time_sec,
             "allowed_days": allowed_days,
+            "time_ranges_sec": time_ranges,
+            "relation_to_query_time": relation,
         }
 
     def _apply_egolife_video_filters(
@@ -336,7 +414,6 @@ class HierarchicalRetriever:
 
             allowed_days = constraints.get("allowed_days")
             if not allowed_days:
-                # None means no day restriction
                 filtered[query.qid] = candidates
                 continue
 
@@ -366,6 +443,8 @@ class HierarchicalRetriever:
         query_date = constraints.get("query_date")
         query_time_sec = constraints.get("query_time_sec")
         allowed_days = constraints.get("allowed_days")
+        time_ranges = constraints.get("time_ranges_sec") or []
+        relation = constraints.get("relation_to_query_time", "unrestricted")
 
         scene_meta = {}
         if scene_data and isinstance(scene_data, dict):
@@ -377,13 +456,28 @@ class HierarchicalRetriever:
         if allowed_days and scene_day and scene_day not in allowed_days:
             return False
 
-        if query_date and query_time_sec and query_time_sec > 0:
+        scene_start = scene_meta.get("timestamp_sec")
+        if scene_start is None:
+            scene_start = getattr(scene, "start_time", None)
+        scene_end = getattr(scene, "end_time", None)
+
+        if time_ranges and scene_start is not None:
+            overlaps_range = False
+            scene_end = float(scene_end if scene_end is not None else scene_start)
+            scene_start = float(scene_start)
+            for start_sec, end_sec in time_ranges:
+                if scene_end >= float(start_sec) and scene_start <= float(end_sec):
+                    overlaps_range = True
+                    break
+            if not overlaps_range:
+                return False
+
+        if query_date and query_time_sec and query_time_sec > 0 and scene_start is not None:
             if scene_day and scene_day.upper() == str(query_date).upper():
-                # Use scene absolute timestamp if available
-                scene_ts = scene_meta.get("timestamp_sec")
-                if scene_ts is None:
-                    scene_ts = getattr(scene, "start_time", None)
-                if scene_ts is not None and float(scene_ts) > float(query_time_sec):
+                scene_start = float(scene_start)
+                if relation == "before_query_time" and scene_start > float(query_time_sec):
+                    return False
+                if relation == "after_query_time" and scene_start < float(query_time_sec):
                     return False
 
         return True
@@ -784,10 +878,22 @@ class HierarchicalRetriever:
                 allowed_days = constraints.get("allowed_days")
                 query_date = constraints.get("query_date")
                 query_time_sec = constraints.get("query_time_sec")
+                time_ranges = constraints.get("time_ranges_sec") or []
+                relation = constraints.get("relation_to_query_time", "unrestricted")
                 if allowed_days and dp_day and dp_day not in allowed_days:
                     continue
+                if time_ranges:
+                    overlaps_range = False
+                    for start_sec, end_sec in time_ranges:
+                        if window.end_time >= float(start_sec) and window.start_time <= float(end_sec):
+                            overlaps_range = True
+                            break
+                    if not overlaps_range:
+                        continue
                 if query_date and query_time_sec and query_time_sec > 0 and dp_day and dp_day.upper() == str(query_date).upper():
-                    if window.end_time > float(query_time_sec):
+                    if relation == "before_query_time" and window.start_time > float(query_time_sec):
+                        continue
+                    if relation == "after_query_time" and window.end_time < float(query_time_sec):
                         continue
 
             wid = window.window_id
@@ -1064,6 +1170,15 @@ class HierarchicalRetriever:
         self.use_tagging = use_tagging
         self.rewrite_queries = rewrite_queries
 
+        # Build a per-query retrieval plan before rewriting so we preserve
+        # the original temporal cues from the user query.
+        self._plan_queries(
+            queries=queries,
+            modalities=modalities,
+            use_windows=use_windows,
+            rewrite_queries=rewrite_queries,
+        )
+
         # Rewrite queries decomposed into modalities
         self._rewrite_queries(queries)
 
@@ -1107,164 +1222,109 @@ class HierarchicalRetriever:
             )
             # Perform fusion of video rankings per query
             for query in queries:
-                fused_video_ranking = self.fuser.fuse(results[query.qid])
+                query_modalities = self._get_modalities_for_query(query, modalities)
+                fused_video_ranking = self.fuser.fuse(
+                    {modality: results[query.qid].get(modality, []) for modality in query_modalities}
+                )
                 results[query.qid]["fused"] = fused_video_ranking[:top_k_videos]
             
         # Retrieve the top scenes within the top videos
         detailed_results = {query.qid: [] for query in queries}
 
-        if use_windows:
-            # Hierarchical retrieval: Videos -> Windows (globally ranked) -> Scenes (from selected windows only)
-            logging.info(f"Step 2: Retrieving top {top_k_windows} windows GLOBALLY across top videos...")
-            logging.info(f"Step 3: Retrieving top {top_k_scenes} scenes ONLY from selected windows...")
-            
-            for query in queries:
-                fused_video_list = results[query.qid]["fused"]
-                
-                # Step 2: Collect windows from ALL top videos, then rank globally
-                all_windows_with_scores: list[tuple[str, Window, float]] = []  # (video_name, window, score)
-                
+        logging.info("Step 2: Retrieving scenes using the per-query orchestration plan...")
+
+        for query in queries:
+            fused_video_list = results[query.qid]["fused"]
+            query_modalities = self._get_modalities_for_query(query, modalities)
+            query_use_windows = self._query_uses_windows(query, use_windows)
+
+            if query_use_windows:
+                all_windows_with_scores: list[tuple[str, Window, float]] = []
+
                 for video_name, global_score in fused_video_list:
-                    # Step 2: Retrieve top windows within each video
                     modality_window_rankings = {}
-                    for modality in modalities:
+                    for modality in query_modalities:
                         modality_window_rankings[modality] = self._retrieve_best_windows(
                             query=query,
                             video_name=video_name,
                             modality=modality,
-                            top_k=top_k_windows
+                            top_k=top_k_windows,
                         )
-                    
-                    # Check if any windows were found
-                    has_windows = any(
-                        len(rankings) > 0 
-                        for rankings in modality_window_rankings.values()
-                    )
-                    
+
+                    has_windows = any(len(rankings) > 0 for rankings in modality_window_rankings.values())
                     if has_windows:
-                        # Fuse window rankings across modalities
                         fused_window_ranking = self.fuser.fuse(modality_window_rankings)
                         for window, score in fused_window_ranking:
                             all_windows_with_scores.append((video_name, window, score))
-                
-                # Global ranking of windows: sort ALL windows by score and take top_k_windows
+
                 all_windows_with_scores.sort(key=lambda x: x[2], reverse=True)
                 top_global_windows = all_windows_with_scores[:top_k_windows]
-                
-                logging.info(f"Selected {len(top_global_windows)} windows globally for query {query.qid}")
-                for video_name, window, score in top_global_windows:
-                    logging.debug(f"  Window {window.window_id} from {video_name}: score={score:.4f}, scenes={window.scene_ids}")
-                
-                # Step 3: Retrieve scenes ONLY from the globally selected windows
+
+                all_scenes_with_scores: list[tuple[str, Scene, float]] = []
                 if top_global_windows:
-                    # Group selected windows by video
                     windows_by_video: dict[str, list[Window]] = {}
                     for video_name, window, score in top_global_windows:
                         if video_name not in windows_by_video:
                             windows_by_video[video_name] = []
                         windows_by_video[video_name].append(window)
-                    
-                    # Collect scenes from the selected windows only
-                    all_scenes_with_scores: list[tuple[str, Scene, float]] = []
-                    
+
                     for video_name, selected_windows in windows_by_video.items():
-                        logging.debug(f"Retrieving scenes from {len(selected_windows)} selected windows in {video_name}")
-                        
                         modality_scene_rankings = {}
-                        for modality in modalities:
+                        for modality in query_modalities:
                             modality_scene_rankings[modality] = self._retrieve_best_scenes_from_windows(
                                 query=query,
                                 video_name=video_name,
                                 windows=selected_windows,
                                 modality=modality,
-                                top_k=top_k_scenes * 2  # Get more candidates for global ranking
+                                top_k=top_k_scenes * 2,
                             )
                         fused_scene_ranking = self.fuser.fuse(modality_scene_rankings)
-                        
                         for scene, score in fused_scene_ranking:
                             all_scenes_with_scores.append((video_name, scene, score))
-                    
-                    # Global ranking of scenes from selected windows
-                    all_scenes_with_scores.sort(key=lambda x: x[2], reverse=True)
-                    top_global_scenes = all_scenes_with_scores[:top_k_scenes]
                 else:
-                    # Fallback: no windows found, use direct scene retrieval
                     logging.warning(f"No windows found for query {query.qid}, falling back to direct scene retrieval")
-                    all_scenes_with_scores: list[tuple[str, Scene, float]] = []
-                    
                     for video_name, video_score in fused_video_list:
                         modality_scene_rankings = {}
-                        for modality in modalities:
+                        for modality in query_modalities:
                             modality_scene_rankings[modality] = self._retrieve_best_scenes(
                                 query=query,
                                 video_name=video_name,
                                 modality=modality,
-                                top_k=top_k_scenes * 2
+                                top_k=top_k_scenes * 2,
                             )
                         fused_scene_ranking = self.fuser.fuse(modality_scene_rankings)
-                        
                         for scene, score in fused_scene_ranking:
                             all_scenes_with_scores.append((video_name, scene, score))
-                    
-                    all_scenes_with_scores.sort(key=lambda x: x[2], reverse=True)
-                    top_global_scenes = all_scenes_with_scores[:top_k_scenes]
-                
-                # Group by video for the detailed_results format
-                video_scenes: dict[str, list[tuple[Scene, float]]] = {}
-                for video_name, scene, score in top_global_scenes:
-                    if video_name not in video_scenes:
-                        video_scenes[video_name] = []
-                    video_scenes[video_name].append((scene, score))
-                
-                # Store in detailed_results with original video scores
-                video_scores = {v: s for v, s in fused_video_list}
-                for video_name, scenes in video_scenes.items():
-                    global_score = video_scores.get(video_name, 0.0)
-                    detailed_results[query.qid].append(
-                        (video_name, global_score, scenes)
-                    )
-        else:
-            # Direct scene retrieval (original behavior): Videos -> Scenes
-            logging.info(f"Step 2: Retrieving top {top_k_scenes} scenes GLOBALLY across all videos...")
-            
-            for query in queries:
-                fused_video_list = results[query.qid]["fused"]
-                # Collect ALL scenes from ALL top videos, then rank globally
-                all_scenes_with_scores: list[tuple[str, Scene, float]] = []  # (video_name, scene, score)
-                
+            else:
+                all_scenes_with_scores = []
                 for video_name, global_score in fused_video_list:
                     modality_scene_rankings = {}
-                    for modality in modalities:
+                    for modality in query_modalities:
                         modality_scene_rankings[modality] = self._retrieve_best_scenes(
                             query=query,
                             video_name=video_name,
                             modality=modality,
-                            top_k=top_k_scenes * 2  # Get more candidates for global ranking
+                            top_k=top_k_scenes * 2,
                         )
                     fused_scene_ranking = self.fuser.fuse(modality_scene_rankings)
-
-                    # Collect all scenes with their scores and video name
                     for scene, score in fused_scene_ranking:
                         all_scenes_with_scores.append((video_name, scene, score))
-                
-                # Global ranking: sort ALL scenes by score and take top_k_scenes
-                all_scenes_with_scores.sort(key=lambda x: x[2], reverse=True)
-                top_global_scenes = all_scenes_with_scores[:top_k_scenes]
-                
-                # Group by video for the detailed_results format
-                video_scenes: dict[str, list[tuple[Scene, float]]] = {}
-                for video_name, scene, score in top_global_scenes:
-                    if video_name not in video_scenes:
-                        video_scenes[video_name] = []
-                    video_scenes[video_name].append((scene, score))
-                
-                # Store in detailed_results with original video scores
-                video_scores = {v: s for v, s in fused_video_list}
-                for video_name, scenes in video_scenes.items():
-                    global_score = video_scores.get(video_name, 0.0)
-                    detailed_results[query.qid].append(
-                        (video_name, global_score, scenes)
-                    )
+
+            all_scenes_with_scores.sort(key=lambda x: x[2], reverse=True)
+            top_global_scenes = all_scenes_with_scores[:top_k_scenes]
+
+            video_scenes: dict[str, list[tuple[Scene, float]]] = {}
+            for video_name, scene, score in top_global_scenes:
+                if video_name not in video_scenes:
+                    video_scenes[video_name] = []
+                video_scenes[video_name].append((scene, score))
+
+            video_scores = {v: s for v, s in fused_video_list}
+            for video_name, scenes in video_scenes.items():
+                global_score = video_scores.get(video_name, 0.0)
+                detailed_results[query.qid].append(
+                    (video_name, global_score, scenes)
+                )
         
         results.add_detailed_results(detailed_results)
 

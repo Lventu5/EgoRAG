@@ -1,7 +1,7 @@
 import pickle
 import os
 import torch
-from typing import Optional, Dict, Union
+from typing import Optional, Dict, Union, Any
 
 class Query:
     def __init__(
@@ -10,13 +10,15 @@ class Query:
             decomposed: Optional[dict] = None, 
             embeds: Optional[dict] = None, 
             tags: Optional[list[str]] = None,
-            gt: Optional[Dict[str, Optional[float | int]]] = None
+            gt: Optional[Dict[str, Optional[float | int]]] = None,
+            retrieval_plan: Optional[Dict[str, Any]] = None,
     ):
         self.qid = qid if isinstance(qid, str) else f"query_{qid}"
         self.query_text = query_text
         self.video_uid = video_uid
         self.decomposed = decomposed if decomposed is not None else {"text": query_text, "audio": query_text, "video": query_text}
         self.embeddings = embeds if embeds is not None else {"text": None, "audio": None, "video": None, "caption": None}
+        self.retrieval_plan = retrieval_plan if retrieval_plan is not None else {}
         self.gt = {
             "start_sec": None,
             "end_sec": None,
@@ -37,6 +39,7 @@ class Query:
             "video_uid": self.video_uid,
             "decomposed": self.decomposed,
             "embeddings": self.embeddings,
+            "retrieval_plan": self.retrieval_plan,
             "gt": self.gt,
         }
     
@@ -58,6 +61,7 @@ class Query:
             decomposed=data.get("decomposed"),
             embeds=data.get("embeddings"),
             gt=data.get("gt"),
+            retrieval_plan=data.get("retrieval_plan"),
         )
 
     # def save_to_pickle(self, file_path: str):

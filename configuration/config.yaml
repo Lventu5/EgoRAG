@@ -52,6 +52,11 @@ retrieval:
   modalities: ["text", "video"] # Run experiment uses all combinations
   fusion: "rrf"
   skip_video_retrieval: true # Skip video-level retrieval and only do scene-level retrieval using the correct video
+  orchestrator:
+    enabled: true # Enable per-query retrieval planning
+    model_name: "Qwen/Qwen2.5-3B-Instruct" # Local planner; falls back to heuristics if weights are unavailable
+    use_llm: true
+    max_new_tokens: 192
   scene_merger:
     enabled: false # Enable/disable scene merging
     max_gap: 1.0 # Maximum time gap (seconds) between scenes to consider them consecutive

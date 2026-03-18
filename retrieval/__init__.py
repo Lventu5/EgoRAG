@@ -12,6 +12,7 @@ This module contains components for hierarchical video retrieval:
 from .hierarchical_retriever import HierarchicalRetriever
 from .fuser import Fuser, BaseFuser, FuserRRF, FuserMeanImputation, FuserExcludeMissing
 from .rewriter import QueryRewriterLLM
+from .query_orchestrator import RetrievalOrchestratorLLM
 from .scene_merger import SceneMerger, MergedScene, merge_consecutive_scenes
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     'FuserMeanImputation',
     'FuserExcludeMissing',
     'QueryRewriterLLM',
+    'RetrievalOrchestratorLLM',
     'SceneMerger',
     'MergedScene',
     'merge_consecutive_scenes',
