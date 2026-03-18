@@ -1,0 +1,1466 @@
+{
+  "mode": "llm_only",
+  "person": "A1_JAKE",
+  "model": "Qwen/Qwen3-VL-8B-Instruct",
+  "num_questions": 182,
+  "accuracy": 0.2857142857142857,
+  "num_correct": 52,
+  "records": [
+    {
+      "id": "8",
+      "question": "What might we do next?",
+      "gt": "D",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": true
+    },
+    {
+      "id": "19",
+      "question": "What do I usually do after getting close to the sports camera today?",
+      "gt": "D",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "20",
+      "question": "We are currently discussing the details of the puzzle. When was this discussed before?",
+      "gt": "D",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": true
+    },
+    {
+      "id": "24",
+      "question": "What are the lunch options?",
+      "gt": "A",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "27",
+      "question": "I put the pot aside, what was in the pot before?",
+      "gt": "B",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "32",
+      "question": "What are we planning to eat for lunch?",
+      "gt": "D",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "33",
+      "question": "What app did I order the takeout in my hand?",
+      "gt": "A",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "34",
+      "question": "What do we decide to eat for lunch?",
+      "gt": "A",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "36",
+      "question": "What other drinks are needed to mix with rum?",
+      "gt": "D",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "41",
+      "question": "When did we first mention having hot pot?",
+      "gt": "B",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "42",
+      "question": "What drinks are you planning to buy?",
+      "gt": "B",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "43",
+      "question": "Why is there no barbecue for dinner?",
+      "gt": "A",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "44",
+      "question": "What to eat for dinner?",
+      "gt": "C",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": true
+    },
+    {
+      "id": "45",
+      "question": "When was the last time we talked about coffee?",
+      "gt": "A",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "48",
+      "question": "What did we end up eating the last time we ordered takeout?",
+      "gt": "B",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "49",
+      "question": "What interesting topic did we discuss the last time we took the escalator?",
+      "gt": "C",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": true
+    },
+    {
+      "id": "50",
+      "question": "What do I usually show everyone on my phone?",
+      "gt": "D",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "52",
+      "question": "To shop faster, how did we divide into groups?",
+      "gt": "A",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "63",
+      "question": "How long should the self-introduction and quiz session take approximately?",
+      "gt": "C",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": true
+    },
+    {
+      "id": "64",
+      "question": "What items are still not bought?",
+      "gt": "C",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": true
+    },
+    {
+      "id": "65",
+      "question": "We decided to buy how many boxes of green grapes",
+      "gt": "A",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "66",
+      "question": "Why do we want to buy sterile eggs",
+      "gt": "D",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": true
+    },
+    {
+      "id": "67",
+      "question": "Why did the clerk not agree when we asked them to cut the pineapple?",
+      "gt": "D",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "76",
+      "question": "What am I usually doing on the second floor today?",
+      "gt": "C",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "82",
+      "question": "When I usually buy clothes, what type of clothing do I not purchase?",
+      "gt": "A",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "86",
+      "question": "What do I always do when I go to the supermarket",
+      "gt": "B",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "87",
+      "question": "what beverages i rarely drink",
+      "gt": "B",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "89",
+      "question": "What drinks do I usually not buy when shopping at the supermarket?",
+      "gt": "C",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": true
+    },
+    {
+      "id": "90",
+      "question": "where is the place I will never go to",
+      "gt": "A",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "92",
+      "question": "What do I usually use to control the computer when I use it?",
+      "gt": "B",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": true
+    },
+    {
+      "id": "95",
+      "question": "What cuisine are we going to make on the last day?",
+      "gt": "A",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "101",
+      "question": "What should I buy tomorrow",
+      "gt": "D",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "102",
+      "question": "In the morning, while we were chatting and discussing by the table on the first floor, what replaced the tripod?",
+      "gt": "B",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": true
+    },
+    {
+      "id": "103",
+      "question": "When was the last time items were taken from the refrigerator?",
+      "gt": "D",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "104",
+      "question": "When was the last time cherries were mentioned?",
+      "gt": "A",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "106",
+      "question": "What is my main responsibility when shopping in the supermarket?",
+      "gt": "D",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "107",
+      "question": "When was the last time I used the food delivery app to order food?",
+      "gt": "C",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": true
+    },
+    {
+      "id": "109",
+      "question": "What else do I need to purchase for delivery?",
+      "gt": "B",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "111",
+      "question": "Where was the coffee in the bag purchased from?",
+      "gt": "C",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": true
+    },
+    {
+      "id": "117",
+      "question": "What am I doing near the action camera today?",
+      "gt": "C",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "119",
+      "question": "What do I usually do after picking up glasses that no one is wearing?",
+      "gt": "C",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "120",
+      "question": "How do I usually buy plane tickets",
+      "gt": "A",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "121",
+      "question": "What activities do we have in the afternoon?",
+      "gt": "C",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "125",
+      "question": "What is the paper boxes will be used for in plan on the last day?",
+      "gt": "B",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "129",
+      "question": "The last time I walked into the kitchen, what did I do there?",
+      "gt": "C",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "132",
+      "question": "When was the meat bought?",
+      "gt": "B",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "133",
+      "question": "When was the baby cabbage bought?",
+      "gt": "B",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "134",
+      "question": "When was the hot pot base purchased?",
+      "gt": "B",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": true
+    },
+    {
+      "id": "140",
+      "question": "What do I habitually use to wipe after washing kitchenware?",
+      "gt": "A",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "147",
+      "question": "What should I do next",
+      "gt": "A",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "149",
+      "question": "What device should I use to scan the house",
+      "gt": "D",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": true
+    },
+    {
+      "id": "152",
+      "question": "What are we doing tomorrow?",
+      "gt": "B",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "153",
+      "question": "Where do you plan to go for outdoor activities tomorrow?",
+      "gt": "C",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": true
+    },
+    {
+      "id": "159",
+      "question": "When was the calibration board on the ground last used?",
+      "gt": "C",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": true
+    },
+    {
+      "id": "162",
+      "question": "What was the last thing I used the timer app on my phone for?",
+      "gt": "D",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "163",
+      "question": "When was the last time the microwave in the kitchen was used?",
+      "gt": "D",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": true
+    },
+    {
+      "id": "172",
+      "question": "What activities do we have in the afternoon?",
+      "gt": "B",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": true
+    },
+    {
+      "id": "173",
+      "question": "What drinks were these disposable paper cups used for before?",
+      "gt": "B",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": true
+    },
+    {
+      "id": "174",
+      "question": "What other styles were mentioned the last time we discussed decoration styles?",
+      "gt": "D",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": true
+    },
+    {
+      "id": "175",
+      "question": "What are we planning to do outdoors?",
+      "gt": "B",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": true
+    },
+    {
+      "id": "179",
+      "question": "What should we do next?",
+      "gt": "C",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "183",
+      "question": "This time I returned to the claw machine, what happened the last time I was at the claw machine?",
+      "gt": "C",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "185",
+      "question": "I put down the box and bottle in my hand, where did I get the bottle?",
+      "gt": "B",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "187",
+      "question": "Now Tasha and I are clapping hands in the arcade, what happened the last time we played games together?",
+      "gt": "D",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "189",
+      "question": "How many types of games did I play in arcade?",
+      "gt": "C",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "193",
+      "question": "When was the last time you stood on the escalator?",
+      "gt": "A",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "194",
+      "question": "Which tool was not purchased last time in this shopping plan?",
+      "gt": "C",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": true
+    },
+    {
+      "id": "195",
+      "question": "Where was I the last time I pushed a cart with a friend?",
+      "gt": "C",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": true
+    },
+    {
+      "id": "196",
+      "question": "What ingredients do we need to buy?",
+      "gt": "A",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "198",
+      "question": "When was the last time eggs were bought?",
+      "gt": "D",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "200",
+      "question": "When was the last time I saw durian?",
+      "gt": "D",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "203",
+      "question": "Now we stopped in front of the fruit stall, what did we buy the last time we stopped at the fruit stall?",
+      "gt": "B",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "204",
+      "question": "Now we are standing in front of the supermarket checkout, what happened the last time we checked out at the supermarket?",
+      "gt": "C",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "212",
+      "question": "What should I do after we finish packing?",
+      "gt": "C",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "216",
+      "question": "Now that I am sitting on the sofa, what was I doing the last time I sat on this sofa?",
+      "gt": "A",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "220",
+      "question": "When was the sugar on the table used before?",
+      "gt": "A",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "225",
+      "question": "What do we plan to do with the mangoes",
+      "gt": "A",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "229",
+      "question": "What drink combination can we try at this gathering?",
+      "gt": "C",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "231",
+      "question": "What other ingredients did I prepare the last time I was chopping vegetables in the kitchen?",
+      "gt": "A",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "232",
+      "question": "Now I am cutting fruit in the kitchen, what did I do after the last time I cut fruit in the kitchen?",
+      "gt": "B",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": true
+    },
+    {
+      "id": "233",
+      "question": "When was the piping bag last used?",
+      "gt": "B",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "240",
+      "question": "Now I am walking towards the kitchen with a plate of fruit, what was the reason I went to the kitchen last time?",
+      "gt": "D",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "241",
+      "question": "When did these foods start baking?",
+      "gt": "A",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "243",
+      "question": "What was I washing with the faucet last time?",
+      "gt": "C",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": true
+    },
+    {
+      "id": "245",
+      "question": "How many times did I protect the fire seed?",
+      "gt": "B",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": true
+    },
+    {
+      "id": "247",
+      "question": "Now that I have opened the door, what was I going to do the last time I opened this door?",
+      "gt": "C",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "248",
+      "question": "When was the last time I received a delivery?",
+      "gt": "A",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "249",
+      "question": "What app do I usually use to shop",
+      "gt": "D",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": true
+    },
+    {
+      "id": "250",
+      "question": "What app do I usually use to shop",
+      "gt": "A",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "253",
+      "question": "What activities are there this morning?",
+      "gt": "B",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": true
+    },
+    {
+      "id": "254",
+      "question": "What does Tasha need to buy to decorate the room?",
+      "gt": "D",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "258",
+      "question": "When were the oysters bought?",
+      "gt": "C",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "260",
+      "question": "What did I take out the last time I opened the fridge?",
+      "gt": "C",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "261",
+      "question": "When were the boiled eggs on the dining table bought?",
+      "gt": "C",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "262",
+      "question": "What were my friends doing around me the last time I took food from the dining table?",
+      "gt": "A",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "266",
+      "question": "What do I often check on my phone in the morning?",
+      "gt": "B",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "268",
+      "question": "What are we planning to eat for lunch today?",
+      "gt": "A",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "271",
+      "question": "What task were we doing the last time screws were mentioned?",
+      "gt": "B",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": true
+    },
+    {
+      "id": "272",
+      "question": "Where did I get the screwdriver in my hand?",
+      "gt": "B",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "273",
+      "question": "What do I plan to do this afternoon?",
+      "gt": "A",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "277",
+      "question": "Now that I received a call, what happened the last time I answered the phone?",
+      "gt": "C",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "278",
+      "question": "Now that I walk into the alley, what was I doing the last time I walked into the alley?",
+      "gt": "D",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "279",
+      "question": "What do I usually do when ordering takeout?",
+      "gt": "B",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "281",
+      "question": "When was the last time I used the calibration board?",
+      "gt": "C",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "283",
+      "question": "Where was the bread found?",
+      "gt": "C",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "285",
+      "question": "When was the last time a movie was shown?",
+      "gt": "D",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "289",
+      "question": "How do I plan to acquire clothes?",
+      "gt": "B",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": true
+    },
+    {
+      "id": "293",
+      "question": "What is the first ingredient in the shopping cart yesterday?",
+      "gt": "C",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "295",
+      "question": "Where were we the last time we discussed what to eat?",
+      "gt": "C",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "299",
+      "question": "When was the last time played guitar?",
+      "gt": "D",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": true
+    },
+    {
+      "id": "300",
+      "question": "What am I planning to do?",
+      "gt": "D",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": true
+    },
+    {
+      "id": "301",
+      "question": "Before I took out the handle, when was the last time this knife was used?",
+      "gt": "D",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": true
+    },
+    {
+      "id": "303",
+      "question": "What was the tablet used for last time?",
+      "gt": "D",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": true
+    },
+    {
+      "id": "307",
+      "question": "What do we plan to eat for lunch?",
+      "gt": "A",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "316",
+      "question": "Which shopping app do I usually not choose\uff1f",
+      "gt": "C",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "328",
+      "question": "When was the last time Jay Chou was mentioned?",
+      "gt": "D",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": true
+    },
+    {
+      "id": "329",
+      "question": "This time we discussed the auction of this bottle of wine, what items were mentioned when we previously discussed auction-related content?",
+      "gt": "C",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": true
+    },
+    {
+      "id": "332",
+      "question": "What did I order the last time I used the Meituan Waimai APP?",
+      "gt": "D",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "334",
+      "question": "When was the last time I plugged a cable into the power strip?",
+      "gt": "A",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "335",
+      "question": "What is the milk used for?",
+      "gt": "C",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "338",
+      "question": "What do I usually do after finishing in the kitchen?",
+      "gt": "C",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "341",
+      "question": "What are we planning to do in the afternoon?",
+      "gt": "B",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "343",
+      "question": "When was the last time I used my phone to check the map?",
+      "gt": "C",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "347",
+      "question": "When was the last time I used the shopping cart?",
+      "gt": "D",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "348",
+      "question": "What are we planning to buy?",
+      "gt": "A",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": true
+    },
+    {
+      "id": "349",
+      "question": "Now I'm standing in front of the freezer looking at drinks, what did I see the last time I was in front of the freezer?",
+      "gt": "A",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "355",
+      "question": "What fruit are we planning to buy?",
+      "gt": "A",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "356",
+      "question": "When was the last time I bought fruit in the fruit area?",
+      "gt": "B",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "359",
+      "question": "When was the last time we bought eggs?",
+      "gt": "C",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "362",
+      "question": "What did I put back on the shelf the last time I was at the supermarket?",
+      "gt": "B",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "365",
+      "question": "What do I buy every time I shop?",
+      "gt": "D",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "366",
+      "question": "When was the last time I used the ride-hailing app?",
+      "gt": "D",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "369",
+      "question": "How do we get home after shopping?",
+      "gt": "B",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": true
+    },
+    {
+      "id": "371",
+      "question": "What do we plan to eat today?",
+      "gt": "D",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "373",
+      "question": "When was the red refrigerator last opened?",
+      "gt": "C",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": true
+    },
+    {
+      "id": "374",
+      "question": "When was the last time the microwave in the kitchen was used?",
+      "gt": "C",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "377",
+      "question": "When was the last time the grill in the yard was used?",
+      "gt": "D",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "380",
+      "question": "When was the white microwave in the kitchen last used?",
+      "gt": "D",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "382",
+      "question": "When was the last time these oven mitts were used?",
+      "gt": "B",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "386",
+      "question": "How many bottles of Wangzai milk do we need?",
+      "gt": "B",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": true
+    },
+    {
+      "id": "388",
+      "question": "When was McDonald's first mentioned?",
+      "gt": "B",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "395",
+      "question": "When was the last time the mango was sliced?",
+      "gt": "B",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "396",
+      "question": "What were we doing last time we discussed the air conditioning temperature?",
+      "gt": "A",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": true
+    },
+    {
+      "id": "400",
+      "question": "Why did I say to push the cart backwards?",
+      "gt": "B",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "401",
+      "question": "Why did we put the durian back?",
+      "gt": "D",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "407",
+      "question": "When were the flowers in the vase on the table placed there?",
+      "gt": "B",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "409",
+      "question": "When did I last pick up the takeout?",
+      "gt": "D",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "411",
+      "question": "When was this bottle of cola drunk?",
+      "gt": "D",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "412",
+      "question": "I saw the dishes piled up by the kitchen sink. When were these dishes last washed?",
+      "gt": "A",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "413",
+      "question": "What was I going to do the last time I passed by the red refrigerator?",
+      "gt": "D",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": true
+    },
+    {
+      "id": "415",
+      "question": "When was the last time these cooking tools and ingredients were used?",
+      "gt": "C",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": true
+    },
+    {
+      "id": "416",
+      "question": "What was the oven last used to bake?",
+      "gt": "C",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": true
+    },
+    {
+      "id": "418",
+      "question": "When was the last time I went out wearing slippers?",
+      "gt": "C",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "419",
+      "question": "What were we doing the last time I mentioned settling the bill?",
+      "gt": "D",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "421",
+      "question": "When was the last time we passed by the ancient archway?",
+      "gt": "A",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": true
+    },
+    {
+      "id": "422",
+      "question": "When was the last time the fridge was opened?",
+      "gt": "B",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": true
+    },
+    {
+      "id": "423",
+      "question": "The last time I went up to the second floor, what did I do?",
+      "gt": "B",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": true
+    },
+    {
+      "id": "424",
+      "question": "Where is my data cable?",
+      "gt": "A",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "426",
+      "question": "I am currently washing a water cup, what happened the last time I was cleaning something in the kitchen?",
+      "gt": "B",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "428",
+      "question": "When was the last time the small lamp on the windowsill was used?",
+      "gt": "C",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": true
+    },
+    {
+      "id": "429",
+      "question": "Now that I have opened the red refrigerator on the right side of the kitchen, what did I put in the last time I opened it?",
+      "gt": "D",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "430",
+      "question": "Now I am lying in bed, what was I doing the last time I used my laptop in bed?",
+      "gt": "B",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": true
+    },
+    {
+      "id": "431",
+      "question": "When was the last time I scanned the QR code with the action camera?",
+      "gt": "D",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "432",
+      "question": "I am now plugging in a power bank, what was the color of the power bank I used last time?",
+      "gt": "B",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "435",
+      "question": "What might the first activity be?",
+      "gt": "B",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "436",
+      "question": "What task was I handling the last time I used this laptop?",
+      "gt": "B",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": true
+    },
+    {
+      "id": "438",
+      "question": "When was the last time the microwave in the kitchen was used?",
+      "gt": "D",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "441",
+      "question": "What activity was taking place in the room the last time I saw this whiteboard and projection screen?",
+      "gt": "D",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": true
+    },
+    {
+      "id": "444",
+      "question": "When was the last time the red refrigerator was opened?",
+      "gt": "A",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "446",
+      "question": "What was displayed on the computer screen in front of me the last time I ate fruit?",
+      "gt": "A",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "457",
+      "question": "When was the last time we discussed claw machines?",
+      "gt": "C",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "476",
+      "question": "What is the purpose of ego coins?",
+      "gt": "B",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "477",
+      "question": "How much is an ego coin worth in RMB?",
+      "gt": "A",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "478",
+      "question": "What was the reward for the QA quiz?",
+      "gt": "A",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "479",
+      "question": "What is the purpose of the glasses we wear?",
+      "gt": "D",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "484",
+      "question": "Where did we eat most often in the past seven days? How many times?",
+      "gt": "D",
+      "pred": "C",
+      "raw_output": "C",
+      "correct": false
+    },
+    {
+      "id": "489",
+      "question": "When was the last time watermelons were mentioned?",
+      "gt": "D",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "492",
+      "question": "Now I am washing cups in the kitchen, when was the last time I washed dishes in the kitchen?",
+      "gt": "D",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    },
+    {
+      "id": "493",
+      "question": "When was the last time I used my phone to scan the living room with 3D app?",
+      "gt": "C",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": false
+    },
+    {
+      "id": "494",
+      "question": "When was the last time we scratched lottery tickets?",
+      "gt": "D",
+      "pred": "B",
+      "raw_output": "B",
+      "correct": false
+    },
+    {
+      "id": "495",
+      "question": "Why do I label the SD cards?",
+      "gt": "D",
+      "pred": "D",
+      "raw_output": "D",
+      "correct": true
+    },
+    {
+      "id": "497",
+      "question": "When was the last time I paid via phone?",
+      "gt": "D",
+      "pred": "A",
+      "raw_output": "A",
+      "correct": false
+    }
+  ]
+}

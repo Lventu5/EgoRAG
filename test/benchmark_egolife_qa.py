@@ -531,25 +531,34 @@ def run_egorag(
 
         raw = ""
         pred = ""
-        used_clip = ""
+        all_frames = []
+        used_clips = []
+        frame_dirs = []
 
-        # Try scenes in order until we get a successful inference
-        for scene, _score, video_name in scenes_with_scores[:topk_scenes]:
+        # Gather frames from all topk scenes and pass them together to the LLM
+        for i, (scene, _score, video_name) in enumerate(scenes_with_scores[:topk_scenes]):
             clip_path = getattr(scene, "source_path", None) or video_name_to_path.get(video_name)
             if not clip_path or not os.path.exists(clip_path):
                 continue
-            frame_out = os.path.join(temp_dir, f"egorag_{qid}")
+            frame_out = os.path.join(temp_dir, f"egorag_{qid}_{i}")
+            frame_dirs.append(frame_out)
             try:
                 frames = extract_frames(clip_path, frame_out, fps=1)
                 if frames:
-                    raw = model.answer_with_frames(frames, prompt)
-                    pred = parse_answer(raw)
-                    used_clip = clip_path
-                    break
+                    all_frames.extend(frames)
+                    used_clips.append(clip_path)
             except Exception as e:
                 logger.error(f"Error on scene {scene.scene_id}: {e}")
-            finally:
-                shutil.rmtree(frame_out, ignore_errors=True)
+
+        try:
+            if all_frames:
+                raw = model.answer_with_frames(all_frames, prompt)
+                pred = parse_answer(raw)
+        except Exception as e:
+            logger.error(f"Error during inference for qid={qid}: {e}")
+        finally:
+            for d in frame_dirs:
+                shutil.rmtree(d, ignore_errors=True)
 
         records.append({
             "id": entry.get("ID"),
@@ -558,7 +567,7 @@ def run_egorag(
             "pred": pred,
             "raw_output": raw,
             "correct": pred == gt,
-            "retrieved_clip": used_clip,
+            "retrieved_clips": used_clips,
         })
         preds.append(pred)
         gts.append(gt)
@@ -605,20 +614,18 @@ def main():
     import argparse
     sys.path.insert(0, str(Path(__file__).parent.parent))
     parser = argparse.ArgumentParser(description="Run EgoLife QA benchmark.")
-    parser.add_argument(
-        "--mode",
-        choices=["llm_only", "gt_video", "egorag"],
-        default=MODE,
-        help="Benchmark mode. Defaults to MODE in the config block.",
-    )
-    args = parser.parse_args()
-    mode = args.mode
-
-    parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["llm_only", "gt_video", "egorag"],
                         default=MODE, help="Evaluation mode (overrides MODE in the config block)")
+    parser.add_argument(
+        "--include_name_required",
+        action="store_true",
+        default=False,
+        help="Include questions that require identifying people by name (need_name=True). "
+             "By default these are excluded.",
+    )
     args, _ = parser.parse_known_args()
     mode = args.mode
+    include_name_required = args.include_name_required
 
     # Discover QA files
     qa_dir = Path(QA_DIR)
@@ -650,6 +657,16 @@ def main():
 
         qa_entries = load_qa_file(str(qa_file))
         logger.info(f"Loaded {len(qa_entries)} QA entries")
+
+        # Filter out name-requiring questions unless explicitly included
+        if not include_name_required:
+            before = len(qa_entries)
+            qa_entries = [e for e in qa_entries if not e.get("need_name", False)]
+            if len(qa_entries) < before:
+                logger.info(
+                    f"Filtered out {before - len(qa_entries)} need_name=True entries "
+                    f"({len(qa_entries)} remaining). Use --include_name_required to keep them."
+                )
 
         # Restrict all modes to entries whose GT clip is embedded — ensures a fair comparison
         qa_entries = filter_to_embedded_entries(qa_entries, VIDEO_DIR, person, PKL_DIR)

@@ -1,0 +1,7 @@
+{
+  "mode": "gt_video",
+  "model": "Qwen/Qwen3-VL-8B-Instruct",
+  "overall_accuracy": 0.46153846153846156,
+  "num_correct": 84,
+  "num_total": 182
+}

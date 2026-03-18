@@ -1,0 +1,7 @@
+{
+  "mode": "egorag",
+  "model": "Qwen/Qwen3-VL-8B-Instruct",
+  "overall_accuracy": 0.34355828220858897,
+  "num_correct": 168,
+  "num_total": 489
+}

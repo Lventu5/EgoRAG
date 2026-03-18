@@ -1,0 +1,7 @@
+{
+  "mode": "llm_only",
+  "model": "Qwen/Qwen3-VL-8B-Instruct",
+  "overall_accuracy": 0.2857142857142857,
+  "num_correct": 52,
+  "num_total": 182
+}

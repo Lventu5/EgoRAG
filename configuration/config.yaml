@@ -49,7 +49,7 @@ retrieval:
   top_k_scenes: 25
   use_windows: false # Enable/disable window-level retrieval
   use_tagging: false # Enable/disable tagging-based retrieval
-  modalities: ["text", "video"] # Run experiment uses all combinations
+  modalities: ["video", "text"] # Run experiment uses all combinations
   fusion: "rrf"
   skip_video_retrieval: true # Skip video-level retrieval and only do scene-level retrieval using the correct video
   scene_merger:
