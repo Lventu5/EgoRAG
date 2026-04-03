@@ -50,9 +50,11 @@ class HierarchicalRetriever:
     
         video_embed_size = 512  # XCLIP outputs 512-dim embeddings
         
+        text_embed_dim = int(getattr(CONFIG.retrieval, "text_embedding_dim", 1024))
+
         self.sizes = {
             "video": {
-                "size": video_embed_size,  
+                "size": video_embed_size,
                 "model": self.video_model_name
             },
             "audio": {
@@ -60,7 +62,7 @@ class HierarchicalRetriever:
                 "model": self.audio_model_name
             },
             "text": {
-                "size": 768,
+                "size": text_embed_dim,
                 "model": self.text_model_name
             },
         }

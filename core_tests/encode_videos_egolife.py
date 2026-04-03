@@ -30,11 +30,24 @@ import torch
 from tqdm import tqdm
 
 
-def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_audio=None, 
-           force_caption=None, force_text=None):
+def _remove_legacy_text_keys(video_dataset: VideoDataset, legacy_keys: list[str]) -> None:
+    """Remove legacy text embedding keys from all scene/window/global embeddings in-place."""
+    for dp in video_dataset.video_datapoints:
+        for scene_data in dp.scene_embeddings.values():
+            for k in legacy_keys:
+                scene_data.pop(k, None)
+        for window_data in getattr(dp, "window_embeddings", {}).values():
+            for k in legacy_keys:
+                window_data.pop(k, None)
+        for k in legacy_keys:
+            dp.global_embeddings.pop(k, None)
+
+
+def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_audio=None,
+           force_caption=None, force_text=None, remove_legacy_text=False):
     """
     Encode videos in a directory.
-    
+
     Args:
         video_dir: Directory containing video files
         save_dir: Directory to save encoded pickles
@@ -43,6 +56,7 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
         force_audio: If True, force re-encode audio embeddings. If None, uses force_reencoding.
         force_caption: If True, force re-encode captions. If None, uses force_reencoding.
         force_text: If True, force re-encode text embeddings. If None, uses force_reencoding.
+        remove_legacy_text: If True, remove the old "text" key (gemma) after encoding.
     """
     os.makedirs(save_dir, exist_ok=True)
     target_subjects = ["A1_JAKE", "A2_ALICE", "A3_TASHA", "A4_LUCIA", "A5_KATRINA", "A6_SHURE"]
@@ -54,7 +68,7 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
             videos = glob.glob(os.path.join(subject_path, "**/*.mp4"), recursive=True)
             all_videos.extend(videos)
     
-    video_ids = sorted(all_videos)[1584:]
+    video_ids = sorted(all_videos)
     
     print(f"Total found videos (A1-A6): {len(all_videos)}")
 
@@ -115,6 +129,8 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
                 force_caption=force_caption,
                 force_text=force_text
             )
+        if remove_legacy_text:
+            _remove_legacy_text_keys(video_dataset, legacy_keys=["text"])
         video_dataset.save_to_pickle(pickle_path)
 
         del encoder
@@ -128,37 +144,15 @@ def encode(video_dir, save_dir, force_reencoding=False, force_video=None, force_
 
 if __name__ == "__main__":
     video_dir = "/cluster/project/cvg/data/EgoLife"
-    save_dir = "../../tnanni/ego4d_data/v2/egolife_full"
+    save_dir = "../../tnanni/ego4d_data/v2/egolife_full_qwen3"
     output_pkl_file = os.path.join(save_dir, "merged_validation.pkl")
-    
-    # Option 1: Re-encode everything
-    # force_reencoding = True
-    
-    # Option 2: Only update missing embeddings (default)
-    force_reencoding = True
-    
-    # Option 3: Fine-grained control - force specific modalities
-    # Set individual modality flags to override force_reencoding
-    # Example: Only re-encode captions, keep everything else
-    # force_video = False      # Keep existing video embeddings
-    # force_audio = False      # Keep existing audio embeddings  
-    # force_caption = True     # Re-encode captions
-    # force_text = True        # Re-encode text (depends on captions)
-    
-    # Example: Only re-encode video embeddings
-    # force_video = True
-    # force_audio = False
-    # force_caption = False
-    # force_text = False
-    
-    encode(video_dir, save_dir, force_reencoding=force_reencoding)
+
+    # Re-encode only text with Qwen3, keep all other embeddings from the copied pkls
+    encode(video_dir, save_dir,
+           force_video=False,
+           force_audio=False,
+           force_caption=False,
+           force_text=True,
+           remove_legacy_text=True)
     merged = merge_pickles(input_dir=save_dir, output_path=output_pkl_file, recursive=False)
     logging.info("Merging pickle files completed")
-    
-    # With modality-specific control:
-    # encode(video_dir, save_dir, 
-    #        force_video=True, force_audio=False, 
-    #        force_caption=False, force_text=False)
-    
-    # Clean up local cache after encoding
-    # cleanup_smart_cache(cache_info, verbose=True)

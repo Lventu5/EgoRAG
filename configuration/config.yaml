@@ -24,7 +24,7 @@ indexing:
     audio_event_model_id: "MIT/ast-finetuned-audioset-10-10-0.4593" # Audio Spectrogram Transformer for event detection
     diarization_model_id: "pyannote/speaker-diarization-3.1" # Speaker diarization model
   text:
-    text_model_id: "google/embeddinggemma-300m"
+    text_model_id: "Qwen/Qwen3-Embedding-0.6B"  # swap to "google/embeddinggemma-300m" for gemma
     llm_model_id: "Qwen/Qwen2.5-3B-Instruct" # LLM for screenplay generation
   caption:
     caption_model_id: "llava-hf/LLaVA-NeXT-Video-7B-hf"
@@ -37,7 +37,8 @@ indexing:
   window_size: 5 # Number of scenes per window
   window_stride: 5 # Number of scenes to slide between windows
 retrieval:
-  text_model_id: "google/embeddinggemma-300m"
+  text_model_id: "Qwen/Qwen3-Embedding-0.6B"  # swap to "google/embeddinggemma-300m" for gemma
+  text_embedding_dim: 1024                     # 768 for gemma, 1024 for qwen3
   video_model_name: "internvideo2-1b" # "internvideo2-6b" # Options: "xclip", "internvideo2-1b", "internvideo2-6b"
   internvideo2_1b_id: "OpenGVLab/InternVideo2-Stage2-1B-224p-f8"
   internvideo2_6b_id: "OpenGVLab/InternVideo2-Stage2_6B" # Options: "OpenGVLab/InternVideo2-Stage1-1B-224p-f8", "OpenGVLab/InternVideo2-Stage2_6B"

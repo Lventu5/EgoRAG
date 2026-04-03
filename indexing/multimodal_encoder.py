@@ -122,7 +122,6 @@ class MultiModalEncoder:
                     return False
             return True
         elif stage == "text":
-            # Check if text embeddings exist
             if dp.global_embeddings.get("text") is not None:
                 return False
             for scene_data in dp.scene_embeddings.values():
@@ -392,13 +391,33 @@ class MultiModalEncoder:
             logging.info(f"[Text Stage] Text embeddings already exist for {dp.video_name}, skipping")
             return
         
-        logging.info(f"[Text Stage] Generating screenplay summaries for {dp.video_name}")
-        
-        # Generate screenplay for each scene
+        # Decide per-scene whether to regenerate the screenplay or just re-encode existing text_raw.
+        # Re-encode-only path: text_raw already exists AND no _temp_* data is present (e.g. caption
+        # and audio stages were skipped). Avoids overwriting good screenplays with empty results.
+        scenes_to_generate = {}   # sid -> needs full screenplay generation
+        scenes_to_reencode = {}   # sid -> has existing text_raw, just re-encode it
+
+        for sid, scene_data in dp.scene_embeddings.items():
+            has_temp = any(scene_data.get(k) for k in ["_temp_caption", "_temp_transcript", "_temp_audio_events"])
+            existing_text = scene_data.get("text_raw", "")
+            if has_temp or not existing_text:
+                scenes_to_generate[sid] = scene_data
+            else:
+                scenes_to_reencode[sid] = existing_text
+
+        if scenes_to_reencode:
+            logging.info(f"[Text Stage] Re-encoding existing text_raw for {len(scenes_to_reencode)} scenes (skipping screenplay generation)")
+        if scenes_to_generate:
+            logging.info(f"[Text Stage] Generating new screenplays for {len(scenes_to_generate)} scenes")
+
+        # Re-encode-only: just embed the existing text_raw
+        for sid, text_raw in tqdm(scenes_to_reencode.items(), desc=f"Re-encode text ({dp.video_name})"):
+            dp.scene_embeddings[sid]["text"] = self.text_encoder.encode(text_raw)
+
+        # Full generation path
         futures = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            for sid, scene_data in dp.scene_embeddings.items():
-                # Prepare data for screenplay generation
+            for sid, scene_data in scenes_to_generate.items():
                 screenplay_data = {
                     "caption_text": scene_data.get("_temp_caption", ""),
                     "transcript": scene_data.get("_temp_transcript", ""),
@@ -412,11 +431,9 @@ class MultiModalEncoder:
                 try:
                     screenplay = f.result()
                     if sid in dp.scene_embeddings:
-                        # Store the screenplay text and its embedding
                         dp.scene_embeddings[sid]["text_raw"] = screenplay
-                        text_emb = self.text_encoder.encode(screenplay)
-                        dp.scene_embeddings[sid]["text"] = text_emb
-                        
+                        dp.scene_embeddings[sid]["text"] = self.text_encoder.encode(screenplay)
+
                         # Clean up temporary data
                         for temp_key in ["_temp_caption", "_temp_transcript", "_temp_audio_events", "_temp_speaker_segments"]:
                             if temp_key in dp.scene_embeddings[sid]:
@@ -599,9 +616,7 @@ class MultiModalEncoder:
         # Generate summary for this window using the text encoder
         window_summary = self.text_encoder.generate_window_screenplay(scene_screenplays, window_id)
         
-        # Encode the summary
         text_emb = self.text_encoder.encode(window_summary)
-        
         return text_emb, window_summary
 
     def _encode_window_text_stage(self, dp: VideoDataPoint) -> None:
@@ -616,16 +631,20 @@ class MultiModalEncoder:
         logging.info(f"[Window Text Stage] Generating window-level screenplays for {dp.video_name}")
         for window in tqdm(dp.windows, desc = "Window text embeddings"):
             window_id = window.window_id
-            # Build scene screenplays for this window
-            scene_screenplays = []
-            for sid in window.scene_ids:
-                scene_text = dp.scene_embeddings.get(sid, {}).get('text_raw', '')
-                scene_screenplays.append((sid, scene_text))
+            wdata = dp.window_embeddings.get(window_id, {})
+            existing_text = wdata.get("text_raw", "")
 
-            # Use the text encoder's window summarizer
             try:
-                window_summary = self.text_encoder.generate_window_screenplay(scene_screenplays, window_id)
-                # Store raw text and encoded embedding (preserve existing data like tags)
+                if existing_text:
+                    # Re-encode existing summary without regenerating it
+                    window_summary = existing_text
+                else:
+                    scene_screenplays = [
+                        (sid, dp.scene_embeddings.get(sid, {}).get('text_raw', ''))
+                        for sid in window.scene_ids
+                    ]
+                    window_summary = self.text_encoder.generate_window_screenplay(scene_screenplays, window_id)
+
                 if window_id not in dp.window_embeddings:
                     dp.window_embeddings[window_id] = {"video": None, "text": None, "text_raw": "", "tags": []}
                 dp.window_embeddings[window_id]["text_raw"] = window_summary
@@ -851,31 +870,35 @@ class MultiModalEncoder:
                 logging.error(f"No scenes detected for {video_path}. Skipping.")
                 continue
 
-            # Stage 1: Video Encoding 
-            self.video_encoder.load_models()
-            self._encode_video_stage(video_path, dp)
-            
-            if not dp.scene_embeddings:
-                logging.error(f"No scenes were successfully encoded for {video_path} (video stage).")
+            # Stage 1: Video Encoding
+            if _force_video or self._should_encode_stage(dp, "video"):
+                self.video_encoder.load_models()
+                self._encode_video_stage(video_path, dp, force=_force_video)
+
+                if not dp.scene_embeddings:
+                    logging.error(f"No scenes were successfully encoded for {video_path} (video stage).")
+                    self.unload_model("video")
+                    if "cuda" in self.device:
+                        torch.cuda.empty_cache()
+                        gc.collect()
+                    continue
                 self.unload_model("video")
                 if "cuda" in self.device:
                     torch.cuda.empty_cache()
                     gc.collect()
-                continue
-            self.unload_model("video")
-            if "cuda" in self.device:
-                torch.cuda.empty_cache()
-                gc.collect()
-            
+            else:
+                logging.info(f"[SKIP] Video stage — embeddings already exist for {dp.video_name}")
 
             # Stage 2: Caption generation
-            self.captioner.load_models()
-            self._encode_caption_stage(video_path, dp, force=_force_caption)
-
-            self.unload_model("caption")
-            if "cuda" in self.device:
-                torch.cuda.empty_cache()
-                gc.collect()
+            if _force_caption or self._should_encode_stage(dp, "caption"):
+                self.captioner.load_models()
+                self._encode_caption_stage(video_path, dp, force=_force_caption)
+                self.unload_model("caption")
+                if "cuda" in self.device:
+                    torch.cuda.empty_cache()
+                    gc.collect()
+            else:
+                logging.info(f"[SKIP] Caption stage — captions already exist for {dp.video_name}")
             
             if "cuda" in self.device:
                 torch.cuda.empty_cache()

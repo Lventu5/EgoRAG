@@ -18,9 +18,9 @@ class TextEncoder(BaseEncoder):
     def __init__(self, device: str = "cuda"):
         super().__init__(device)
         self.sbert_model: SentenceTransformer = None
+        self.model_name = CONFIG.indexing.text.text_model_id
         self.llm_model = None
         self.llm_tokenizer = None
-        self.model_name = CONFIG.indexing.text.text_model_id
         self.llm_model_name = CONFIG.indexing.text.llm_model_id
 
     def load_models(self):
@@ -39,7 +39,7 @@ class TextEncoder(BaseEncoder):
 
         self.sbert_model = SentenceTransformer(self.model_name, **st_kwargs)
         logging.info(f"[{self.__class__.__name__}] Model loaded.")
-        
+
         # Load LLM for screenplay generation
         logging.info(f"[{self.__class__.__name__}] Loading LLM {self.llm_model_name}...")
         self.llm_tokenizer = AutoTokenizer.from_pretrained(self.llm_model_name)
@@ -51,26 +51,13 @@ class TextEncoder(BaseEncoder):
         logging.info(f"[{self.__class__.__name__}] LLM loaded.")
 
     def encode(self, text: str) -> torch.Tensor:
-        """
-        Public method to encode a string of text.
-        
-        Args:
-            text: The input string.
-            
-        Returns:
-            A torch.Tensor containing the embedding.
-        """
+        """Encode a string and return a single embedding tensor."""
         if not text or not isinstance(text, str):
             logging.warning("No valid text provided to TextEncoder.")
-            # Return a zero vector of the correct dimension
             return torch.zeros(self.sbert_model.get_sentence_embedding_dimension(), dtype=torch.float32)
-            
+
         with torch.inference_mode():
-            embedding = self.sbert_model.encode(
-                text, 
-                convert_to_tensor=True, 
-                device=self.device
-            )
+            embedding = self.sbert_model.encode(text, convert_to_tensor=True, device=self.device)
         return embedding.cpu()
     
     def generate_screenplay_summary(self, scene_data: dict) -> str:
