@@ -1,0 +1,404 @@
+{
+  "person": "A1_JAKE",
+  "topk_list": [
+    1,
+    3,
+    5,
+    10,
+    20,
+    25,
+    40,
+    50,
+    75,
+    100,
+    200
+  ],
+  "configurations": [
+    {
+      "modalities": [
+        "text"
+      ],
+      "use_orchestrator": false,
+      "num_questions": 10,
+      "recall_at_k": {
+        "1": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "3": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "5": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "10": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "20": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "25": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "40": {
+          "hits": 1,
+          "total": 10,
+          "recall": 0.1
+        },
+        "50": {
+          "hits": 1,
+          "total": 10,
+          "recall": 0.1
+        },
+        "75": {
+          "hits": 4,
+          "total": 10,
+          "recall": 0.4
+        },
+        "100": {
+          "hits": 6,
+          "total": 10,
+          "recall": 0.6
+        },
+        "200": {
+          "hits": 9,
+          "total": 10,
+          "recall": 0.9
+        }
+      }
+    },
+    {
+      "modalities": [
+        "text"
+      ],
+      "use_orchestrator": true,
+      "num_questions": 10,
+      "recall_at_k": {
+        "1": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "3": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "5": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "10": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "20": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "25": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "40": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "50": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "75": {
+          "hits": 3,
+          "total": 10,
+          "recall": 0.3
+        },
+        "100": {
+          "hits": 5,
+          "total": 10,
+          "recall": 0.5
+        },
+        "200": {
+          "hits": 8,
+          "total": 10,
+          "recall": 0.8
+        }
+      }
+    },
+    {
+      "modalities": [
+        "video"
+      ],
+      "use_orchestrator": false,
+      "num_questions": 10,
+      "recall_at_k": {
+        "1": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "3": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "5": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "10": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "20": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "25": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "40": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "50": {
+          "hits": 1,
+          "total": 10,
+          "recall": 0.1
+        },
+        "75": {
+          "hits": 1,
+          "total": 10,
+          "recall": 0.1
+        },
+        "100": {
+          "hits": 3,
+          "total": 10,
+          "recall": 0.3
+        },
+        "200": {
+          "hits": 5,
+          "total": 10,
+          "recall": 0.5
+        }
+      }
+    },
+    {
+      "modalities": [
+        "video"
+      ],
+      "use_orchestrator": true,
+      "num_questions": 10,
+      "recall_at_k": {
+        "1": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "3": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "5": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "10": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "20": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "25": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "40": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "50": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "75": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "100": {
+          "hits": 1,
+          "total": 10,
+          "recall": 0.1
+        },
+        "200": {
+          "hits": 3,
+          "total": 10,
+          "recall": 0.3
+        }
+      }
+    },
+    {
+      "modalities": [
+        "text",
+        "video"
+      ],
+      "use_orchestrator": false,
+      "num_questions": 10,
+      "recall_at_k": {
+        "1": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "3": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "5": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "10": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "20": {
+          "hits": 1,
+          "total": 10,
+          "recall": 0.1
+        },
+        "25": {
+          "hits": 2,
+          "total": 10,
+          "recall": 0.2
+        },
+        "40": {
+          "hits": 2,
+          "total": 10,
+          "recall": 0.2
+        },
+        "50": {
+          "hits": 2,
+          "total": 10,
+          "recall": 0.2
+        },
+        "75": {
+          "hits": 5,
+          "total": 10,
+          "recall": 0.5
+        },
+        "100": {
+          "hits": 5,
+          "total": 10,
+          "recall": 0.5
+        },
+        "200": {
+          "hits": 7,
+          "total": 10,
+          "recall": 0.7
+        }
+      }
+    },
+    {
+      "modalities": [
+        "text",
+        "video"
+      ],
+      "use_orchestrator": true,
+      "num_questions": 10,
+      "recall_at_k": {
+        "1": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "3": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "5": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "10": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "20": {
+          "hits": 1,
+          "total": 10,
+          "recall": 0.1
+        },
+        "25": {
+          "hits": 2,
+          "total": 10,
+          "recall": 0.2
+        },
+        "40": {
+          "hits": 2,
+          "total": 10,
+          "recall": 0.2
+        },
+        "50": {
+          "hits": 2,
+          "total": 10,
+          "recall": 0.2
+        },
+        "75": {
+          "hits": 5,
+          "total": 10,
+          "recall": 0.5
+        },
+        "100": {
+          "hits": 5,
+          "total": 10,
+          "recall": 0.5
+        },
+        "200": {
+          "hits": 6,
+          "total": 10,
+          "recall": 0.6
+        }
+      }
+    }
+  ]
+}

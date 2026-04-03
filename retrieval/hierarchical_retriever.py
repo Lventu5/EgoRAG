@@ -295,6 +295,8 @@ class HierarchicalRetriever:
         return selected or list(default_modalities)
 
     def _query_uses_windows(self, query: Query, default_use_windows: bool) -> bool:
+        if not default_use_windows:
+            return False  # Never override an explicit False (dataset has no windows)
         plan = self._get_query_plan(query)
         if "use_windows" in plan:
             return bool(plan["use_windows"])
@@ -318,6 +320,26 @@ class HierarchicalRetriever:
         if not m:
             return None
         return m.group(0).upper()
+
+    def _extract_clip_start_sec_from_video_name(self, video_name: str | None) -> float | None:
+        """
+        Extract the absolute start time (seconds from midnight) from an EgoLife clip name.
+        Clip names end with a timestamp in HHMMSSCC format, e.g. DAY1_A1_JAKE_11094208 -> 11:09:42.08.
+        """
+        if not video_name:
+            return None
+        m = re.search(r"_(\d{8})$", str(video_name))
+        if not m:
+            return None
+        ts = m.group(1)
+        try:
+            hh = int(ts[0:2])
+            mm = int(ts[2:4])
+            ss = int(ts[4:6])
+            cc = int(ts[6:8])
+            return hh * 3600 + mm * 60 + ss + cc / 100.0
+        except (ValueError, IndexError):
+            return None
 
     def _infer_allowed_days(self, query: Query, query_date: str | None) -> set[str] | None:
         """
@@ -396,13 +418,35 @@ class HierarchicalRetriever:
             "relation_to_query_time": relation,
         }
 
+    def _video_passes_time_filter(self, video_name: str, time_ranges: list, relation: str, query_time_sec) -> bool:
+        """Check if a video's clip time overlaps with the given time ranges and relation constraint."""
+        clip_start = self._extract_clip_start_sec_from_video_name(video_name)
+        if clip_start is None:
+            return True  # can't determine, let it through
+        clip_end = clip_start + 30.0  # clips are ~30s
+
+        if time_ranges:
+            overlaps = any(clip_end >= float(s) and clip_start <= float(e) for s, e in time_ranges)
+            if not overlaps:
+                return False
+
+        if query_time_sec and query_time_sec > 0:
+            if relation == "before_query_time" and clip_start > float(query_time_sec):
+                return False
+            if relation == "after_query_time" and clip_end < float(query_time_sec):
+                return False
+
+        return True
+
     def _apply_egolife_video_filters(
         self,
         queries: QueryDataset,
         candidate_videos_per_query: dict[str, set[str]],
     ) -> dict[str, set[str]]:
         """
-        Apply EgoLife day-level filtering to candidate videos when metadata is present.
+        Apply EgoLife day-level and time-range filtering to candidate videos.
+        Filters are applied with fallback: if a filter produces no candidates,
+        the previous (less-filtered) set is kept.
         """
         filtered = {}
         for query in queries:
@@ -413,25 +457,37 @@ class HierarchicalRetriever:
                 continue
 
             allowed_days = constraints.get("allowed_days")
-            if not allowed_days:
-                filtered[query.qid] = candidates
-                continue
+            time_ranges = constraints.get("time_ranges_sec") or []
+            relation = constraints.get("relation_to_query_time", "unrestricted")
+            query_time_sec = constraints.get("query_time_sec")
 
-            filtered_candidates = set()
-            for video_name in candidates:
-                day = self._extract_day_from_video_name(video_name)
-                if day and day in allowed_days:
-                    filtered_candidates.add(video_name)
+            # Step 1: day filter
+            after_day = candidates
+            if allowed_days:
+                day_filtered = {v for v in candidates
+                                if self._extract_day_from_video_name(v) in allowed_days}
+                if day_filtered:
+                    after_day = day_filtered
+                else:
+                    logging.warning(
+                        f"[EgoLife] Day filter produced no candidates for query {query.qid}; "
+                        f"falling back to unfiltered candidates."
+                    )
 
-            # If filtering produced no results, fallback to original to avoid empty retrieval
-            if not filtered_candidates:
-                logging.warning(
-                    f"[EgoLife] Day filter produced no candidates for query {query.qid}; "
-                    f"falling back to unfiltered candidates."
-                )
-                filtered_candidates = candidates
+            # Step 2: time range + relation filter on day-filtered candidates
+            after_time = after_day
+            if time_ranges or (relation not in ("unrestricted", "around_query_time") and query_time_sec):
+                time_filtered = {v for v in after_day
+                                 if self._video_passes_time_filter(v, time_ranges, relation, query_time_sec)}
+                if time_filtered:
+                    after_time = time_filtered
+                else:
+                    logging.warning(
+                        f"[EgoLife] Time filter produced no candidates for query {query.qid}; "
+                        f"falling back to day-filtered candidates."
+                    )
 
-            filtered[query.qid] = filtered_candidates
+            filtered[query.qid] = after_time
 
         return filtered
 
@@ -451,34 +507,6 @@ class HierarchicalRetriever:
             scene_meta = scene_data.get("meta", {}) or {}
         if not scene_meta and hasattr(scene, "meta"):
             scene_meta = getattr(scene, "meta", {}) or {}
-
-        scene_day = (scene_meta.get("date") or self._extract_day_from_video_name(getattr(dp, "video_name", None)))
-        if allowed_days and scene_day and scene_day not in allowed_days:
-            return False
-
-        scene_start = scene_meta.get("timestamp_sec")
-        if scene_start is None:
-            scene_start = getattr(scene, "start_time", None)
-        scene_end = getattr(scene, "end_time", None)
-
-        if time_ranges and scene_start is not None:
-            overlaps_range = False
-            scene_end = float(scene_end if scene_end is not None else scene_start)
-            scene_start = float(scene_start)
-            for start_sec, end_sec in time_ranges:
-                if scene_end >= float(start_sec) and scene_start <= float(end_sec):
-                    overlaps_range = True
-                    break
-            if not overlaps_range:
-                return False
-
-        if query_date and query_time_sec and query_time_sec > 0 and scene_start is not None:
-            if scene_day and scene_day.upper() == str(query_date).upper():
-                scene_start = float(scene_start)
-                if relation == "before_query_time" and scene_start > float(query_time_sec):
-                    return False
-                if relation == "after_query_time" and scene_start < float(query_time_sec):
-                    return False
 
         return True
 

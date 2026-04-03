@@ -91,13 +91,30 @@ class JSONParser:
     def _sanitize_json_string(s: str) -> str:
         """
         Light sanitization:
-          - smart quotes -> normal
+          - smart quotes -> normal ASCII quotes
           - remove inline comments (// and #)
           - remove trailing commas before } or ]
+          - evaluate simple arithmetic expressions (e.g. 24*60*60 -> 86400)
           - strip whitespace
         """
-        s = s.replace("“", '"').replace("”", '"').replace("’", "'")
+        # Replace Unicode smart quotes with plain ASCII equivalents
+        s = s.replace("\u201c", '"').replace("\u201d", '"').replace("\u2018", "'").replace("\u2019", "'")
+        # Replace Python literals with JSON equivalents
+        s = re.sub(r'\bNone\b', 'null', s)
+        s = re.sub(r'\bTrue\b', 'true', s)
+        s = re.sub(r'\bFalse\b', 'false', s)
         s = re.sub(r"//.*?$", "", s, flags=re.MULTILINE)
         s = re.sub(r"#.*?$", "", s, flags=re.MULTILINE)
         s = re.sub(r",\s*([}\]])", r"\1", s)
+
+        def _eval_arith(m):
+            expr = m.group(0)
+            if re.fullmatch(r"[\d\s\+\-\*\/\.]+", expr):
+                try:
+                    return str(int(eval(expr)))  # noqa: S307
+                except Exception:
+                    pass
+            return expr
+
+        s = re.sub(r"\d+(?:\s*[\+\-\*\/]\s*\d+)+", _eval_arith, s)
         return s.strip()

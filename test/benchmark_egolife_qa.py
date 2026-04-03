@@ -386,6 +386,76 @@ def run_gt_video(
 
 
 # ---------------------------------------------------------------------------
+# Orchestrator accuracy helpers
+# ---------------------------------------------------------------------------
+
+def _eval_orchestrator_plan(plan: dict, gt_day: str, gt_time_sec: float) -> dict:
+    """
+    Check whether the orchestrator's temporal filters include the GT location.
+
+    Returns:
+        day_filter_applied  : True if the plan restricts to specific days
+        day_hit             : True/False if filter was applied; None otherwise
+        time_filter_applied : True if the plan applies a time-of-day range
+        time_hit            : True/False if filter was applied; None otherwise
+    """
+    if not plan:
+        return {"day_filter_applied": False, "day_hit": None,
+                "time_filter_applied": False, "time_hit": None}
+
+    temporal = plan.get("temporal", {})
+    allowed_days = temporal.get("allowed_days") or []
+    time_ranges  = temporal.get("time_ranges_sec") or []
+
+    day_filter_applied = bool(allowed_days)
+    if day_filter_applied and gt_day:
+        day_hit = gt_day.strip().upper() in [d.upper() for d in allowed_days]
+    else:
+        day_hit = None
+
+    time_filter_applied = bool(time_ranges)
+    if time_filter_applied and gt_time_sec is not None:
+        time_hit = any(start <= gt_time_sec <= end for start, end in time_ranges)
+    else:
+        time_hit = None
+
+    return {
+        "day_filter_applied": day_filter_applied,
+        "day_hit": day_hit,
+        "time_filter_applied": time_filter_applied,
+        "time_hit": time_hit,
+    }
+
+
+def _log_orchestrator_stats(records: List[dict], label: str = ""):
+    n = len(records)
+    if n == 0:
+        return
+    tag = f" [{label}]" if label else ""
+
+    day_applied = [r for r in records if r.get("orch_day_filter_applied")]
+    day_hits    = [r for r in day_applied if r.get("orch_day_hit") is True]
+    time_applied = [r for r in records if r.get("orch_time_filter_applied")]
+    time_hits    = [r for r in time_applied if r.get("orch_time_hit") is True]
+
+    logger.info(f"Orchestrator temporal accuracy{tag}:")
+    if day_applied:
+        logger.info(
+            f"  Day filter  : applied={len(day_applied)}/{n} ({100*len(day_applied)/n:.1f}%)  "
+            f"GT included={len(day_hits)}/{len(day_applied)} ({100*len(day_hits)/len(day_applied):.1f}%)"
+        )
+    else:
+        logger.info(f"  Day filter  : applied=0/{n} (never triggered)")
+    if time_applied:
+        logger.info(
+            f"  Time filter : applied={len(time_applied)}/{n} ({100*len(time_applied)/n:.1f}%)  "
+            f"GT included={len(time_hits)}/{len(time_applied)} ({100*len(time_hits)/len(time_applied):.1f}%)"
+        )
+    else:
+        logger.info(f"  Time filter : applied=0/{n} (never triggered)")
+
+
+# ---------------------------------------------------------------------------
 # Test 3: EgoRAG pipeline retrieval + vLLM
 # ---------------------------------------------------------------------------
 
@@ -475,10 +545,28 @@ def run_egorag(
         trigger = entry.get("trigger", "")
         query_text = f"{trigger}. {question}" if trigger else question
         qid = str(entry.get("ID", "unk"))
+        # Parse query_time to give the orchestrator a temporal anchor
+        query_date = qt.get("date", None)  # e.g. "DAY4"
+        query_time_str = qt.get("time", None)  # e.g. "14:53:00"
+        query_time_sec = None
+        if query_time_str:
+            try:
+                query_time_sec = parse_timestamp(query_time_str)
+            except Exception:
+                pass
         queries.append(Query(
             qid=qid,
             query_text=query_text,
             video_uid=None,
+            decomposed={
+                "text": query_text,
+                "audio": query_text,
+                "video": query_text,
+                "metadata": {
+                    "query_date": query_date,
+                    "query_time_sec": query_time_sec,
+                },
+            },
         ))
     query_dataset = QueryDataset(queries)
 
@@ -560,6 +648,18 @@ def run_egorag(
             for d in frame_dirs:
                 shutil.rmtree(d, ignore_errors=True)
 
+        tt = entry.get("target_time", {})
+        gt_clip = find_gt_clip(video_dir, person_folder, tt.get("date", ""), tt.get("time", ""))
+        retrieved_hit = gt_clip is not None and any(
+            os.path.abspath(gt_clip) == os.path.abspath(c) for c in used_clips
+        )
+
+        gt_day      = tt.get("date", "")
+        gt_time_sec = parse_timestamp(tt.get("time", ""))
+        orch_eval   = _eval_orchestrator_plan(
+            getattr(query, "retrieval_plan", None), gt_day, gt_time_sec
+        )
+
         records.append({
             "id": entry.get("ID"),
             "question": entry.get("question"),
@@ -568,11 +668,21 @@ def run_egorag(
             "raw_output": raw,
             "correct": pred == gt,
             "retrieved_clips": used_clips,
+            "gt_clip": gt_clip or "",
+            "retrieval_hit": retrieved_hit,
+            "retrieval_plan": getattr(query, "retrieval_plan", None),
+            "orch_day_filter_applied": orch_eval["day_filter_applied"],
+            "orch_day_hit":            orch_eval["day_hit"],
+            "orch_time_filter_applied": orch_eval["time_filter_applied"],
+            "orch_time_hit":           orch_eval["time_hit"],
         })
         preds.append(pred)
         gts.append(gt)
 
     acc = compute_accuracy(preds, gts)
+    retrieval_recall = sum(r["retrieval_hit"] for r in records) / len(records) if records else 0.0
+    logger.info(f"Retrieval recall@{topk_scenes}: {retrieval_recall*100:.2f}% ({sum(r['retrieval_hit'] for r in records)}/{len(records)})")
+    _log_orchestrator_stats(records)
     return records, acc
 
 
@@ -619,7 +729,7 @@ def main():
     parser.add_argument(
         "--include_name_required",
         action="store_true",
-        default=False,
+        default=True,
         help="Include questions that require identifying people by name (need_name=True). "
              "By default these are excluded.",
     )

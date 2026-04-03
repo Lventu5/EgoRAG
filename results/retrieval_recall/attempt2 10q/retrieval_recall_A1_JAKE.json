@@ -1,0 +1,1976 @@
+{
+  "person": "A1_JAKE",
+  "topk_list": [
+    1,
+    3,
+    5,
+    10,
+    20,
+    25,
+    40,
+    50,
+    75,
+    100,
+    200
+  ],
+  "configurations": [
+    {
+      "modalities": [
+        "text"
+      ],
+      "use_orchestrator": false,
+      "num_questions": 10,
+      "recall_at_k": {
+        "1": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "3": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "5": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "10": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "20": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "25": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "40": {
+          "hits": 1,
+          "total": 10,
+          "recall": 0.1
+        },
+        "50": {
+          "hits": 1,
+          "total": 10,
+          "recall": 0.1
+        },
+        "75": {
+          "hits": 4,
+          "total": 10,
+          "recall": 0.4
+        },
+        "100": {
+          "hits": 6,
+          "total": 10,
+          "recall": 0.6
+        },
+        "200": {
+          "hits": 9,
+          "total": 10,
+          "recall": 0.9
+        }
+      },
+      "per_question": [
+        {
+          "id": "1",
+          "question": "Who used the screwdriver first?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11150000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_12353000.mp4",
+            "DAY1_A1_JAKE_12383000.mp4",
+            "DAY1_A1_JAKE_13033000.mp4",
+            "DAY1_A1_JAKE_12373000.mp4",
+            "DAY1_A1_JAKE_12270000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": true
+          }
+        },
+        {
+          "id": "2",
+          "question": "Where was the black marker in Shure's hand before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11243000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_13343000.mp4",
+            "DAY1_A1_JAKE_11360000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19090000.mp4",
+            "DAY1_A1_JAKE_21503000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": true,
+            "50": true,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "3",
+          "question": "Where was the small clapperboard on the table placed before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11243000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_12373000.mp4",
+            "DAY1_A1_JAKE_12270000.mp4",
+            "DAY1_A1_JAKE_12383000.mp4",
+            "DAY1_A1_JAKE_13453000.mp4",
+            "DAY1_A1_JAKE_11320000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": true
+          }
+        },
+        {
+          "id": "4",
+          "question": "Who just helped Katrina put the flowers on the table",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11343000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_11450000.mp4",
+            "DAY1_A1_JAKE_20310000.mp4",
+            "DAY1_A1_JAKE_12420000.mp4",
+            "DAY1_A1_JAKE_12343000.mp4",
+            "DAY1_A1_JAKE_12373000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "5",
+          "question": "Katrina is now suggesting dancing, what other activities has she suggested before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11190000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_13363000.mp4",
+            "DAY1_A1_JAKE_11250000.mp4",
+            "DAY1_A1_JAKE_17320000.mp4",
+            "DAY1_A1_JAKE_19353000.mp4",
+            "DAY1_A1_JAKE_12530000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "6",
+          "question": "Who plans to grow flowers",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11343000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_21510000.mp4",
+            "DAY1_A1_JAKE_11450000.mp4",
+            "DAY1_A1_JAKE_20310000.mp4",
+            "DAY1_A1_JAKE_11473000.mp4",
+            "DAY1_A1_JAKE_11563000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "7",
+          "question": "Whose phone is on the table?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11440000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_13450000.mp4",
+            "DAY1_A1_JAKE_11094208.mp4",
+            "DAY1_A1_JAKE_13453000.mp4",
+            "DAY1_A1_JAKE_11583000.mp4",
+            "DAY1_A1_JAKE_11430000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "8",
+          "question": "What might we do next?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11460000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_13160000.mp4",
+            "DAY1_A1_JAKE_13473000.mp4",
+            "DAY1_A1_JAKE_13340000.mp4",
+            "DAY1_A1_JAKE_13143000.mp4",
+            "DAY1_A1_JAKE_21503000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "9",
+          "question": "Who just helped Alice unpack and arrange the flowers",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11363000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_11450000.mp4",
+            "DAY1_A1_JAKE_20310000.mp4",
+            "DAY1_A1_JAKE_12383000.mp4",
+            "DAY1_A1_JAKE_20283000.mp4",
+            "DAY1_A1_JAKE_12273000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "10",
+          "question": "Who was the first to write the meeting notes on the whiteboard in the meeting room?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11263000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_13150000.mp4",
+            "DAY1_A1_JAKE_11270000.mp4",
+            "DAY1_A1_JAKE_13473000.mp4",
+            "DAY1_A1_JAKE_13350000.mp4",
+            "DAY1_A1_JAKE_13160000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": true
+          }
+        }
+      ]
+    },
+    {
+      "modalities": [
+        "text"
+      ],
+      "use_orchestrator": true,
+      "num_questions": 10,
+      "recall_at_k": {
+        "1": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "3": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "5": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "10": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "20": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "25": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "40": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "50": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "75": {
+          "hits": 3,
+          "total": 10,
+          "recall": 0.3
+        },
+        "100": {
+          "hits": 5,
+          "total": 10,
+          "recall": 0.5
+        },
+        "200": {
+          "hits": 8,
+          "total": 10,
+          "recall": 0.8
+        }
+      },
+      "per_question": [
+        {
+          "id": "1",
+          "question": "Who used the screwdriver first?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11150000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_12353000.mp4",
+            "DAY1_A1_JAKE_12383000.mp4",
+            "DAY1_A1_JAKE_13033000.mp4",
+            "DAY1_A1_JAKE_12373000.mp4",
+            "DAY1_A1_JAKE_12270000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": true
+          }
+        },
+        {
+          "id": "2",
+          "question": "Where was the black marker in Shure's hand before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11243000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_13343000.mp4",
+            "DAY1_A1_JAKE_11360000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19090000.mp4",
+            "DAY1_A1_JAKE_21503000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "3",
+          "question": "Where was the small clapperboard on the table placed before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11243000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_12373000.mp4",
+            "DAY1_A1_JAKE_12270000.mp4",
+            "DAY1_A1_JAKE_12383000.mp4",
+            "DAY1_A1_JAKE_13453000.mp4",
+            "DAY1_A1_JAKE_11320000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": true
+          }
+        },
+        {
+          "id": "4",
+          "question": "Who just helped Katrina put the flowers on the table",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11343000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_11450000.mp4",
+            "DAY1_A1_JAKE_20310000.mp4",
+            "DAY1_A1_JAKE_12420000.mp4",
+            "DAY1_A1_JAKE_12343000.mp4",
+            "DAY1_A1_JAKE_12373000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "5",
+          "question": "Katrina is now suggesting dancing, what other activities has she suggested before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11190000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_13363000.mp4",
+            "DAY1_A1_JAKE_11250000.mp4",
+            "DAY1_A1_JAKE_17320000.mp4",
+            "DAY1_A1_JAKE_19353000.mp4",
+            "DAY1_A1_JAKE_12530000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "6",
+          "question": "Who plans to grow flowers",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11343000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_21510000.mp4",
+            "DAY1_A1_JAKE_11450000.mp4",
+            "DAY1_A1_JAKE_20310000.mp4",
+            "DAY1_A1_JAKE_11473000.mp4",
+            "DAY1_A1_JAKE_11563000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "7",
+          "question": "Whose phone is on the table?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11440000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_13450000.mp4",
+            "DAY1_A1_JAKE_11094208.mp4",
+            "DAY1_A1_JAKE_13453000.mp4",
+            "DAY1_A1_JAKE_11583000.mp4",
+            "DAY1_A1_JAKE_11430000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "8",
+          "question": "What might we do next?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11460000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_13160000.mp4",
+            "DAY1_A1_JAKE_13473000.mp4",
+            "DAY1_A1_JAKE_13340000.mp4",
+            "DAY1_A1_JAKE_13143000.mp4",
+            "DAY1_A1_JAKE_21503000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "9",
+          "question": "Who just helped Alice unpack and arrange the flowers",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11363000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_11450000.mp4",
+            "DAY1_A1_JAKE_20310000.mp4",
+            "DAY1_A1_JAKE_12383000.mp4",
+            "DAY1_A1_JAKE_20283000.mp4",
+            "DAY1_A1_JAKE_12273000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "10",
+          "question": "Who was the first to write the meeting notes on the whiteboard in the meeting room?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11263000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_13150000.mp4",
+            "DAY1_A1_JAKE_11270000.mp4",
+            "DAY1_A1_JAKE_13473000.mp4",
+            "DAY1_A1_JAKE_13350000.mp4",
+            "DAY1_A1_JAKE_13160000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": true
+          }
+        }
+      ]
+    },
+    {
+      "modalities": [
+        "video"
+      ],
+      "use_orchestrator": false,
+      "num_questions": 10,
+      "recall_at_k": {
+        "1": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "3": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "5": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "10": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "20": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "25": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "40": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "50": {
+          "hits": 1,
+          "total": 10,
+          "recall": 0.1
+        },
+        "75": {
+          "hits": 1,
+          "total": 10,
+          "recall": 0.1
+        },
+        "100": {
+          "hits": 3,
+          "total": 10,
+          "recall": 0.3
+        },
+        "200": {
+          "hits": 5,
+          "total": 10,
+          "recall": 0.5
+        }
+      },
+      "per_question": [
+        {
+          "id": "1",
+          "question": "Who used the screwdriver first?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11150000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "2",
+          "question": "Where was the black marker in Shure's hand before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11243000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "3",
+          "question": "Where was the small clapperboard on the table placed before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11243000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "4",
+          "question": "Who just helped Katrina put the flowers on the table",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11343000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": true
+          }
+        },
+        {
+          "id": "5",
+          "question": "Katrina is now suggesting dancing, what other activities has she suggested before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11190000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "6",
+          "question": "Who plans to grow flowers",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11343000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": true
+          }
+        },
+        {
+          "id": "7",
+          "question": "Whose phone is on the table?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11440000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "8",
+          "question": "What might we do next?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11460000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": true,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "9",
+          "question": "Who just helped Alice unpack and arrange the flowers",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11363000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "10",
+          "question": "Who was the first to write the meeting notes on the whiteboard in the meeting room?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11263000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        }
+      ]
+    },
+    {
+      "modalities": [
+        "video"
+      ],
+      "use_orchestrator": true,
+      "num_questions": 10,
+      "recall_at_k": {
+        "1": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "3": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "5": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "10": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "20": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "25": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "40": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "50": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "75": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "100": {
+          "hits": 1,
+          "total": 10,
+          "recall": 0.1
+        },
+        "200": {
+          "hits": 3,
+          "total": 10,
+          "recall": 0.3
+        }
+      },
+      "per_question": [
+        {
+          "id": "1",
+          "question": "Who used the screwdriver first?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11150000.mp4",
+          "top5_retrieved": [
+            "DAY3_A1_JAKE_22300000.mp4",
+            "DAY6_A1_JAKE_13110000.mp4",
+            "DAY6_A1_JAKE_13083000.mp4",
+            "DAY5_A1_JAKE_23080000.mp4",
+            "DAY6_A1_JAKE_13073000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "2",
+          "question": "Where was the black marker in Shure's hand before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11243000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "3",
+          "question": "Where was the small clapperboard on the table placed before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11243000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "4",
+          "question": "Who just helped Katrina put the flowers on the table",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11343000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": true
+          }
+        },
+        {
+          "id": "5",
+          "question": "Katrina is now suggesting dancing, what other activities has she suggested before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11190000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "6",
+          "question": "Who plans to grow flowers",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11343000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": true
+          }
+        },
+        {
+          "id": "7",
+          "question": "Whose phone is on the table?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11440000.mp4",
+          "top5_retrieved": [
+            "DAY3_A1_JAKE_22300000.mp4",
+            "DAY6_A1_JAKE_13110000.mp4",
+            "DAY6_A1_JAKE_13083000.mp4",
+            "DAY5_A1_JAKE_23080000.mp4",
+            "DAY6_A1_JAKE_13073000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "8",
+          "question": "What might we do next?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11460000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "9",
+          "question": "Who just helped Alice unpack and arrange the flowers",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11363000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "10",
+          "question": "Who was the first to write the meeting notes on the whiteboard in the meeting room?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11263000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19583000.mp4",
+            "DAY1_A1_JAKE_19073000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19240000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        }
+      ]
+    },
+    {
+      "modalities": [
+        "text",
+        "video"
+      ],
+      "use_orchestrator": false,
+      "num_questions": 10,
+      "recall_at_k": {
+        "1": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "3": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "5": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "10": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "20": {
+          "hits": 1,
+          "total": 10,
+          "recall": 0.1
+        },
+        "25": {
+          "hits": 2,
+          "total": 10,
+          "recall": 0.2
+        },
+        "40": {
+          "hits": 2,
+          "total": 10,
+          "recall": 0.2
+        },
+        "50": {
+          "hits": 2,
+          "total": 10,
+          "recall": 0.2
+        },
+        "75": {
+          "hits": 5,
+          "total": 10,
+          "recall": 0.5
+        },
+        "100": {
+          "hits": 5,
+          "total": 10,
+          "recall": 0.5
+        },
+        "200": {
+          "hits": 7,
+          "total": 10,
+          "recall": 0.7
+        }
+      },
+      "per_question": [
+        {
+          "id": "1",
+          "question": "Who used the screwdriver first?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11150000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_11333000.mp4",
+            "DAY1_A1_JAKE_12240000.mp4",
+            "DAY1_A1_JAKE_13230000.mp4",
+            "DAY1_A1_JAKE_11460000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "2",
+          "question": "Where was the black marker in Shure's hand before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11243000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19090000.mp4",
+            "DAY1_A1_JAKE_20204313.mp4",
+            "DAY1_A1_JAKE_19063000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": true,
+            "40": true,
+            "50": true,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "3",
+          "question": "Where was the small clapperboard on the table placed before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11243000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_11320000.mp4",
+            "DAY1_A1_JAKE_13230000.mp4",
+            "DAY1_A1_JAKE_11463000.mp4",
+            "DAY1_A1_JAKE_11180000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "4",
+          "question": "Who just helped Katrina put the flowers on the table",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11343000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_21510000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_11450000.mp4",
+            "DAY1_A1_JAKE_11473000.mp4",
+            "DAY1_A1_JAKE_13230000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "5",
+          "question": "Katrina is now suggesting dancing, what other activities has she suggested before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11190000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19063000.mp4",
+            "DAY1_A1_JAKE_19070000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_13220000.mp4",
+            "DAY1_A1_JAKE_20204313.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "6",
+          "question": "Who plans to grow flowers",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11343000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_21510000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_11473000.mp4",
+            "DAY1_A1_JAKE_19063000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "7",
+          "question": "Whose phone is on the table?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11440000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_11430000.mp4",
+            "DAY1_A1_JAKE_11490000.mp4",
+            "DAY1_A1_JAKE_12230000.mp4",
+            "DAY1_A1_JAKE_11463000.mp4",
+            "DAY1_A1_JAKE_13230000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": true
+          }
+        },
+        {
+          "id": "8",
+          "question": "What might we do next?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11460000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_13230000.mp4",
+            "DAY1_A1_JAKE_11463000.mp4",
+            "DAY1_A1_JAKE_11340000.mp4",
+            "DAY1_A1_JAKE_13323000.mp4",
+            "DAY1_A1_JAKE_11413000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": true,
+            "25": true,
+            "40": true,
+            "50": true,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "9",
+          "question": "Who just helped Alice unpack and arrange the flowers",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11363000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19450000.mp4",
+            "DAY1_A1_JAKE_21510000.mp4",
+            "DAY1_A1_JAKE_11450000.mp4",
+            "DAY1_A1_JAKE_18280000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": true
+          }
+        },
+        {
+          "id": "10",
+          "question": "Who was the first to write the meeting notes on the whiteboard in the meeting room?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11263000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_11463000.mp4",
+            "DAY1_A1_JAKE_13230000.mp4",
+            "DAY1_A1_JAKE_11413000.mp4",
+            "DAY1_A1_JAKE_11340000.mp4",
+            "DAY1_A1_JAKE_13323000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        }
+      ]
+    },
+    {
+      "modalities": [
+        "text",
+        "video"
+      ],
+      "use_orchestrator": true,
+      "num_questions": 10,
+      "recall_at_k": {
+        "1": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "3": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "5": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "10": {
+          "hits": 0,
+          "total": 10,
+          "recall": 0.0
+        },
+        "20": {
+          "hits": 1,
+          "total": 10,
+          "recall": 0.1
+        },
+        "25": {
+          "hits": 2,
+          "total": 10,
+          "recall": 0.2
+        },
+        "40": {
+          "hits": 2,
+          "total": 10,
+          "recall": 0.2
+        },
+        "50": {
+          "hits": 2,
+          "total": 10,
+          "recall": 0.2
+        },
+        "75": {
+          "hits": 5,
+          "total": 10,
+          "recall": 0.5
+        },
+        "100": {
+          "hits": 5,
+          "total": 10,
+          "recall": 0.5
+        },
+        "200": {
+          "hits": 6,
+          "total": 10,
+          "recall": 0.6
+        }
+      },
+      "per_question": [
+        {
+          "id": "1",
+          "question": "Who used the screwdriver first?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11150000.mp4",
+          "top5_retrieved": [
+            "DAY3_A1_JAKE_22300000.mp4",
+            "DAY2_A1_JAKE_13143000.mp4",
+            "DAY6_A1_JAKE_13110000.mp4",
+            "DAY1_A1_JAKE_12353000.mp4",
+            "DAY6_A1_JAKE_13083000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "2",
+          "question": "Where was the black marker in Shure's hand before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11243000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_19090000.mp4",
+            "DAY1_A1_JAKE_20204313.mp4",
+            "DAY1_A1_JAKE_19063000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": true,
+            "40": true,
+            "50": true,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "3",
+          "question": "Where was the small clapperboard on the table placed before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11243000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_11320000.mp4",
+            "DAY1_A1_JAKE_13230000.mp4",
+            "DAY1_A1_JAKE_11463000.mp4",
+            "DAY1_A1_JAKE_11180000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "4",
+          "question": "Who just helped Katrina put the flowers on the table",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11343000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_21510000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_11450000.mp4",
+            "DAY1_A1_JAKE_11473000.mp4",
+            "DAY1_A1_JAKE_13230000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "5",
+          "question": "Katrina is now suggesting dancing, what other activities has she suggested before?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11190000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19063000.mp4",
+            "DAY1_A1_JAKE_19070000.mp4",
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_13220000.mp4",
+            "DAY1_A1_JAKE_20204313.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "6",
+          "question": "Who plans to grow flowers",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11343000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19230000.mp4",
+            "DAY1_A1_JAKE_21510000.mp4",
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_11473000.mp4",
+            "DAY1_A1_JAKE_19063000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "7",
+          "question": "Whose phone is on the table?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11440000.mp4",
+          "top5_retrieved": [
+            "DAY3_A1_JAKE_22300000.mp4",
+            "DAY4_A1_JAKE_17490000.mp4",
+            "DAY6_A1_JAKE_13110000.mp4",
+            "DAY6_A1_JAKE_15370000.mp4",
+            "DAY6_A1_JAKE_13083000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        },
+        {
+          "id": "8",
+          "question": "What might we do next?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11460000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_13230000.mp4",
+            "DAY1_A1_JAKE_11463000.mp4",
+            "DAY1_A1_JAKE_11340000.mp4",
+            "DAY1_A1_JAKE_13323000.mp4",
+            "DAY1_A1_JAKE_11413000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": true,
+            "25": true,
+            "40": true,
+            "50": true,
+            "75": true,
+            "100": true,
+            "200": true
+          }
+        },
+        {
+          "id": "9",
+          "question": "Who just helped Alice unpack and arrange the flowers",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11363000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_19233000.mp4",
+            "DAY1_A1_JAKE_19450000.mp4",
+            "DAY1_A1_JAKE_21510000.mp4",
+            "DAY1_A1_JAKE_11450000.mp4",
+            "DAY1_A1_JAKE_18280000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": true
+          }
+        },
+        {
+          "id": "10",
+          "question": "Who was the first to write the meeting notes on the whiteboard in the meeting room?",
+          "gt_clip": "/cluster/project/cvg/data/EgoLife/A1_JAKE/DAY1/DAY1_A1_JAKE_11263000.mp4",
+          "top5_retrieved": [
+            "DAY1_A1_JAKE_11463000.mp4",
+            "DAY1_A1_JAKE_13230000.mp4",
+            "DAY1_A1_JAKE_11413000.mp4",
+            "DAY1_A1_JAKE_11340000.mp4",
+            "DAY1_A1_JAKE_13323000.mp4"
+          ],
+          "num_retrieved": 200,
+          "hits_at_k": {
+            "1": false,
+            "3": false,
+            "5": false,
+            "10": false,
+            "20": false,
+            "25": false,
+            "40": false,
+            "50": false,
+            "75": false,
+            "100": false,
+            "200": false
+          }
+        }
+      ]
+    }
+  ]
+}

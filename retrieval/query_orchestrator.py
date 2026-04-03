@@ -114,6 +114,12 @@ class RetrievalOrchestratorLLM:
                 default_use_windows=default_use_windows,
                 rewrite_queries=rewrite_queries,
             )
+            logging.info(
+                "[Planner] Query %s | text: %s\n  plan: %s",
+                getattr(query, "qid", "?"),
+                query.get_query(),
+                query.retrieval_plan,
+            )
 
     def plan_query(
         self,
@@ -375,7 +381,9 @@ class RetrievalOrchestratorLLM:
 
         modalities = merged.get("modalities", {}).get("priority", [])
         if not modalities:
-            merged.setdefault("modalities", {})["priority"] = base["modalities"]["priority"]
+            fallback = base.get("modalities", {}).get("priority", [])
+            if fallback:
+                merged.setdefault("modalities", {})["priority"] = fallback
 
         temporal = merged.get("temporal", {})
         if temporal.get("time_of_day") and not temporal.get("time_ranges_sec"):
@@ -384,7 +392,7 @@ class RetrievalOrchestratorLLM:
         temporal["time_ranges_sec"] = self._normalize_time_ranges(temporal.get("time_ranges_sec", []))
         merged["temporal"] = temporal
 
-        if not merged.get("workflow"):
+        if not merged.get("workflow") and base.get("workflow"):
             merged["workflow"] = base["workflow"]
 
         return merged
@@ -495,6 +503,9 @@ class RetrievalOrchestratorLLM:
         time_ranges: list[list[float]],
         default_use_windows: bool,
     ) -> bool:
+        # Respect caller's explicit False — don't enable windows if the dataset has none.
+        if not default_use_windows:
+            return False
         if time_ranges:
             return True
         if any(token in qtext_lower for token in ("when", "moment", "around", "earlier", "later", "before", "after")):
@@ -569,7 +580,18 @@ class RetrievalOrchestratorLLM:
                 continue
             if end <= start:
                 continue
+            # Auto-detect unit: LLMs often output hours (0-24) or minutes instead of seconds.
+            # Heuristic: if max value < 24 → hours; if < 1440 → minutes; else → seconds.
+            max_val = max(abs(start), abs(end))
+            if max_val < 24:
+                start *= 3600.0
+                end *= 3600.0
+            elif max_val < 1440:
+                start *= 60.0
+                end *= 60.0
             start = max(0.0, start)
             end = min(24 * 3600.0, end)
+            if end <= start:
+                continue
             normalized.append([start, end])
         return normalized
