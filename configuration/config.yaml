@@ -57,6 +57,12 @@ retrieval:
     model_name: "Qwen/Qwen2.5-3B-Instruct" # Local planner; falls back to heuristics if weights are unavailable
     use_llm: true
     max_new_tokens: 192
+  visual_context:
+    enabled: false           # Master flag — set to true to activate the full pipeline
+    use_vllm: true           # true = run Qwen3-VL on query-time frames; false = use text_raw from pkl (free)
+    num_frames: 4            # frames sampled from the query-time clip for the VLM
+    model_name: "Qwen/Qwen3-VL-8B-Instruct"
+    temp_dir: "/tmp/vc_frames"
   scene_merger:
     enabled: false # Enable/disable scene merging
     max_gap: 1.0 # Maximum time gap (seconds) between scenes to consider them consecutive

@@ -511,70 +511,107 @@ class HierarchicalRetriever:
         return True
 
 
+    def _encode_text_strings(self, texts: list[str]) -> torch.Tensor:
+        """
+        Encode a list of strings with the currently loaded model.
+
+        This is the shared encoding core used by both _embed_queries (standard query
+        text) and the visual-context path (VLM-generated object description).  It
+        returns a CPU tensor of shape (len(texts), D).
+        """
+        if self.current_modality == "text":
+            embs = self.embedder.encode(texts, convert_to_tensor=True, device=self.device)
+            return embs.cpu()
+
+        elif self.current_modality == "video":
+            if self.video_model_name == "xclip":
+                inputs = self.processor(
+                    text=texts, return_tensors="pt", padding=True
+                ).to(self.device)
+                with torch.no_grad():
+                    embs = self.embedder.get_text_features(**inputs)
+                return embs.cpu()
+
+            elif self.video_model_name == "internvideo2-6b":
+                embs_list = []
+                for t in tqdm(texts, desc="Encoding text (internvideo2-6b)"):
+                    with torch.no_grad():
+                        feat = self.embedder.get_txt_feat(t).squeeze(0).cpu()
+                    embs_list.append(feat)
+                    if len(embs_list) % 10 == 0 and torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                return torch.stack(embs_list)
+
+            elif self.video_model_name == "internvideo2-1b":
+                return interface.extract_query_features(texts, self.embedder)
+
+            else:
+                raise ValueError(f"Model type not supported: {self.video_model_name}")
+
+        elif self.current_modality == "audio":
+            inputs = self.processor(
+                text=texts, return_tensors="pt", padding=True
+            ).to(self.device)
+            with torch.no_grad():
+                embs = self.embedder.get_text_features(**inputs)
+            return embs.cpu()
+
+        else:
+            raise ValueError(f"Unknown modality: {self.current_modality}")
+
     def _embed_queries(self, queries: QueryDataset) -> torch.Tensor:
         """
-        Embeds the queries in the various modalities
+        Embed queries for the currently loaded modality.
+
+        Two things happen here:
+          1. Standard query text  → stored in query.embeddings[modality]
+          2. Visual context text  → stored in query.embeddings["visual_context_<modality>"]
+             (only for queries that have query.decomposed["visual_context"] set, and only
+              when self.use_visual_context is True)
+
+        Both use _encode_text_strings so the same encoder is applied to both signals,
+        keeping them in the same embedding space.
         """
         if self.embedder is None:
             raise RuntimeError("No model loaded for embedding. Call _load_models_for_modality first.")
-        
+
+        # --- Standard query embeddings ---
         mod_queries = queries.group_by_modality(self.current_modality)
+        logging.info(
+            f"Embedding {len(mod_queries)} queries for modality '{self.current_modality}'"
+        )
+        embeddings_cpu = self._encode_text_strings(mod_queries)
 
-        if self.current_modality == "text":
-            logging.info(f"Embedding queries for text using model {self.text_model_name}")
-            embeddings = self.embedder.encode(
-                mod_queries, convert_to_tensor=True, device=self.device
-            )
-        elif self.current_modality == "video":
-            logging.info(f"Embedding queries for video using model {self.video_model_name}")
-            if self.video_model_name == "xclip":
-                inputs = self.processor(
-                    text=mod_queries, return_tensors="pt", padding=True # type: ignore
-                ).to(self.device)
-                with torch.no_grad():
-                    embeddings = self.embedder.get_text_features(**inputs) # type: ignore
-            
-            elif self.video_model_name == "internvideo2-6b":
-                # InternVideo2 uses get_txt_feat for text encoding
-                # Process queries one at a time and immediately move to CPU to save GPU memory
-                embeddings_list = []
-                for query_text in tqdm(mod_queries, desc = "Encoding queries internvideo2-6b"):
-                    with torch.no_grad():
-                        text_feat = self.embedder.get_txt_feat(query_text)
-                        embeddings_list.append(text_feat.squeeze(0).cpu())  # Move to CPU immediately
-                    # Clear CUDA cache periodically
-                    if len(embeddings_list) % 10 == 0 and torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                embeddings = torch.stack(embeddings_list)
+        for query, emb in zip(queries, embeddings_cpu):
+            query.embeddings[self.current_modality] = emb.clone()
 
-            elif self.video_model_name == "internvideo2-1b":
-                # Internvideo 1B
-                embeddings = interface.extract_query_features(
-                     # base_dataset, 
-                     mod_queries,
-                     self.embedder
-                )
-            else:
-                raise ValueError(f"Model type not supported: {self.video_model_name}")        
-            
-        elif self.current_modality == "audio":
-            inputs = self.processor(
-                text=mod_queries, return_tensors="pt", padding=True # type: ignore
-            ).to(self.device)
-            with torch.no_grad():
-                embeddings = self.embedder.get_text_features(**inputs) # type: ignore
-        else:
-            raise ValueError(f"Unknown modality: {self.current_modality}")
-        
-        for query, emb in zip(queries, embeddings):
-            query.embeddings[self.current_modality] = emb.cpu().clone()
-
-        # Move embeddings to CPU and clear GPU memory
-        embeddings_cpu = embeddings.cpu()
-        del embeddings
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        
+
+        # --- Visual context embeddings (optional) ---
+        # Each query that has a visual_context description gets a second embedding
+        # stored under "visual_context_<modality>".  The retriever will use it for
+        # a parallel retrieval pass and fuse the two ranked lists with RRF.
+        if self.use_visual_context:
+            vc_key = f"visual_context_{self.current_modality}"
+            vc_pairs = [
+                (i, q.decomposed.get("visual_context"))
+                for i, q in enumerate(queries)
+                if q.decomposed.get("visual_context")
+            ]
+            if vc_pairs:
+                indices, vc_texts = zip(*vc_pairs)
+                logging.info(
+                    f"Encoding visual context for {len(vc_texts)} queries "
+                    f"(modality '{self.current_modality}')"
+                )
+                vc_embeddings = self._encode_text_strings(list(vc_texts))
+                for idx, emb in zip(indices, vc_embeddings):
+                    queries[idx].embeddings[vc_key] = emb.clone()
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
         return embeddings_cpu
 
     def _retrieve_top_videos_per_queries(
@@ -609,22 +646,63 @@ class HierarchicalRetriever:
                 
         return final_results
 
+    def _score_against_candidates(
+        self,
+        q_emb: torch.Tensor,
+        candidate_names: list[str],
+        candidate_embs: list[torch.Tensor],
+        top_k: int,
+    ) -> list[tuple[str, float]]:
+        """
+        Compute cosine similarity between one query embedding and all candidate
+        clip embeddings, return the top-k (name, score) pairs.
+
+        q_emb           : (1, D) tensor already on GPU.
+        candidate_embs  : list of (D,) tensors (on CPU or GPU).
+        """
+        max_batch = 1000
+        if len(candidate_embs) <= max_batch:
+            db = torch.stack(candidate_embs).to(self.device)
+            scores = cosine_similarity(q_emb, db, dim=-1)
+            del db
+        else:
+            batches = []
+            for start in range(0, len(candidate_embs), max_batch):
+                batch = torch.stack(candidate_embs[start: start + max_batch]).to(self.device)
+                batches.append(cosine_similarity(q_emb, batch, dim=-1).cpu())
+                del batch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            scores = torch.cat(batches).to(self.device)
+
+        topk = min(top_k, len(candidate_names))
+        top_scores, top_indices = torch.topk(scores, k=topk)
+        results = [
+            (candidate_names[idx.item()], score.item())
+            for score, idx in zip(top_scores, top_indices)
+        ]
+        del scores, top_scores, top_indices
+        return results
+
     def _retrieve_by_modality(
-        self, 
-        queries: QueryDataset, 
+        self,
+        queries: QueryDataset,
         candidate_videos: dict[str, str],
         modality: str,
         top_k: int = 1
     ) -> types.TopKVideosPerModality:
         """
-        Retrieves the top-k videos for a given modality, and returns them in a format
-        List (each element corresponds to a query) of lists (each element corresponds to one of
-        the top-k elements) of tuples (video, score)
-        Args:
-            queries: The QueryDataset to use
-            candidate_videos: dict with the query id and the name of the videos available for that query
-            modality: the modality to use for retrieval
-            top_k: the number of videos to retrieve
+        Retrieve the top-k videos for a given modality.
+
+        When self.use_visual_context is True and a query has a visual-context embedding
+        (stored as query.embeddings["visual_context_<modality>"]), the retrieval runs
+        TWO passes over the same candidate pool:
+          - Pass A: using the standard query embedding
+          - Pass B: using the visual-context embedding (VLM description of the referent)
+        The two ranked lists are fused per-query with the existing Fuser (RRF by default),
+        giving a single ranked list that benefits from both signals.
+
+        Queries without a visual-context embedding fall back to pass A only.
         """
         logging.info(f"Retrieving top {top_k} results for modality '{modality}'")
 
@@ -677,45 +755,38 @@ class HierarchicalRetriever:
             if videos_without_modality and modality == "audio":
                 logging.info(f"{len(videos_without_modality)} video(s) have no audio track and will be excluded from audio-based retrieval")
 
-            # Create the database for our queries - process in batches if too large
-            max_batch_size = 1000  # Adjust based on available memory
-            
-            if len(candidate_embs) <= max_batch_size:
-                db = torch.stack(candidate_embs).to(self.device)
-                scores = cosine_similarity(q_emb, db, dim=-1)
-                del db  # Free GPU memory immediately
+            # --- Pass A: standard query embedding ---
+            primary_results = self._score_against_candidates(
+                q_emb, candidate_names, candidate_embs, top_k
+            )
+
+            # --- Pass B: visual context embedding (optional) ---
+            # If the query was enriched with a visual-context description, run a second
+            # retrieval pass using that description's embedding and fuse with pass A.
+            vc_emb_tensor = query.embeddings.get(f"visual_context_{modality}")
+            if self.use_visual_context and vc_emb_tensor is not None:
+                vc_emb = vc_emb_tensor.unsqueeze(0).to(self.device)
+                vc_results = self._score_against_candidates(
+                    vc_emb, candidate_names, candidate_embs, top_k
+                )
+                del vc_emb
+                # Fuse the two ranked lists within this modality using RRF.
+                # Keys "query" and "visual_context" are arbitrary labels for the fuser.
+                query_results = self.fuser.fuse({
+                    "query": primary_results,
+                    "visual_context": vc_results,
+                })
+                logging.debug(
+                    f"[VC] Query {query.qid}/{modality}: fused {len(primary_results)} "
+                    f"+ {len(vc_results)} → {len(query_results)} candidates"
+                )
             else:
-                # Process in batches to avoid OOM
-                all_scores = []
-                for batch_start in range(0, len(candidate_embs), max_batch_size):
-                    batch_end = min(batch_start + max_batch_size, len(candidate_embs))
-                    batch_embs = candidate_embs[batch_start:batch_end]
-                    db_batch = torch.stack(batch_embs).to(self.device)
-                    batch_scores = cosine_similarity(q_emb, db_batch, dim=-1)
-                    all_scores.append(batch_scores.cpu())
-                    del db_batch
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                scores = torch.cat(all_scores).to(self.device)
-                del all_scores
-            
-            # Debug logging for video-level retrieval
-            if logging.getLogger().isEnabledFor(logging.DEBUG):
-                logging.debug(f"[Video Retrieval] query={query.qid}, modality={modality}")
-                logging.debug(f"  query_emb shape: {q_emb.shape}, candidates: {len(candidate_names)}")
-                logging.debug(f"  scores: min={scores.min().item():.4f}, max={scores.max().item():.4f}, mean={scores.mean().item():.4f}")
-
-            topk = min(top_k, len(candidate_names))
-            top_scores, top_indices = torch.topk(scores, k=topk)
-
-            query_results = []
-            for score, idx in zip(top_scores, top_indices):
-                query_results.append((candidate_names[idx.item()], score.item()))
+                query_results = primary_results
 
             all_results.append(query_results)
-            
+
             # Clean up tensors after each query
-            del q_emb, scores, top_scores, top_indices
+            del q_emb
         
         # Final cleanup
         if torch.cuda.is_available():
@@ -1175,6 +1246,7 @@ class HierarchicalRetriever:
         skip_video_retrieval: bool = False,
         use_tagging: bool = True,
         rewrite_queries: bool = False,
+        use_visual_context: bool = False,
     ) -> types.RetrievalResults:
         """
         Given a set of queries, retrieves the top scenes and videos for those queries.
@@ -1197,6 +1269,7 @@ class HierarchicalRetriever:
 
         self.use_tagging = use_tagging
         self.rewrite_queries = rewrite_queries
+        self.use_visual_context = use_visual_context
 
         # Build a per-query retrieval plan before rewriting so we preserve
         # the original temporal cues from the user query.

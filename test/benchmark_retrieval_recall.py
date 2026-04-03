@@ -40,16 +40,26 @@ FILTER_NEED_NAME = True    # True = exclude questions with need_name=True
 
 TOPK_LIST = [1, 3, 5, 10, 20, 25, 40, 50, 75, 100, 200]
 
+# --- Visual context ---
+# When USE_VISUAL_CONTEXT=True the query-time clip is looked up for every query,
+# a description of the visual referent is generated (VLM or text_raw fallback),
+# and a second retrieval pass is fused (RRF) with the standard query pass.
+USE_VISUAL_CONTEXT  = False   # Master flag
+VC_USE_VLLM         = False   # False = text_raw fallback (no extra GPU cost); True = Qwen3-VL
+VC_NUM_FRAMES       = 4
+VC_TEMP_DIR         = f"/tmp/vc_frames_{os.getenv('USER', 'unknown')}"
+
 # Each entry is one retrieval configuration to evaluate.
-# "modalities" : subset of ["text", "video", "audio"]
-# "orchestrator": True / False
+# "modalities"      : subset of ["text", "video", "audio"]
+# "orchestrator"    : True / False
+# "visual_context"  : True / False (overrides USE_VISUAL_CONTEXT per-config)
 CONFIGURATIONS = [
-    {"modalities": ["text"],           "orchestrator": False},
-    {"modalities": ["text"],           "orchestrator": True},
-    {"modalities": ["video"],          "orchestrator": False},
-    {"modalities": ["video"],          "orchestrator": True},
-    {"modalities": ["text", "video"],  "orchestrator": False},
-    {"modalities": ["text", "video"],  "orchestrator": True},
+    {"modalities": ["text"],           "orchestrator": False, "visual_context": False},
+    {"modalities": ["text"],           "orchestrator": True,  "visual_context": False},
+    {"modalities": ["video"],          "orchestrator": False, "visual_context": False},
+    {"modalities": ["video"],          "orchestrator": True,  "visual_context": False},
+    {"modalities": ["text", "video"],  "orchestrator": False, "visual_context": False},
+    {"modalities": ["text", "video"],  "orchestrator": True,  "visual_context": False},
 ]
 
 
@@ -174,6 +184,7 @@ def run_one_config(
     modalities: List[str],
     use_orchestrator: bool,
     topk_list: List[int],
+    use_visual_context: bool = False,
 ) -> Dict:
     """
     Run retrieval once at max(topk_list) and compute recall@k for all k.
@@ -214,6 +225,28 @@ def run_one_config(
         ))
     query_dataset = QueryDataset(queries)
 
+    # --- Visual context enrichment (optional) ---
+    # Runs BEFORE the retriever so that Qwen3-VL (if used) is unloaded before
+    # InternVideo2/Gemma are loaded — they cannot both fit in GPU memory.
+    if use_visual_context:
+        from retrieval.visual_context_extractor import VisualContextExtractor
+        from configuration.config import CONFIG as _CFG
+        vc_cfg = getattr(_CFG.retrieval, "visual_context", None)
+        vc_extractor = VisualContextExtractor(
+            video_dir=VIDEO_DIR,
+            pkl_dir=PKL_DIR,
+            model_name=getattr(vc_cfg, "model_name", "Qwen/Qwen3-VL-8B-Instruct") if vc_cfg else "Qwen/Qwen3-VL-8B-Instruct",
+            use_vllm=VC_USE_VLLM,
+            num_frames=VC_NUM_FRAMES,
+            temp_dir=VC_TEMP_DIR,
+        )
+        if VC_USE_VLLM:
+            vc_extractor.load_model()
+        vc_extractor.extract(query_dataset, person_folder)
+        if VC_USE_VLLM:
+            vc_extractor.unload_model()
+        torch.cuda.empty_cache()
+
     retriever = HierarchicalRetriever(video_dataset=video_dataset, device="cuda")
     retrieval_results = retriever.retrieve_hierarchically(
         queries=query_dataset,
@@ -223,6 +256,7 @@ def run_one_config(
         skip_video_retrieval=False,
         use_windows=False,
         use_tagging=False,
+        use_visual_context=use_visual_context,
     )
     retriever.unload_models()
     torch.cuda.empty_cache()
@@ -315,6 +349,7 @@ def run_one_config(
     return {
         "modalities": modalities,
         "use_orchestrator": use_orchestrator,
+        "use_visual_context": use_visual_context,
         "num_questions": n,
         "recall_at_k": recall_at_k,
         "orchestrator_accuracy": orch_accuracy,
@@ -384,7 +419,8 @@ def print_recall_table(results: List[Dict], topk_list: List[int]):
     for res in results:
         mod_str = "+".join(res["modalities"])
         orch_str = "orch" if res["use_orchestrator"] else "no_orch"
-        label = f"{mod_str}/{orch_str}"
+        vc_str   = "+vc" if res.get("use_visual_context") else ""
+        label = f"{mod_str}/{orch_str}{vc_str}"
         row = f"{label:<{config_w}}" + "".join(
             f"{res['recall_at_k'][k]['recall']*100:>{col_w-1}.1f}%"
             for k in topk_list
@@ -406,7 +442,8 @@ def print_orchestrator_accuracy_table(results: List[Dict]):
     logger.info("-" * 88)
     for res in orch_results:
         mod_str = "+".join(res["modalities"])
-        label = f"{mod_str}/orch"
+        vc_str  = "+vc" if res.get("use_visual_context") else ""
+        label = f"{mod_str}/orch{vc_str}"
         acc = res.get("orchestrator_accuracy", {})
         d = acc.get("day", {})
         t = acc.get("time_of_day", {})
@@ -450,6 +487,7 @@ def save_results(all_results: List[Dict], topk_list: List[int], person: str):
             {
                 "modalities": r["modalities"],
                 "use_orchestrator": r["use_orchestrator"],
+                "use_visual_context": r.get("use_visual_context", False),
                 "num_questions": r["num_questions"],
                 "recall_at_k": r["recall_at_k"],
                 "orchestrator_accuracy": r.get("orchestrator_accuracy"),
@@ -514,7 +552,11 @@ def main():
         for cfg in CONFIGURATIONS:
             modalities    = cfg["modalities"]
             use_orch      = cfg["orchestrator"]
-            logger.info(f"\n--- modalities={modalities}  orchestrator={use_orch} ---")
+            use_vc        = cfg.get("visual_context", USE_VISUAL_CONTEXT)
+            logger.info(
+                f"\n--- modalities={modalities}  orchestrator={use_orch}  "
+                f"visual_context={use_vc} ---"
+            )
 
             result = run_one_config(
                 qa_entries=qa_entries,
@@ -524,6 +566,7 @@ def main():
                 modalities=modalities,
                 use_orchestrator=use_orch,
                 topk_list=TOPK_LIST,
+                use_visual_context=use_vc,
             )
             all_results.append(result)
 

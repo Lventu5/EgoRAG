@@ -43,6 +43,15 @@ PERSONS        = None   # None = all available; or a list like ["A1_JAKE", "A2_A
 MAX_QUESTIONS  = None   # None = all; or an int to limit per person (useful for quick tests)
 TOPK_SCENES    = 3      # how many retrieved scenes to try in egorag mode
 
+# --- Visual context (egorag mode only) ---
+# When enabled, the query-time clip is inspected before retrieval to generate a
+# textual description of the object the question refers to. This description is
+# used as a second retrieval signal and fused (RRF) with the standard query signal.
+USE_VISUAL_CONTEXT  = False   # Master flag
+VC_USE_VLLM         = True    # True = Qwen3-VL on frames; False = text_raw from pkl (free)
+VC_NUM_FRAMES       = 4       # frames sampled from the query-time clip for VLM
+VC_TEMP_DIR         = f"/tmp/vc_frames_{os.getenv('USER', 'unknown')}"
+
 # ---------------------------------------------------------------------------
 # QA loading helpers
 # ---------------------------------------------------------------------------
@@ -570,6 +579,26 @@ def run_egorag(
         ))
     query_dataset = QueryDataset(queries)
 
+    # --- Visual context enrichment (optional) ---
+    # Must happen BEFORE the retriever loads InternVideo2/Gemma, because Qwen3-VL and
+    # the retrieval models cannot both live in GPU memory at the same time.
+    if USE_VISUAL_CONTEXT:
+        from retrieval.visual_context_extractor import VisualContextExtractor
+        vc_extractor = VisualContextExtractor(
+            video_dir=video_dir,
+            pkl_dir=pkl_dir,
+            model_name=MODEL_NAME,
+            use_vllm=VC_USE_VLLM,
+            num_frames=VC_NUM_FRAMES,
+            temp_dir=VC_TEMP_DIR,
+        )
+        if VC_USE_VLLM:
+            vc_extractor.load_model()
+        vc_extractor.extract(query_dataset, person_folder)
+        if VC_USE_VLLM:
+            vc_extractor.unload_model()
+        torch.cuda.empty_cache()
+
     # Run retrieval (text modality only — video embeddings may vary)
     modalities = getattr(CONFIG.retrieval, "modalities", ["text", "video"])
     logger.info(f"Running retrieval with modalities={modalities}, topk_scenes={topk_scenes}")
@@ -582,6 +611,7 @@ def run_egorag(
         skip_video_retrieval=False,
         use_windows=False,
         use_tagging=False,
+        use_visual_context=USE_VISUAL_CONTEXT,
     )
     retriever.unload_models()
     torch.cuda.empty_cache()
